@@ -118,7 +118,7 @@ int32_t PIDError[4];
 int32_t PIDErrorPrior[4];
 int32_t closedLoopRPM[4];
 int32_t PIDOutput[4];
-int32_t PIDIntegral = 0;
+int32_t PIDIntegral[4] = {0, 0, 0, 0};
 
 Bounce2::Button revSwitch = Bounce2::Button();
 Bounce2::Button triggerSwitch = Bounce2::Button();
@@ -334,6 +334,11 @@ bool fwControlLoop(repeating_timer_t * rt)
             lastRevTime_ms = 0;
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
+            for (int i = 0; i < 4; i++) {
+                if (motors[i]) {
+                    PIDIntegral[i] = 0; // reset PID integral
+                }
+            }
         } else if (lastRevTime_ms < idleTime_ms && lastRevTime_ms > 0) { // idle flywheels
             if (currentSpindownSpeed < spindownSpeed) {
                 currentSpindownSpeed += 1;
@@ -352,7 +357,6 @@ bool fwControlLoop(repeating_timer_t * rt)
                     targetRPM[i] = max(targetRPM[i] - static_cast<int32_t>((currentSpindownSpeed * loopTime_us) / 1000), 0);
                 }
             }
-            PIDIntegral = 0;
             fromIdle = false;
         }
         break;
@@ -381,6 +385,11 @@ bool fwControlLoop(repeating_timer_t * rt)
     case STATE_FULLSPEED:
         if (!revSwitch.isPressed() && shotsToFire == 0 && !firing) {
             flywheelState = STATE_IDLE;
+            for (int i = 0; i < 4; i++) {
+                if (motors[i]) {
+                    PIDIntegral[i] = 0; // stop reset PID
+                }
+            }
             Serial.println("state transition: FULLSPEED to IDLE 1");
         } else if (shotsToFire > 0 || firing) {
             lastRevTime_ms = 0;
@@ -408,8 +417,10 @@ bool fwControlLoop(repeating_timer_t * rt)
 
                 
                 PIDError[i] = targetRPM[i] - motorRPM[i];
+                PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
 
-                PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral + PIDError[i] * loopTime_us / 1000000) + KD * (PIDError[i] - PIDErrorPrior[i]) / loopTime_us * 1000000;
+
+                PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
                 
 
                 esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
@@ -423,7 +434,7 @@ bool fwControlLoop(repeating_timer_t * rt)
                 }*/
 
                 PIDErrorPrior[i] = PIDError[i];
-                PIDIntegral += PIDIntegral + PIDError[i] * loopTime_us / 1000000;
+                
             }
         }
 
