@@ -63,7 +63,7 @@ void loop() {
 #include "../lib/Bounce2/src/Bounce2.h"
 #include "CONFIGURATION.h"
 
-elapsedMicros pidLoopTimer_us;
+//elapsedMicros pidLoopTimer_us;
 elapsedMicros revStartTime_us;
 elapsedMillis lastRevTime_ms;
 
@@ -331,10 +331,10 @@ bool fwControlLoop(repeating_timer_t * rt)
             revStartTime_us = 0; 
             //revStartTime_us = loopStartTimer_us;
             memcpy(targetRPM, revRPM, sizeof(targetRPM)); // Copy revRPM to targetRPM
-            lastRevTime_ms = time_ms;
+            lastRevTime_ms = 0;
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
-        } else if (time_ms < lastRevTime_ms + idleTime_ms && lastRevTime_ms > 0) { // idle flywheels
+        } else if (lastRevTime_ms < idleTime_ms && lastRevTime_ms > 0) { // idle flywheels
             if (currentSpindownSpeed < spindownSpeed) {
                 currentSpindownSpeed += 1;
             }
@@ -359,22 +359,22 @@ bool fwControlLoop(repeating_timer_t * rt)
 
     case STATE_ACCELERATING:
         // clang-format off
-        if (time_ms > lastRevTime_ms + (fromIdle ? minFiringDelayIdleSet_ms[fpsMode] : minFiringDelaySet_ms[fpsMode])) {
-            // If all motors are at target RPM, update the blaster's state to FULLSPEED.
-            if ((!motors[0] || motorRPM[0] > firingRPM[0]) &&
-                (!motors[1] || motorRPM[1] > firingRPM[1]) &&
-                (!motors[2] || motorRPM[2] > firingRPM[2]) &&
-                (!motors[3] || motorRPM[3] > firingRPM[3])
-            ) {
-                flywheelState = STATE_FULLSPEED;
-                fromIdle =  true;
-                Serial.println("STATE_FULLSPEED transition 1");
-            } else if (revStartTime_us > 500000) { //500ms seems a reasonable timeout
-                flywheelState = STATE_IDLE;
-                shotsToFire = 0;
-                Serial.println("Error! Flywheels failed to reach target speed!");
-            }
+       
+        // If all motors are at target RPM, update the blaster's state to FULLSPEED.
+        if ((!motors[0] || motorRPM[0] > firingRPM[0]) &&
+            (!motors[1] || motorRPM[1] > firingRPM[1]) &&
+            (!motors[2] || motorRPM[2] > firingRPM[2]) &&
+            (!motors[3] || motorRPM[3] > firingRPM[3])
+        ) {
+            flywheelState = STATE_FULLSPEED;
+            fromIdle =  true;
+            Serial.println("STATE_FULLSPEED transition 1");
+        } else if (revStartTime_us > 500000) { //500ms seems a reasonable timeout
+            flywheelState = STATE_IDLE;
+            shotsToFire = 0;
+            Serial.println("Error! Flywheels failed to reach target speed!");
         }
+    
         break;
         // clang-format on
 
@@ -383,7 +383,7 @@ bool fwControlLoop(repeating_timer_t * rt)
             flywheelState = STATE_IDLE;
             Serial.println("state transition: FULLSPEED to IDLE 1");
         } else if (shotsToFire > 0 || firing) {
-            lastRevTime_ms = time_ms;
+            lastRevTime_ms = 0;
 
                 if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms) { // extend solenoid
                     pusher->drive(100, pusherReverseDirection);

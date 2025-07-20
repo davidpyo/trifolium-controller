@@ -37,7 +37,7 @@ burstFireType_t burstModeSet[3] = { AUTO, AUTO, BURST };
 uint32_t binaryTriggerTimeout_ms = 2000; // if you hold the trigger for more than this amount of time, releasing the trigger will not fire a burst
 
 
-selectFireType_t selectFireType = SWITCH_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, or BUTTON_SELECT_FIRE
+selectFireType_t selectFireType = NO_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, or BUTTON_SELECT_FIRE
 uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to select if no pins are connected
 
 // Dettlaff Settings
@@ -53,12 +53,12 @@ boards_t board = rune_0_2; // select the one that matches your board revision
 // possibly standalone board TODO
 
 // Input Pins, set to 0 if not using
-uint8_t triggerSwitchPin = 32; // main trigger pin
-uint8_t revSwitchPin = 15; // optional rev trigger
-uint8_t cycleSwitchPin = 23; // pusher motor home switch
-uint8_t select0Pin = 25; // optional for select fire
+uint8_t triggerSwitchPin = board.IO1; // main trigger pin
+uint8_t revSwitchPin = board.IO2; // optional rev trigger
+uint8_t cycleSwitchPin = 0; // pusher motor home switch
+uint8_t select0Pin = 0; // optional for select fire
 uint8_t select1Pin = 0; // optional for select fire
-uint8_t select2Pin = 33; // optional for select fire
+uint8_t select2Pin = 0; // optional for select fire
 
 
 // Pusher Settings
