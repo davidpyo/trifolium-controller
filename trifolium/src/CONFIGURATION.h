@@ -11,7 +11,8 @@ uint32_t spindownSpeed = 30; // RPM per ms
 
 int32_t motorKv = 3200; // critical for closed loop
 int32_t idleRPM[4] = { 500, 500, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
-//dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
+dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
+dshot_min_delay_t loopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
 const bool motors[4] = {true, true, true, true}; // which motors are hooked up
@@ -45,6 +46,12 @@ uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells b
 // to protect your batteries, i reccomend doing the calibration below and then setting the cutoff to 3.2V to 3.4V per cell
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
+
+boards_t board = rune_0_2; // select the one that matches your board revision
+// Options
+// rune_0_2,
+// possibly standalone board TODO
+
 // Input Pins, set to 0 if not using
 uint8_t triggerSwitchPin = 32; // main trigger pin
 uint8_t revSwitchPin = 15; // optional rev trigger
@@ -52,6 +59,12 @@ uint8_t cycleSwitchPin = 23; // pusher motor home switch
 uint8_t select0Pin = 25; // optional for select fire
 uint8_t select1Pin = 0; // optional for select fire
 uint8_t select2Pin = 33; // optional for select fire
+
+
+// Pusher Settings
+pusherType_t pusherType = PUSHER_MOTOR_CLOSEDLOOP; // either PUSHER_MOTOR_CLOSEDLOOP or PUSHER_SOLENOID_OPENLOOP
+uint32_t pusherVoltage_mv = 13000; // if battery voltage is above this voltage, then use PWM to reduce the voltage that the pusher sees
+bool pusherReverseDirection = false; // make motor spin backwards
 
 
 // Solenoid Settings
@@ -75,6 +88,6 @@ uint16_t pwmFreq_hz = 20000;
 uint16_t servoFreq_hz = 200;
 
 // PID Settings (PID not working)
-float KP = 1.5;
+float KP = 1;
 float KI = 0.0;
-float KD = 0.5;
+float KD = 0.0;
