@@ -68,7 +68,7 @@ elapsedMicros revStartTime_us;
 elapsedMillis lastRevTime_ms;
 
 uint32_t loopStartTimer_us = micros();
-//uint32_t loopTime_us = targetLoopTime_us;
+uint32_t loopTime_us = targetLoopTime_us;
 uint32_t lastMainLoopTime = millis();;
 uint32_t time_ms = millis();
 //uint32_t lastRevTime_ms = 0; // for calculating idling
@@ -134,17 +134,18 @@ BidirDShotX1* esc[4] = { nullptr, nullptr, nullptr, nullptr }; // array of point
 
 
 void updateFiringMode();
-bool fwControlLoop(repeating_timer_t * rt);
+bool fwControlLoop();
 void mainFiringLogic();
 
 
 void setup()
 {
-    Serial.begin(460800);
+    Serial.begin(115200);
     Serial.println("Booting");
 
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
+
 
     if (revSwitchPin) {
         revSwitch.attach(revSwitchPin, INPUT_PULLUP);
@@ -178,6 +179,17 @@ void setup()
             select2.setPressedState(false);
         }
     }
+    
+    //loop while waiting on trigger input for debug
+    while (!triggerSwitch.pressed()) {
+        triggerSwitch.update();
+        Serial.println("Waiting for trigger input...");
+        delay(100);
+    }
+
+
+    pinMode(board.ESC_ENABLE, OUTPUT);
+    digitalWrite(board.ESC_ENABLE, HIGH);
 
     switch (board.pusherDriverType) {
         case DRV_DRIVER:
@@ -218,8 +230,9 @@ void setup()
     idleTime_ms = idleTimeSet_ms[fpsMode];
 
 
-    // register motor control loop function to run at the specified pid frequency
-    repeating_timer_t motorControlLoopTimer;
+
+ // register motor control loop function to run at the specified pid frequency
+    /*repeating_timer_t motorControlLoopTimer;
     bool timerAdded = add_repeating_timer_us(-loopTime_us, fwControlLoop, NULL, &motorControlLoopTimer);
     if (timerAdded) {
         //uprintf("PID loop registered!\r\n");
@@ -227,7 +240,9 @@ void setup()
     }
     else {
         //uprintf("Failed to register PID loop\r\n");
-    }
+    }*/
+
+   
 
 
 
@@ -239,10 +254,16 @@ void loop()
     loopStartTimer_us = micros();
     time_ms = millis();
     
+    
     if (lastMainLoopTime != time_ms){ //run main loop roughly every 1 ms
         mainFiringLogic(); 
         lastMainLoopTime = time_ms;
     }
+    
+    fwControlLoop();
+    
+    
+    
     
 
     //fwControlLoop();
@@ -315,7 +336,7 @@ void mainFiringLogic()
 
 }
 
-bool fwControlLoop(repeating_timer_t * rt)
+bool fwControlLoop()
 {
     switch (flywheelState) {
 
@@ -409,34 +430,35 @@ bool fwControlLoop(repeating_timer_t * rt)
         }
         break;
     }
-         for (int i = 0; i < 4; i++) {
-            if (motors[i]) {
-                
-                esc[i]->getTelemetryErpm(&motorRPM[i]);
-                motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+    
+    
+    
+    for (int i = 0; i < 4; i++) {
+    if (motors[i]) {
+        
+        esc[i]->getTelemetryErpm(&motorRPM[i]);
+        motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
 
-                
-                PIDError[i] = targetRPM[i] - motorRPM[i];
-                PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
+        
+        PIDError[i] = targetRPM[i] - motorRPM[i];
+        PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
 
 
-                PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
-                
+        PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+        esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
+        /*closedLoopRPM[i] = PIDOutput[i] + motorRPM[i];
 
-                esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
-                /*closedLoopRPM[i] = PIDOutput[i] + motorRPM[i];
+        if (throttleValue[i] == 0) {
+            throttleValue[i] = min(maxThrottle, maxThrottle * closedLoopRPM[i] / batteryVoltage_mv * 1000 / motorKv);
+        } else {
+            throttleValue[i] = max(min(maxThrottle, maxThrottle * closedLoopRPM[i] / batteryVoltage_mv * 1000 / motorKv),
+                throttleValue[i] - 1);
+        }*/
 
-                if (throttleValue[i] == 0) {
-                    throttleValue[i] = min(maxThrottle, maxThrottle * closedLoopRPM[i] / batteryVoltage_mv * 1000 / motorKv);
-                } else {
-                    throttleValue[i] = max(min(maxThrottle, maxThrottle * closedLoopRPM[i] / batteryVoltage_mv * 1000 / motorKv),
-                        throttleValue[i] - 1);
-                }*/
-
-                PIDErrorPrior[i] = PIDError[i];
-                
-            }
-        }
+        PIDErrorPrior[i] = PIDError[i];
+        
+    }
+}
 
         /*
         for (int i = 0; i < 4; i++) {
@@ -464,13 +486,13 @@ bool fwControlLoop(repeating_timer_t * rt)
         
 
 
-    /*loopTime_us = micros() - loopStartTimer_us; // 'us' is microseconds
+    loopTime_us = micros() - loopStartTimer_us; // 'us' is microseconds
     if (loopTime_us > targetLoopTime_us) {
         Serial.print("loop over time, ");
         Serial.println(loopTime_us);
     } else {
         delayMicroseconds(max((long)(0), (long)(targetLoopTime_us - loopTime_us)));
-    }*/
+    }
    
     return true;
 

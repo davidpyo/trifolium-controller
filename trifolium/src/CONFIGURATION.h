@@ -3,7 +3,7 @@
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 40000, 40000, 40000, 40000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
+int32_t revRPMset[3][4] = { { 10000, 10000, 10000, 10000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
 uint32_t idleTimeSet_ms[3] = { 30000, 5000, 2000 }; // how long to idle the flywheels for after releasing the trigger, in milliseconds
 uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
 uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
@@ -12,7 +12,7 @@ uint32_t spindownSpeed = 30; // RPM per ms
 int32_t motorKv = 3200; // critical for closed loop
 int32_t idleRPM[4] = { 500, 500, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
 dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
-dshot_min_delay_t loopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
+dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
 const bool motors[4] = {true, true, true, true}; // which motors are hooked up
@@ -81,7 +81,6 @@ uint16_t pusherDebounceTime_ms = 25;
 const int voltageAveragingWindow = 1;
 uint32_t pusherCurrentSmoothingFactor = 90;
 uint8_t telemetryInterval_ms = 5;
-uint16_t targetLoopTime_us = 1000; // microseconds
 float maxDutyCycle_pct = 98;
 uint8_t deadtime = 10;
 uint16_t pwmFreq_hz = 20000;

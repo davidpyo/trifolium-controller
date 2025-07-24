@@ -40,7 +40,7 @@ enum dshot_mode_t
 };
 
 enum dshot_min_delay_t {
-    DSHOT_MIN_DELAY_300 = 167, 
+    DSHOT_MIN_DELAY_300 = 1000,//167
     DSHOT_MIN_DELAY_600 = 113,  
     DSHOT_MIN_DELAY_1200 = 87, 
 };
