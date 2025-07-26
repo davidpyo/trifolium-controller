@@ -27,13 +27,8 @@ void Drv::init() {
     pinMode(sclk, OUTPUT);
     pinMode(nscs, OUTPUT);
     digitalWrite(nscs, HIGH);
-    SPI1 = SPIClassRP2040(spi0, miso, nscs, sclk, mosi);
-    /*SPI.setSCK(sclk); //22
-    SPI.setMOSI(mosi); //19
-    SPI.setMISO(miso); //20
-    SPI.setCS(nscs); //21
-    */
-    SPI1.begin();
+    SPI = SPIClassRP2040(spi0, miso, nscs, sclk, mosi);
+    SPI.begin();
 
     while (!wake())
     {
@@ -47,8 +42,6 @@ bool Drv::wake() {
     delayMicroseconds(2000);
 
     uint16_t devID = readWord(0x00);
-    Serial.print("DRV Device ID: 0x");
-    Serial.println(devID, HEX); 
     if ((devID & 0xc0) == 0) {
         digitalWrite(nsleep, LOW);
          Serial.println("1!");
@@ -57,8 +50,6 @@ bool Drv::wake() {
 
     writeWord(0x08, (1 << 7));
     devID = readWord(0x00);
-    Serial.print("DRV Device ID: 0x");
-    Serial.println(devID, HEX); 
     if ((devID & (1 << 13))) {
         digitalWrite(nsleep, LOW);
         Serial.println("2!");
@@ -103,9 +94,9 @@ void Drv::coast() {
 int Drv::writeWord(uint8_t addr, uint8_t data) {
     uint16_t buf = ((addr & 0x3f) << 8) | data;
     digitalWrite(nscs, LOW);
-    SPI1.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE1));
-    SPI1.transfer16(buf);
-    SPI1.endTransaction();
+    SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE1));
+    SPI.transfer16(buf);
+    SPI.endTransaction();
     digitalWrite(nscs, HIGH);
     delayMicroseconds(10);
     return 1;
@@ -114,9 +105,9 @@ int Drv::writeWord(uint8_t addr, uint8_t data) {
 uint16_t Drv::readWord(uint8_t address) {
     uint16_t bufTX = (uint16_t)(((address & 0x3f) | 0x40) << 8);
     digitalWrite(nscs, LOW);
-    SPI1.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE1));
-    uint16_t bufRX = SPI1.transfer16(bufTX);
-    SPI1.endTransaction();
+    SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE1));
+    uint16_t bufRX = SPI.transfer16(bufTX);
+    SPI.endTransaction();
     digitalWrite(nscs, HIGH);
     delayMicroseconds(10);
     return bufRX;
