@@ -85,8 +85,8 @@ uint8_t deadtime = 10;
 uint16_t pwmFreq_hz = 20000;
 uint16_t servoFreq_hz = 200;
 
-// PID Settings (PID not working)
-float KP = 0.1;
+// PID Settings 
+float KP = 0.2; //0.1 is probably good starting point
 float KI = 0.0;
 float KD = 0.0;
 
