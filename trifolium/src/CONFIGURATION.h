@@ -93,3 +93,7 @@ float KD = 0.0;
 // Debug settings
 bool printTelemetry = true; // output printing
 #define USE_RPM_LOGGING //RPM Logging
+
+
+
+#define MOTOR_POLES 14
