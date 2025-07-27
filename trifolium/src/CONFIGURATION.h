@@ -86,7 +86,7 @@ uint16_t pwmFreq_hz = 20000;
 uint16_t servoFreq_hz = 200;
 
 // PID Settings (PID not working)
-float KP = 0.00025;
+float KP = 0.1;
 float KI = 0.0;
 float KD = 0.0;
 
