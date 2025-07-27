@@ -15,7 +15,7 @@ dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, 
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
-const bool motors[4] = {true, true, true, true}; // which motors are hooked up
+const bool motors[4] = {true, false, false, false}; // which motors are hooked up
 bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot
 int32_t firingRPMTolerance = 10000; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
@@ -41,7 +41,6 @@ selectFireType_t selectFireType = NO_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH
 uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to select if no pins are connected
 
 // Dettlaff Settings
-bool printTelemetry = false; // output telemetry over USB serial port for tuning. Enabling this turns on bidirectional dshot
 uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
 // to protect your batteries, i reccomend doing the calibration below and then setting the cutoff to 3.2V to 3.4V per cell
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
@@ -87,6 +86,10 @@ uint16_t pwmFreq_hz = 20000;
 uint16_t servoFreq_hz = 200;
 
 // PID Settings (PID not working)
-float KP = 1;
+float KP = 0.00025;
 float KI = 0.0;
 float KD = 0.0;
+
+// Debug settings
+bool printTelemetry = true; // output printing
+#define USE_RPM_LOGGING //RPM Logging
