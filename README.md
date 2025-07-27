@@ -1,50 +1,80 @@
 # \# trifolium-controller
 
-# This is based off of rune-firmware and the Dettlaff codebase. Designed for the Rune controller or a generic RP2040 target with fet drive.
+# 
+
+# Based on \[rune-firmware](https://github.com/) and the Dettlaff codebase.  
+
+# Designed for the Rune controller or a generic RP2040 target with FET drive.
+
+# 
+
+# ---
 
 # 
 
 # \## TODO
 
-# \- \[] Feed forward control
+# 
 
-\- \[] Telemetry printing
-- \[] Python live graphing?
-===
+# \- \[ ] Feed forward control  
 
-\- \[] Screen support
-- \[] Menu support
-===
+# \- \[ ] Telemetry printing  
 
-# \- \[] Auto PID?
+# \- \[ ] Python live graphing  
 
-# \- \[] PID vars per motor to allow for asymmetrical setups 
+# \- \[ ] Screen support  
 
-# \- \[] esc temp monitor
+# \- \[ ] Menu support  
 
-# \- \[] esc passthrough
+# \- \[ ] Auto PID tuning  
 
-# \- \[] DRV error clearing?
+# \- \[ ] PID variables per motor (asymmetrical setup support)  
 
-# \- \[] DRV current -> closed loop noid?
+# \- \[ ] ESC temperature monitoring  
 
+# \- \[ ] ESC passthrough  
 
+# \- \[ ] DRV error clearing  
 
+# \- \[ ] DRV current → closed-loop solenoid control  
 
+# 
+
+# ---
 
 # 
 
 # \## Features
 
-# \- Maybe works
+# 
+
+# \- Maybe works™
+
+# 
+
+# ---
 
 # 
 
 # \## Usage (TODO)
 
-# > \[!NOTE]
+# 
 
-# > Uses platformio in VSCode
+# > \*\*Note\*\*  
 
-# > To flash a board, hold the boot select button (momentary button next to the USB port) while plugging in your USB cable. When the board is properly connected and in bootloader mode, it should show up as a flash drive named RPI-RP2 on your computer. Drag the .uf2 file from the build folder onto the drive and it will disconnect, restart, and start executing your code.
+# > This project uses PlatformIO in VSCode.  
+
+# >  
+
+# > To flash a board:
+
+# > 1. Hold the \*\*BOOTSEL\*\* button (momentary button next to the USB port) while plugging in your USB cable.
+
+# > 2. When in bootloader mode, the board will show up as a flash drive named `RPI-RP2`.
+
+# > 3. Drag the `.uf2` file from the `build/` folder onto the drive.
+
+# > 4. It will disconnect, reboot, and start running your code.
+
+
 
