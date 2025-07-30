@@ -4,7 +4,7 @@ import matplotlib.animation as animation
 import sys
 
 # === CONFIG ===
-PORT = 'COM8'          # Update to your serial port
+PORT = 'COM12'          # Update to your serial port
 BAUD = 115200
 MAX_POINTS = 1000       # Number of points to display
 SERIAL_TIMEOUT = 0.01  # Small timeout for fast non-blocking read

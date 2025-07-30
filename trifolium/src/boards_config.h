@@ -1,5 +1,36 @@
 #include "types.h"
 
+
+const boards_t pico_zero = {
+    .pusherDriverType = FET_DRIVER, 
+    .esc1 = 0,
+    .esc2 = 1,
+    .esc3 = 2,
+    .esc4 = 3,
+    .telem = 4,
+    .I2C_SCL = 5,
+    .I2C_SDA = 6,
+    .IO2 = 7,
+    .IO5 = 8,
+    .IO6 = 9,
+    .IO1 = 10,
+    .IO3 = 11,
+    .IO4 = 12,
+    .batteryADC = 26,
+    .escADC = 27,
+    .drvADC = 28,
+    .drvNSLEEP = 16,    
+    .drvEN = 17,
+    .drvPH = 18,
+    .drvMOSI = 19,
+    .drvMISO = 20,
+    .drvNSCS = 21,
+    .drvSCLK = 22,
+    .LED_DATA = 24,
+    .ESC_ENABLE = 25,
+};
+
+
 const boards_t rune_0_2 = {
     .pusherDriverType = DRV_DRIVER, 
     .esc1 = 0,

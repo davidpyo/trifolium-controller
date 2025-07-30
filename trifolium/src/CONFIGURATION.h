@@ -3,19 +3,19 @@
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 10000, 10000, 10000, 10000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
-uint32_t idleTimeSet_ms[3] = { 30000, 5000, 2000 }; // how long to idle the flywheels for after releasing the trigger, in milliseconds
+int32_t revRPMset[3][4] = { { 10000, 40000, 10000, 10000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
+uint32_t idleTimeSet_ms[3] = { 0, 0, 0 }; // how long to idle the flywheels for after releasing the trigger, in milliseconds
 uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
 uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
 uint32_t spindownSpeed = 30; // RPM per ms
 
 int32_t motorKv = 3200; // critical for closed loop
-int32_t idleRPM[4] = { 500, 500, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
+int32_t idleRPM[4] = { 0, 0, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
 dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
-const bool motors[4] = {true, false, false, false}; // which motors are hooked up
+const bool motors[4] = {false, true, false, false}; // which motors are hooked up
 bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot
 int32_t firingRPMTolerance = 10000; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
@@ -46,7 +46,7 @@ uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells b
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
 
-boards_t board = rune_0_2; // select the one that matches your board revision
+boards_t board = pico_zero; // select the one that matches your board revision
 // Options
 // rune_0_2,
 // possibly standalone board TODO
@@ -87,13 +87,15 @@ uint16_t servoFreq_hz = 200;
 
 // PID Settings 
 float KP = 0.2; //0.1 is probably good starting point
-float KI = 0.0;
+float KI = 0.6;
 float KD = 0.0;
 
 // Debug settings
 bool printTelemetry = true; // output printing
 #define USE_RPM_LOGGING //RPM Logging
-
+#ifdef USE_RPM_LOGGING
+const uint32_t rpmLogLength = 2000;
+#endif
 
 
 #define MOTOR_POLES 14

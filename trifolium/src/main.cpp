@@ -13,9 +13,8 @@ elapsedMicros revStartTime_us;
 elapsedMillis lastRevTime_ms;
 
 uint32_t loopStartTimer_us = micros();
-uint32_t loopTime_us = targetLoopTime_us;
+int32_t loopTime_us = targetLoopTime_us;
 uint32_t lastMainLoopTime = millis();
-;
 uint32_t time_ms = millis();
 // uint32_t lastRevTime_ms = 0; // for calculating idling
 uint32_t pusherTimer_ms = 0;
@@ -76,10 +75,10 @@ BidirDShotX1 *esc[4] = {nullptr, nullptr, nullptr, nullptr}; // array of pointer
 
 // rpm logging
 #ifdef USE_RPM_LOGGING
-const uint32_t rpmLogLength = 2000;
 uint32_t targetRpmCache[rpmLogLength][4] = {0};
 uint32_t rpmCache[rpmLogLength][4] = {0};
-uint16_t throttleCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
+int16_t throttleCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
+float valueCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
 uint16_t cacheIndex = rpmLogLength + 1;
 #endif
 
@@ -152,13 +151,6 @@ void setup()
         }
     }
 
-    // loop while waiting on trigger input for debug
-    while (!triggerSwitch.pressed())
-    {
-        triggerSwitch.update();
-        println("Waiting for trigger input...");
-        delay(100);
-    }
 
     pinMode(board.ESC_ENABLE, OUTPUT);
     digitalWrite(board.ESC_ENABLE, HIGH);
@@ -341,12 +333,17 @@ bool fwControlLoop()
             {
                 if (motors[i])
                 {
-                    targetRPM[i] = max(targetRPM[i] - static_cast<int32_t>((currentSpindownSpeed * loopTime_us) / 1000), idleRPM[i]);
+                    int32_t rpmDrop = (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
+
+                    // Prevent targetRPM from going below idle
+                    targetRPM[i] = (targetRPM[i] > rpmDrop + idleRPM[i]) ? (targetRPM[i] - rpmDrop) : idleRPM[i];
                 }
             }
+            
         }
         else
         { // stop flywheels
+              
             if (currentSpindownSpeed < spindownSpeed)
             {
                 currentSpindownSpeed += 1;
@@ -355,7 +352,10 @@ bool fwControlLoop()
             {
                 if (motors[i] && targetRPM[i] != 0)
                 {
-                    targetRPM[i] = max(targetRPM[i] - static_cast<int32_t>((currentSpindownSpeed * loopTime_us) / 1000), 0);
+                    int32_t rpmDrop = (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
+
+                    // Prevent targetRPM from going below zero
+                    targetRPM[i] = (targetRPM[i] > rpmDrop) ? (targetRPM[i] - rpmDrop) : 0;
                 }
             }
             fromIdle = false;
@@ -376,6 +376,13 @@ bool fwControlLoop()
             println("STATE_FULLSPEED transition 1");
         } else if (revStartTime_us > 500000) { //500ms seems a reasonable timeout
             flywheelState = STATE_IDLE;
+            for (int i = 0; i < 4; i++)
+            {
+                if (motors[i])
+                {
+                    PIDIntegral[i] = 0; // stop reset PID
+                }
+            }
             shotsToFire = 0;
             println("Error! Flywheels failed to reach target speed!");
         }
@@ -429,8 +436,11 @@ bool fwControlLoop()
 
             PIDError[i] = targetRPM[i] - motorRPM[i];
             PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
-
+            if (targetRPM[i] == 0) {
+            PIDOutput[i] = 0;
+            } else {
             PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+            }
             esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
 
             // if we have rpm logging enabled, add the most recent value to the cache
@@ -439,7 +449,8 @@ bool fwControlLoop()
             {
                 rpmCache[cacheIndex][i] = motorRPM[i];
                 targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
-                throttleCache[cacheIndex][i] = (uint16_t)((PIDOutput[i]));
+                throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
+                valueCache[cacheIndex][i] = PIDError[i];
             }
 #endif
 
@@ -470,6 +481,9 @@ bool fwControlLoop()
                     print("Throttle ");
                     print(j);
                     print(",");
+                    print("value ");
+                    print(j);
+                    print(",");
                 }
             }
             println("");
@@ -486,6 +500,8 @@ bool fwControlLoop()
                         print(targetRpmCache[i][j]);
                         print(",");
                         print(throttleCache[i][j]);
+                        print(",");
+                        print(valueCache[i][j]);
                         print(",");
                     }
                 }
@@ -508,6 +524,7 @@ bool fwControlLoop()
     else
     {
         delayMicroseconds(max((long)(0), (long)(targetLoopTime_us - loopTime_us)));
+        loopTime_us = targetLoopTime_us; 
     }
 
     return true;
