@@ -58,7 +58,7 @@ bool currentlyLogging = false;
 
 // closed loop variables
 int32_t PIDError[4];
-int32_t PIDErrorPrior[4];
+int32_t PIDErrorPrior[4] = {1,1,1,1};
 int32_t closedLoopRPM[4];
 int32_t PIDOutput[4];
 int32_t PIDIntegral[4] = {0, 0, 0, 0};
@@ -320,6 +320,7 @@ bool fwControlLoop()
                 if (motors[i])
                 {
                     PIDIntegral[i] = 0; // reset PID integral
+                    PIDOutput[i] = 2000; // reset PID output
                 }
             }
         }
@@ -430,18 +431,37 @@ bool fwControlLoop()
     {
         if (motors[i])
         {
-
+           
             esc[i]->getTelemetryErpm(&motorRPM[i]);
             motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
-
+            
             PIDError[i] = targetRPM[i] - motorRPM[i];
+            /*
             PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
             if (targetRPM[i] == 0) {
             PIDOutput[i] = 0;
             } else {
             PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
             }
+            
+            PIDErrorPrior[i] = PIDError[i];
+            */
+
+            PIDOutput[i] += KI * PIDError[i]; // reset PID output
+            if (PIDOutput[i] > 2000)
+            {
+                PIDOutput[i] = 2000; // prevent negative output
+            }
+            if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i]))
+            { 
+                PIDOutput[i] = PIDIntegral[i] = .5*(PIDOutput[i] + PIDIntegral[i]); 
+                PIDErrorPrior[i] = PIDError[i]; 
+            }
             esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
+
+
+
+
 
             // if we have rpm logging enabled, add the most recent value to the cache
 #ifdef USE_RPM_LOGGING
@@ -454,7 +474,7 @@ bool fwControlLoop()
             }
 #endif
 
-            PIDErrorPrior[i] = PIDError[i];
+            
         }
 
     }
