@@ -47,7 +47,7 @@ uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells b
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
 
-boards_t board = pico_zero; // select the one that matches your board revision
+boards_t board = rune_0_2; // select the one that matches your board revision
 // Options
 // rune_0_2,
 // possibly standalone board TODO

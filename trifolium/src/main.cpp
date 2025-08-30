@@ -115,7 +115,7 @@ void setup()
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
     pinMode(board.batteryADC, INPUT);
-    batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 4095;
+    batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
     batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
     print("Battery voltage (before calibration): ");
     println(batteryADC_mv * 11);
@@ -251,21 +251,6 @@ void loop()
 
     fwControlLoop();
 
-    /* move to core1
-        batteryADC_mv = batteryADC.readMiliVolts();
-    if (voltageAveragingWindow == 1) {
-        batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
-    } else {
-        voltageBuffer[voltageBufferIndex] = voltageCalibrationFactor * batteryADC_mv * 11;
-        voltageBufferIndex = (voltageBufferIndex + 1) % voltageAveragingWindow;
-        batteryVoltage_mv = 0;
-        for (int i = 0; i < voltageAveragingWindow; i++) {
-            batteryVoltage_mv += voltageBuffer[i];
-        }
-        batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
-    }
-
-    */
 }
 
 void mainFiringLogic()
@@ -321,7 +306,7 @@ void mainFiringLogic()
         }
     }
 
-    batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 4095;
+    batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
     if (voltageAveragingWindow == 1) {
         batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
     } else {
@@ -469,7 +454,7 @@ bool fwControlLoop()
         }
         break;
     }
-    switch (flywheelState){
+    switch (flywheelControl){
         case PID_CONTROL:
         for (int i = 0; i < 4; i++)
         {
