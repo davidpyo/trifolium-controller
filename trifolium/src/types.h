@@ -2,6 +2,8 @@
 #define __types_h_
 #include <Arduino.h>
 
+#define PIN_NOT_USED 255
+
 enum flywheelState_t {
     STATE_IDLE,
     STATE_ACCELERATING, // ACCELERATING = wheels not yet at full speed

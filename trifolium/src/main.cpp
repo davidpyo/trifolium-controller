@@ -38,6 +38,7 @@ flywheelState_t flywheelState = STATE_IDLE;
 bool firing = false;
 bool reverseBraking = false;
 bool pusherDwelling = false;
+bool isBatteryAdcDefined = false;
 uint32_t batteryADC_mv = 0;
 int32_t batteryVoltage_mv = 14800;
 int32_t voltageBuffer[voltageAveragingWindow] = {0};
@@ -104,6 +105,11 @@ void print(T value)
         Serial.print(value);
 }
 
+bool pinDefined(uint8_t pin)
+{
+    return pin != PIN_NOT_USED;
+}
+
 void setup()
 {
     if (printTelemetry)
@@ -111,32 +117,39 @@ void setup()
         Serial.begin(115200);
     }
     println("Booting");
-
+    
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
-    pinMode(board.batteryADC, INPUT);
-    batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
-    batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
-    print("Battery voltage (before calibration): ");
-    println(batteryADC_mv * 11);
-    if (voltageCalibrationFactor != 1.0) {
-        print("Battery voltage (after calibration): ");
-        println(voltageCalibrationFactor * batteryADC_mv * 11);
+    if (pinDefined(board.batteryADC)){
+        pinMode(board.batteryADC, INPUT);
+        batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
+        batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
+        print("Battery voltage (before calibration): ");
+        println(batteryADC_mv * 11);
+        if (voltageCalibrationFactor != 1.0) {
+            print("Battery voltage (after calibration): ");
+            println(voltageCalibrationFactor * batteryADC_mv * 11);
+        }
+        isBatteryAdcDefined = true;
+    } else {
+        isBatteryAdcDefined = false;
+        batteryVoltage_mv = 16800; // assume fully charged if no adc defined
     }
+    
 
-    if (revSwitchPin)
+    if (pinDefined(revSwitchPin))
     {
         revSwitch.attach(revSwitchPin, INPUT_PULLUP);
         revSwitch.interval(debounceTime_ms);
         revSwitch.setPressedState(revSwitchNormallyClosed);
     }
-    if (triggerSwitchPin)
+    if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
         triggerSwitch.interval(debounceTime_ms);
         triggerSwitch.setPressedState(triggerSwitchNormallyClosed);
     }
-    if (cycleSwitchPin)
+    if (pinDefined(cycleSwitchPin))
     {
         cycleSwitch.attach(cycleSwitchPin, INPUT_PULLUP);
         cycleSwitch.interval(pusherDebounceTime_ms);
@@ -144,19 +157,19 @@ void setup()
     }
     if (selectFireType != NO_SELECT_FIRE)
     {
-        if (select0Pin)
+        if (pinDefined(select0Pin))
         {
             select0.attach(select0Pin, INPUT_PULLUP);
             select0.interval(debounceTime_ms);
             select0.setPressedState(false);
         }
-        if (select1Pin)
+        if (pinDefined(select1Pin))
         {
             select1.attach(select1Pin, INPUT_PULLUP);
             select1.interval(debounceTime_ms);
             select1.setPressedState(false);
         }
-        if (select2Pin)
+        if (pinDefined(select2Pin))
         {
             select2.attach(select2Pin, INPUT_PULLUP);
             select2.interval(debounceTime_ms);
@@ -164,9 +177,18 @@ void setup()
         }
     }
 
+    while (true){
+        if (triggerSwitch.isPressed()){
+            break;
+        }
+        triggerSwitch.update();
+    }
 
-    pinMode(board.ESC_ENABLE, OUTPUT);
-    digitalWrite(board.ESC_ENABLE, HIGH);
+    if (pinDefined(board.ESC_ENABLE)){
+        pinMode(board.ESC_ENABLE, OUTPUT);
+        digitalWrite(board.ESC_ENABLE, HIGH); 
+    }
+  
 
     switch (board.pusherDriverType)
     {
@@ -236,6 +258,7 @@ void setup()
         }
     }
     idleTime_ms = idleTimeSet_ms[fpsMode];
+    
 }
 
 void loop()
@@ -250,16 +273,16 @@ void loop()
     }
 
     fwControlLoop();
-
+    println(targetRPM[0]);
 }
 
 void mainFiringLogic()
 {
-    if (revSwitchPin)
+    if (pinDefined(revSwitchPin))
     {
         revSwitch.update();
     }
-    if (triggerSwitchPin)
+    if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.update();
     }
@@ -305,19 +328,21 @@ void mainFiringLogic()
             shotsToFire = 1;
         }
     }
-
-    batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
-    if (voltageAveragingWindow == 1) {
-        batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
-    } else {
-        voltageBuffer[voltageBufferIndex] = voltageCalibrationFactor * batteryADC_mv * 11;
-        voltageBufferIndex = (voltageBufferIndex + 1) % voltageAveragingWindow;
-        batteryVoltage_mv = 0;
-        for (int i = 0; i < voltageAveragingWindow; i++) {
-            batteryVoltage_mv += voltageBuffer[i];
+    if (isBatteryAdcDefined){
+        batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
+        if (voltageAveragingWindow == 1) {
+            batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
+        } else {
+            voltageBuffer[voltageBufferIndex] = voltageCalibrationFactor * batteryADC_mv * 11;
+            voltageBufferIndex = (voltageBufferIndex + 1) % voltageAveragingWindow;
+            batteryVoltage_mv = 0;
+            for (int i = 0; i < voltageAveragingWindow; i++) {
+                batteryVoltage_mv += voltageBuffer[i];
+            }
+            batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
         }
-        batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
     }
+   
 
 }
 
@@ -328,7 +353,7 @@ bool fwControlLoop()
 
     case STATE_IDLE:
         if (batteryVoltage_mv < lowVoltageCutoff_mv && time_ms > 2000)
-        {
+        {   
             digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
             print("Battery low, shutting down! ");
             print(batteryVoltage_mv);
@@ -491,50 +516,51 @@ bool fwControlLoop()
         }
         break;
         case TBH_CONTROL:
-        for (int i = 0; i < 4; i++)
-        {
-            if (motors[i])
+            for (int i = 0; i < 4; i++)
             {
-                /*
-                so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput for our error accumulator, which we cap at 1999.
-                Just trying to reuse variables to save runtime memory
-                */
-                esc[i]->getTelemetryErpm(&motorRPM[i]);
-                motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
-                
-                PIDError[i] = targetRPM[i] - motorRPM[i];
-                PIDOutput[i] += KI * PIDError[i]; // reset PID output
-                if (PIDOutput[i] > 1999) {
-                    PIDOutput[i] = 1999; // prevent negative output and cap output
-                } else if (PIDOutput[i] < 0) {
-                    PIDOutput[i] = 0;
-                    if (flywheelState == STATE_IDLE && targetRPM[i] != 0) {
-                        PIDOutput[i] = 20; // don't kill throttle while decending to idle
-                    }
-                }
-                if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
-                    PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
-                    PIDErrorPrior[i] = PIDError[i];
-                }
-
-                esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
-
-                // if we have rpm logging enabled, add the most recent value to the cache
-            #ifdef USE_RPM_LOGGING
-                if (cacheIndex < rpmLogLength)
+                if (motors[i])
                 {
-                    rpmCache[cacheIndex][i] = motorRPM[i];
-                    targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
-                    throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
-                    valueCache[cacheIndex][i] = PIDError[i];
+                    /*
+                    so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput for our error accumulator, which we cap at 1999.
+                    Just trying to reuse variables to save runtime memory
+                    */
+                    esc[i]->getTelemetryErpm(&motorRPM[i]);
+                    motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                    
+                    PIDError[i] = targetRPM[i] - motorRPM[i];
+                    PIDOutput[i] += KI * PIDError[i]; // reset PID output
+                    if (PIDOutput[i] > 1999) {
+                        PIDOutput[i] = 1999; // prevent negative output and cap output
+                    } else if (PIDOutput[i] < 0) {
+                        PIDOutput[i] = 0;
+                        if (flywheelState == STATE_IDLE && targetRPM[i] != 0) {
+                            PIDOutput[i] = 20; // don't kill throttle while decending to idle
+                        }
+                    }
+                    if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
+                        PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
+                        PIDErrorPrior[i] = PIDError[i];
+                    }
+                    if (targetRPM[i] != 0 && PIDOutput[i] < 1) {
+                        PIDOutput[i] = 1;
+                    }
+                    esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
+
+                    // if we have rpm logging enabled, add the most recent value to the cache
+                #ifdef USE_RPM_LOGGING
+                    if (cacheIndex < rpmLogLength)
+                    {
+                        rpmCache[cacheIndex][i] = motorRPM[i];
+                        targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
+                        throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
+                        valueCache[cacheIndex][i] = PIDError[i];
+                    }
+                #endif
+    
                 }
-            #endif
- 
+
             }
-
-        }
-        break;
-
+            break;
     }
     
 
@@ -615,7 +641,7 @@ void updateFiringMode()
     {
         return;
     }
-    if (select0Pin)
+    if (pinDefined(select0Pin))
     {
         select0.update();
         if (select0.isPressed())
@@ -624,7 +650,7 @@ void updateFiringMode()
             return;
         }
     }
-    if (select1Pin)
+    if (pinDefined(select1Pin))
     {
         select1.update();
         if (select1.isPressed())
@@ -633,7 +659,7 @@ void updateFiringMode()
             return;
         }
     }
-    if (select2Pin)
+    if (pinDefined(select2Pin))
     {
         select2.update();
         if (select2.isPressed())

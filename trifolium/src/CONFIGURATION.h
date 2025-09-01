@@ -3,20 +3,20 @@
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 40000, 40000, 40000, 40000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
-uint32_t idleTimeSet_ms[3] = { 0, 0, 0 }; // how long to idle the flywheels for after releasing the trigger, in milliseconds
+int32_t revRPMset[3][4] = { { 70000, 40000, 40000, 40000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
+uint32_t idleTimeSet_ms[3] = { 20000, 0, 0 }; // how long to idle the flywheels for after releasing the trigger, in milliseconds
 uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
 uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
 uint32_t spindownSpeed = 30; // RPM per ms
 
-int32_t motorKv = 3200; // critical for closed loop
-int32_t idleRPM[4] = { 0, 0, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
+int32_t motorKv = 4800; // critical for closed loop
+int32_t idleRPM[4] = { 500, 500, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
 dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
 flywheelControlType_t flywheelControl = TBH_CONTROL; // OPEN_LOOP_CONTROL, TWO_LEVEL_CONTROL, PID_CONTROL, or TBH_CONTROL
-const bool motors[4] = {false, false, true, false}; // which motors are hooked up
+const bool motors[4] = {true, true, false, false}; // which motors are hooked up
 bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot
 int32_t firingRPMTolerance = 10000; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
@@ -47,22 +47,22 @@ uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells b
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
 
-boards_t board = rune_0_2; // select the one that matches your board revision
+boards_t board = pico_zero_diana; // select the one that matches your board revision
 // Options
 // rune_0_2,
 // possibly standalone board TODO
 
-// Input Pins, set to 0 if not using
+// Input Pins, set to PIN_NOT_USED if not using
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
-uint8_t revSwitchPin = board.IO2; // optional rev trigger
-uint8_t cycleSwitchPin = 0; // pusher motor home switch
-uint8_t select0Pin = 0; // optional for select fire
-uint8_t select1Pin = 0; // optional for select fire
-uint8_t select2Pin = 0; // optional for select fire
+uint8_t revSwitchPin = PIN_NOT_USED; // optional rev trigger
+uint8_t cycleSwitchPin = PIN_NOT_USED; // pusher motor home switch
+uint8_t select0Pin = PIN_NOT_USED; // optional for select fire
+uint8_t select1Pin = PIN_NOT_USED; // optional for select fire
+uint8_t select2Pin = PIN_NOT_USED; // optional for select fire
 
 
 // Pusher Settings
-pusherType_t pusherType = PUSHER_MOTOR_CLOSEDLOOP; // either PUSHER_MOTOR_CLOSEDLOOP or PUSHER_SOLENOID_OPENLOOP
+pusherType_t pusherType = PUSHER_SOLENOID_OPENLOOP; // either PUSHER_MOTOR_CLOSEDLOOP or PUSHER_SOLENOID_OPENLOOP
 uint32_t pusherVoltage_mv = 13000; // if battery voltage is above this voltage, then use PWM to reduce the voltage that the pusher sees
 bool pusherReverseDirection = false; // make motor spin backwards
 
@@ -97,7 +97,7 @@ float KD = 0;
 // TBH Settings
 // for TBH PIDIntegral is used for TBH variable, and Gain is KI
 
-float KI = 0.03;
+float KI = 0.2;
 
 // Debug settings
 bool printTelemetry = true; // output printing
@@ -107,4 +107,4 @@ const uint32_t rpmLogLength = 2000;
 #endif
 
 
-#define MOTOR_POLES 14
+#define MOTOR_POLES 12
