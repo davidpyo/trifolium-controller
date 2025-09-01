@@ -8,9 +8,8 @@
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
 
-// elapsedMicros pidLoopTimer_us;
-elapsedMicros revStartTime_us;
-elapsedMillis lastRevTime_ms;
+
+uint32_t lastRevTime_ms = 0; // for calculating idling
 
 uint32_t loopStartTimer_us = micros();
 int32_t loopTime_us = targetLoopTime_us;
@@ -18,7 +17,7 @@ uint32_t lastMainLoopTime = millis();
 uint32_t time_ms = millis();
 // uint32_t lastRevTime_ms = 0; // for calculating idling
 uint32_t pusherTimer_ms = 0;
-// uint32_t revStartTime_us = 0;
+uint32_t revStartTime_us = 0;
 uint32_t triggerTime_ms = 0;
 
 uint32_t revRPM[4];                   // stores value from revRPMSet on boot for current firing mode
@@ -177,13 +176,6 @@ void setup()
         }
     }
 
-    while (true){
-        if (triggerSwitch.isPressed()){
-            break;
-        }
-        triggerSwitch.update();
-    }
-
     if (pinDefined(board.ESC_ENABLE)){
         pinMode(board.ESC_ENABLE, OUTPUT);
         digitalWrite(board.ESC_ENABLE, HIGH); 
@@ -259,6 +251,17 @@ void setup()
     }
     idleTime_ms = idleTimeSet_ms[fpsMode];
     
+    // make sure to send neutral throttle to arm esc's
+    for (int j = 0; j < 1000; j++) {
+        for (int i = 0; i < 4; i++)
+        {
+            if (motors[i])
+            {
+                esc[i]->sendThrottle(0);
+            }
+        }
+        delay(1);
+    }
 }
 
 void loop()
@@ -273,7 +276,6 @@ void loop()
     }
 
     fwControlLoop();
-    println(targetRPM[0]);
 }
 
 void mainFiringLogic()
@@ -362,10 +364,9 @@ bool fwControlLoop()
 
         if (shotsToFire > 0 || revSwitch.isPressed())
         {
-            revStartTime_us = 0;
-            // revStartTime_us = loopStartTimer_us;
+            revStartTime_us = loopStartTimer_us;
             memcpy(targetRPM, revRPM, sizeof(targetRPM)); // Copy revRPM to targetRPM
-            lastRevTime_ms = 0;
+            lastRevTime_ms = time_ms;
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
             resetFWControl();
@@ -383,7 +384,7 @@ bool fwControlLoop()
             cacheIndex = 0; // reset cache index to start logging
             #endif
         }
-        else if (lastRevTime_ms < idleTime_ms && lastRevTime_ms > 0)
+        else if (time_ms < lastRevTime_ms + idleTime_ms && lastRevTime_ms > 0)
         { // idle flywheels
             if (currentSpindownSpeed < spindownSpeed)
             {
@@ -422,7 +423,6 @@ bool fwControlLoop()
                     targetRPM[i] = (targetRPM[i] > rpmDrop) ? (targetRPM[i] - rpmDrop) : 0;
                 }
             }
-            resetFWControl();
             fromIdle = false;
         }
         break;
@@ -439,7 +439,7 @@ bool fwControlLoop()
             flywheelState = STATE_FULLSPEED;
             fromIdle =  true;
             println("STATE_FULLSPEED transition 1");
-        } else if (revStartTime_us > 500000) { //500ms seems a reasonable timeout
+        } else if (loopStartTimer_us - revStartTime_us > 500000) { //500ms seems a reasonable timeout
             flywheelState = STATE_IDLE;
             resetFWControl();
             shotsToFire = 0;
@@ -458,7 +458,7 @@ bool fwControlLoop()
         }
         else if (shotsToFire > 0 || firing)
         {
-            lastRevTime_ms = 0;
+            lastRevTime_ms = time_ms;
 
             if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
             { // extend solenoid
