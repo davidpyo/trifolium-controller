@@ -540,28 +540,22 @@ bool fwControlLoop()
                         
                         PIDError[i] = targetRPM[i] - motorRPM[i];
                         PIDOutput[i] += KI * PIDError[i]; // reset PID output
-                        if (PIDOutput[i] > 1999) {
-                            PIDOutput[i] = 1999; // prevent negative output and cap output
-                        } else if (PIDOutput[i] < 0) {
-                            PIDOutput[i] = 0;
-                        }
+
 
                         if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
                             PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
                             PIDErrorPrior[i] = PIDError[i];
                         }
                         
+                        if (PIDOutput[i] > 1999) {
+                            PIDOutput[i] = 1999; // prevent negative output and cap output
+                        } else if (PIDOutput[i] < 0) {
+                            PIDOutput[i] = 0;
+                        }
                         // prevent output from being zero if non zero targetRPM since we don't want to hard brake if we overshoot for heat optimization
                         if ((flywheelState == STATE_ACCELERATING || flywheelState == STATE_FULLSPEED)  && targetRPM[i] != 0 && PIDOutput[i] < 1) {
                             PIDOutput[i] = 1;
                         }
-                        /**/
-                        // when we are at idle, don't let output drop too low
-                        if (flywheelState == STATE_IDLE  && targetRPM[i] == idleRPM[i] && PIDOutput[i] < 1) { 
-                            PIDOutput[i] = 1;
-                        }
-
-
                         esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
         
                     }
