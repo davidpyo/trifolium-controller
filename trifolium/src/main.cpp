@@ -21,6 +21,7 @@ uint32_t revStartTime_us = 0;
 uint32_t triggerTime_ms = 0;
 
 uint32_t revRPM[4];                   // stores value from revRPMSet on boot for current firing mode
+uint32_t dwellTime_ms;                 // stores value from dwellTimeSet_ms on boot for current firing mode
 uint32_t idleTime_ms;                 // stores value from idleTimeSet_ms on boot for current firing mode
 uint32_t targetRPM[4] = {0, 0, 0, 0}; // stores current target rpm
 uint32_t firingRPM[4];
@@ -58,6 +59,7 @@ int8_t telemMotorNum = -1; // 0-3
 
 int32_t tempRPM;
 bool currentlyLogging = false;
+bool enableFwControl = true;
 
 // closed loop variables
 int32_t PIDError[4];
@@ -108,6 +110,24 @@ bool pinDefined(uint8_t pin)
 {
     return pin != PIN_NOT_USED;
 }
+
+void logData(){
+    // if we have rpm logging enabled, add the most recent value to the cache
+    #ifdef USE_RPM_LOGGING
+    for (int i = 0; i < 4; i++) {
+            if (motors[i]) {
+                if (cacheIndex < rpmLogLength)
+                {
+                    rpmCache[cacheIndex][i] = motorRPM[i];
+                    targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
+                    throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
+                    valueCache[cacheIndex][i] = PIDError[i];
+                }
+            }
+        }
+    #endif
+}
+
 
 void setup()
 {
@@ -249,8 +269,8 @@ void setup()
             }
         }
     }
+    dwellTime_ms = dwellTimeSet_ms[fpsMode];
     idleTime_ms = idleTimeSet_ms[fpsMode];
-    
     // make sure to send neutral throttle to arm esc's
     for (int j = 0; j < 1000; j++) {
         for (int i = 0; i < 4; i++)
@@ -364,6 +384,7 @@ bool fwControlLoop()
 
         if (shotsToFire > 0 || revSwitch.isPressed())
         {
+            enableFwControl = true;
             revStartTime_us = loopStartTimer_us;
             memcpy(targetRPM, revRPM, sizeof(targetRPM)); // Copy revRPM to targetRPM
             lastRevTime_ms = time_ms;
@@ -384,8 +405,12 @@ bool fwControlLoop()
             cacheIndex = 0; // reset cache index to start logging
             #endif
         }
-        else if (time_ms < lastRevTime_ms + idleTime_ms && lastRevTime_ms > 0)
+        else if (time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0)
+        { // dwell flywheels
+        }
+        else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
         { // idle flywheels
+            enableFwControl = false;
             if (currentSpindownSpeed < spindownSpeed)
             {
                 currentSpindownSpeed += 1;
@@ -398,17 +423,13 @@ bool fwControlLoop()
 
                     // Prevent targetRPM from going below idle
                     targetRPM[i] = (targetRPM[i] > rpmDrop + idleRPM[i]) ? (targetRPM[i] - rpmDrop) : idleRPM[i];
-                    if (targetRPM[i] == idleRPM[i]) {
-                        motorRPM[i] = targetRPM[i]; // setup the motorRPM to target
-                        PIDOutput[i] = 20;
-                    }
+
                 }
             }
-            
         }
         else
         { // stop flywheels
-              
+            enableFwControl = false;  
             if (currentSpindownSpeed < spindownSpeed)
             {
                 currentSpindownSpeed += 1;
@@ -454,7 +475,6 @@ bool fwControlLoop()
         {
             flywheelState = STATE_IDLE;
             println("state transition: FULLSPEED to IDLE 1");
-            resetFWControl();
         }
         else if (shotsToFire > 0 || firing)
         {
@@ -479,89 +499,90 @@ bool fwControlLoop()
         }
         break;
     }
-    switch (flywheelControl){
-        case PID_CONTROL:
-        for (int i = 0; i < 4; i++)
-        {
-            if (motors[i])
-            {
-            
-                esc[i]->getTelemetryErpm(&motorRPM[i]);
-                motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
-                
-                PIDError[i] = targetRPM[i] - motorRPM[i];
-                
-                PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
-                if (targetRPM[i] == 0) {
-                PIDOutput[i] = 0;
-                } else {
-                PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
-                }
-                
-                PIDErrorPrior[i] = PIDError[i];
-                esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
-
-                // if we have rpm logging enabled, add the most recent value to the cache
-            #ifdef USE_RPM_LOGGING
-                if (cacheIndex < rpmLogLength)
-                {
-                    rpmCache[cacheIndex][i] = motorRPM[i];
-                    targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
-                    throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
-                    valueCache[cacheIndex][i] = PIDError[i];
-                }
-            #endif
-            }
-
-        }
-        break;
-        case TBH_CONTROL:
+    if (enableFwControl){
+        switch (flywheelControl){
+            case PID_CONTROL:
             for (int i = 0; i < 4; i++)
             {
                 if (motors[i])
                 {
-                    /*
-                    so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput for our error accumulator, which we cap at 1999.
-                    Just trying to reuse variables to save runtime memory
-                    */
+                
                     esc[i]->getTelemetryErpm(&motorRPM[i]);
                     motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
                     
                     PIDError[i] = targetRPM[i] - motorRPM[i];
-                    PIDOutput[i] += KI * PIDError[i]; // reset PID output
-                    if (PIDOutput[i] > 1999) {
-                        PIDOutput[i] = 1999; // prevent negative output and cap output
-                    } else if (PIDOutput[i] < 0) {
-                        PIDOutput[i] = 0;
-                        if (flywheelState == STATE_IDLE && targetRPM[i] != 0) {
-                            PIDOutput[i] = 20; // don't kill throttle while decending to idle
-                        }
+                    
+                    PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
+                    if (targetRPM[i] == 0) {
+                    PIDOutput[i] = 0;
+                    } else {
+                    PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
                     }
-                    if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
-                        PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
-                        PIDErrorPrior[i] = PIDError[i];
-                    }
-                    if (targetRPM[i] != 0 && PIDOutput[i] < 1) {
-                        PIDOutput[i] = 1;
-                    }
+                    
+                    PIDErrorPrior[i] = PIDError[i];
                     esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
 
-                    // if we have rpm logging enabled, add the most recent value to the cache
-                #ifdef USE_RPM_LOGGING
-                    if (cacheIndex < rpmLogLength)
-                    {
-                        rpmCache[cacheIndex][i] = motorRPM[i];
-                        targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
-                        throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
-                        valueCache[cacheIndex][i] = PIDError[i];
-                    }
-                #endif
-    
                 }
 
             }
             break;
+            case TBH_CONTROL:
+                for (int i = 0; i < 4; i++)
+                {
+                    if (motors[i])
+                    {
+                        /*
+                        so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput for our error accumulator, which we cap at 1999.
+                        Just trying to reuse variables to save runtime memory
+                        */
+                        esc[i]->getTelemetryErpm(&motorRPM[i]);
+                        motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                        
+                        PIDError[i] = targetRPM[i] - motorRPM[i];
+                        PIDOutput[i] += KI * PIDError[i]; // reset PID output
+                        if (PIDOutput[i] > 1999) {
+                            PIDOutput[i] = 1999; // prevent negative output and cap output
+                        } else if (PIDOutput[i] < 0) {
+                            PIDOutput[i] = 0;
+                        }
+
+                        if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
+                            PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
+                            PIDErrorPrior[i] = PIDError[i];
+                        }
+                        
+                        // prevent output from being zero if non zero targetRPM since we don't want to hard brake if we overshoot for heat optimization
+                        if ((flywheelState == STATE_ACCELERATING || flywheelState == STATE_FULLSPEED)  && targetRPM[i] != 0 && PIDOutput[i] < 1) {
+                            PIDOutput[i] = 1;
+                        }
+                        /**/
+                        // when we are at idle, don't let output drop too low
+                        if (flywheelState == STATE_IDLE  && targetRPM[i] == idleRPM[i] && PIDOutput[i] < 1) { 
+                            PIDOutput[i] = 1;
+                        }
+
+
+                        esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
+        
+                    }
+
+                }
+                break;
+        }
+    } else {
+        //we are spinning down or idling, just do open loop control
+        for (int i = 0; i < 4; i++) {
+            if (motors[i]) {
+                esc[i]->getTelemetryErpm(&motorRPM[i]);
+                motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                PIDOutput[i] = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0);
+                esc[i]->sendThrottle(PIDOutput[i]);
+            }
+        }
     }
+    
+    logData();
+    
     
 
     #ifdef USE_RPM_LOGGING
