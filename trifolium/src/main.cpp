@@ -220,7 +220,7 @@ void setup()
         break;
     case PUSHER_SOLENOID_OPENLOOP:
         if (solenoidExtendTimeLow_ms == solenoidExtendTimeHigh_ms || solenoidExtendTimeLowVoltage_mv > solenoidExtendTimeHighVoltage_mv) { // if times are equal, don't do this calc
-            solenoidExtendTime_ms = solenoidExtendTimeHigh_ms;
+            solenoidVoltageTimeIntercept = solenoidExtendTimeHigh_ms;
         } else {
             solenoidVoltageTimeSlope = (solenoidExtendTimeHigh_ms - solenoidExtendTimeLow_ms) / ((float)(solenoidExtendTimeHighVoltage_mv - solenoidExtendTimeLowVoltage_mv));
             solenoidVoltageTimeIntercept = solenoidExtendTimeHigh_ms - (solenoidVoltageTimeSlope * solenoidExtendTimeHighVoltage_mv) + 1;

@@ -3,31 +3,31 @@
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 20000, 20000, 40000, 40000 }, { 25000, 25000, 25000, 25000 }, { 14000, 14000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
-uint32_t dwellTimeSet_ms[3] = { 500, 0, 0 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
-uint32_t idleTimeSet_ms[3] = { 240000, 0, 3000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
-uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
-uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
+int32_t revRPMset[3][4] = { { 70000, 70000, 40000, 40000 }, { 60000, 60000, 25000, 25000 }, { 50000, 50000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
+uint32_t dwellTimeSet_ms[3] = { 500, 500, 500 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
+uint32_t idleTimeSet_ms[3] = { 240000, 240000, 240000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
+//uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
+//uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
 uint32_t spindownSpeed = 100; // RPM per ms
 
 int32_t motorKv = 4800; // critical for closed loop
-int32_t idleRPM[4] = { 500, 500, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
+int32_t idleRPM[4] = { 1000, 1000, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
 dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
 flywheelControlType_t flywheelControl = TBH_CONTROL; // OPEN_LOOP_CONTROL, TWO_LEVEL_CONTROL, PID_CONTROL, or TBH_CONTROL
 const bool motors[4] = {true, true, false, false}; // which motors are hooked up
-bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
+//bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot
-int32_t firingRPMTolerance = 10000; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
+int32_t firingRPMTolerance = 500; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
 int32_t minFiringRPM = 10000; // overrides firingRPMTolerance for low rpm settings
-int32_t minFiringDelaySet_ms[3] = {0, 0, 0}; // when not idling, don't fire the pusher before this amount of time, even if wheels are up to speed. makes the delay more consistent
-int32_t minFiringDelayIdleSet_ms[3] = {0, 0, 0}; // same but when idling
+//int32_t minFiringDelaySet_ms[3] = {0, 0, 0}; // when not idling, don't fire the pusher before this amount of time, even if wheels are up to speed. makes the delay more consistent
+//int32_t minFiringDelayIdleSet_ms[3] = {0, 0, 0}; // same but when idling
 
 // Select Fire Settings
-uint32_t burstLengthSet[3] = { 100, 5, 1 };
-burstFireType_t burstModeSet[3] = { AUTO, AUTO, BURST };
+uint32_t burstLengthSet[3] = { 100, 1, 1 };
+burstFireType_t burstModeSet[3] = { AUTO, BINARY, BURST };
 // burstMode AUTO = stops firing when trigger is released
 // burstMode BURST = always completes the burst
 // burstMode BINARY = fires one burst when you pull the trigger and another when you release the trigger
@@ -39,7 +39,7 @@ burstFireType_t burstModeSet[3] = { AUTO, AUTO, BURST };
 uint32_t binaryTriggerTimeout_ms = 2000; // if you hold the trigger for more than this amount of time, releasing the trigger will not fire a burst
 
 
-selectFireType_t selectFireType = NO_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, or BUTTON_SELECT_FIRE
+selectFireType_t selectFireType = SWITCH_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, or BUTTON_SELECT_FIRE
 uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to select if no pins are connected
 
 // Dettlaff Settings
@@ -57,9 +57,9 @@ boards_t board = pico_zero_diana; // select the one that matches your board revi
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
 uint8_t revSwitchPin = PIN_NOT_USED; // optional rev trigger
 uint8_t cycleSwitchPin = PIN_NOT_USED; // pusher motor home switch
-uint8_t select0Pin = PIN_NOT_USED; // optional for select fire
+uint8_t select0Pin = board.IO2; // optional for select fire
 uint8_t select1Pin = PIN_NOT_USED; // optional for select fire
-uint8_t select2Pin = PIN_NOT_USED; // optional for select fire
+uint8_t select2Pin = board.IO3; // optional for select fire
 
 
 // Pusher Settings
@@ -71,8 +71,8 @@ bool pusherReverseDirection = false; // make motor spin backwards
 // Solenoid Settings
 uint16_t solenoidExtendTimeHigh_ms = 25; // set this to the high voltage min push time
 uint32_t solenoidExtendTimeHighVoltage_mv = 16800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeHigh_ms time (from log)
-uint16_t solenoidExtendTimeLow_ms = 40;
-uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeLow_ms time (from log)
+uint16_t solenoidExtendTimeLow_ms = 25;
+uint32_t solenoidExtendTimeLowVoltage_mv = 16800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeLow_ms time (from log)
 uint16_t solenoidRetractTime_ms = 35;
 
 // Advanced Settings
@@ -98,7 +98,7 @@ float KD = 0;
 // TBH Settings
 // for TBH PIDIntegral is used for TBH variable, and Gain is KI
 
-float KI = 0.03;
+float KI = 0.02;
 
 // Debug settings
 bool printTelemetry = true; // output printing
