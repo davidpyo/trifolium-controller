@@ -1,6 +1,36 @@
 #include "types.h"
 
 
+const boards_t pico_zero_diana = {
+    .pusherDriverType = FET_DRIVER, 
+    .esc1 = 0,
+    .esc2 = 1,
+    .esc3 = 2,
+    .esc4 = 3,
+    .telem = 4,
+    .I2C_SCL = 5,
+    .I2C_SDA = 6,
+    .IO2 = 4,
+    .IO5 = 8,
+    .IO6 = 6,
+    .IO1 = 3,
+    .IO3 = 5,
+    .IO4 = 12,
+    .batteryADC = PIN_NOT_USED,
+    .escADC = PIN_NOT_USED,
+    .drvADC = PIN_NOT_USED,
+    .drvNSLEEP = PIN_NOT_USED,    
+    .drvEN = 11,
+    .drvPH = PIN_NOT_USED,
+    .drvMOSI = PIN_NOT_USED,
+    .drvMISO = PIN_NOT_USED,
+    .drvNSCS = PIN_NOT_USED,
+    .drvSCLK = PIN_NOT_USED,
+    .LED_DATA = 24,
+    .ESC_ENABLE = PIN_NOT_USED,
+};
+
+
 const boards_t pico_zero = {
     .pusherDriverType = FET_DRIVER, 
     .esc1 = 0,

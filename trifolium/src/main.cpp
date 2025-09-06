@@ -8,9 +8,8 @@
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
 
-// elapsedMicros pidLoopTimer_us;
-elapsedMicros revStartTime_us;
-elapsedMillis lastRevTime_ms;
+
+uint32_t lastRevTime_ms = 0; // for calculating idling
 
 uint32_t loopStartTimer_us = micros();
 int32_t loopTime_us = targetLoopTime_us;
@@ -18,10 +17,11 @@ uint32_t lastMainLoopTime = millis();
 uint32_t time_ms = millis();
 // uint32_t lastRevTime_ms = 0; // for calculating idling
 uint32_t pusherTimer_ms = 0;
-// uint32_t revStartTime_us = 0;
+uint32_t revStartTime_us = 0;
 uint32_t triggerTime_ms = 0;
 
 uint32_t revRPM[4];                   // stores value from revRPMSet on boot for current firing mode
+uint32_t dwellTime_ms;                 // stores value from dwellTimeSet_ms on boot for current firing mode
 uint32_t idleTime_ms;                 // stores value from idleTimeSet_ms on boot for current firing mode
 uint32_t targetRPM[4] = {0, 0, 0, 0}; // stores current target rpm
 uint32_t firingRPM[4];
@@ -38,6 +38,7 @@ flywheelState_t flywheelState = STATE_IDLE;
 bool firing = false;
 bool reverseBraking = false;
 bool pusherDwelling = false;
+bool isBatteryAdcDefined = false;
 uint32_t batteryADC_mv = 0;
 int32_t batteryVoltage_mv = 14800;
 int32_t voltageBuffer[voltageAveragingWindow] = {0};
@@ -49,16 +50,20 @@ const int32_t maxThrottle = 1999;
 uint32_t motorRPM[4] = {0, 0, 0, 0};
 uint32_t fullThrottleRpmThreshold[4] = {0, 0, 0, 0};
 Driver *pusher;
+uint16_t solenoidExtendTime_ms = 0;
+float solenoidVoltageTimeSlope = 0; // relationship between voltage and solenoid extend time calculated at setup
+int16_t solenoidVoltageTimeIntercept = 0;
 bool wifiState = false;
 // String telemBuffer = "";
 int8_t telemMotorNum = -1; // 0-3
 
 int32_t tempRPM;
 bool currentlyLogging = false;
+bool enableFwControl = true;
 
 // closed loop variables
 int32_t PIDError[4];
-int32_t PIDErrorPrior[4];
+int32_t PIDErrorPrior[4] = {1,1,1,1};
 int32_t closedLoopRPM[4];
 int32_t PIDOutput[4];
 int32_t PIDIntegral[4] = {0, 0, 0, 0};
@@ -85,6 +90,7 @@ uint16_t cacheIndex = rpmLogLength + 1;
 void updateFiringMode();
 bool fwControlLoop();
 void mainFiringLogic();
+void resetFWControl();
 
 template <typename T>
 void println(T value)
@@ -100,6 +106,29 @@ void print(T value)
         Serial.print(value);
 }
 
+bool pinDefined(uint8_t pin)
+{
+    return pin != PIN_NOT_USED;
+}
+
+void logData(){
+    // if we have rpm logging enabled, add the most recent value to the cache
+    #ifdef USE_RPM_LOGGING
+    for (int i = 0; i < 4; i++) {
+            if (motors[i]) {
+                if (cacheIndex < rpmLogLength)
+                {
+                    rpmCache[cacheIndex][i] = motorRPM[i];
+                    targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
+                    throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
+                    valueCache[cacheIndex][i] = PIDError[i];
+                }
+            }
+        }
+    #endif
+}
+
+
 void setup()
 {
     if (printTelemetry)
@@ -107,23 +136,39 @@ void setup()
         Serial.begin(115200);
     }
     println("Booting");
-
+    
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
+    if (pinDefined(board.batteryADC)){
+        pinMode(board.batteryADC, INPUT);
+        batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
+        batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
+        print("Battery voltage (before calibration): ");
+        println(batteryADC_mv * 11);
+        if (voltageCalibrationFactor != 1.0) {
+            print("Battery voltage (after calibration): ");
+            println(voltageCalibrationFactor * batteryADC_mv * 11);
+        }
+        isBatteryAdcDefined = true;
+    } else {
+        isBatteryAdcDefined = false;
+        batteryVoltage_mv = 16800; // assume fully charged if no adc defined
+    }
+    
 
-    if (revSwitchPin)
+    if (pinDefined(revSwitchPin))
     {
         revSwitch.attach(revSwitchPin, INPUT_PULLUP);
         revSwitch.interval(debounceTime_ms);
         revSwitch.setPressedState(revSwitchNormallyClosed);
     }
-    if (triggerSwitchPin)
+    if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
         triggerSwitch.interval(debounceTime_ms);
         triggerSwitch.setPressedState(triggerSwitchNormallyClosed);
     }
-    if (cycleSwitchPin)
+    if (pinDefined(cycleSwitchPin))
     {
         cycleSwitch.attach(cycleSwitchPin, INPUT_PULLUP);
         cycleSwitch.interval(pusherDebounceTime_ms);
@@ -131,19 +176,19 @@ void setup()
     }
     if (selectFireType != NO_SELECT_FIRE)
     {
-        if (select0Pin)
+        if (pinDefined(select0Pin))
         {
             select0.attach(select0Pin, INPUT_PULLUP);
             select0.interval(debounceTime_ms);
             select0.setPressedState(false);
         }
-        if (select1Pin)
+        if (pinDefined(select1Pin))
         {
             select1.attach(select1Pin, INPUT_PULLUP);
             select1.interval(debounceTime_ms);
             select1.setPressedState(false);
         }
-        if (select2Pin)
+        if (pinDefined(select2Pin))
         {
             select2.attach(select2Pin, INPUT_PULLUP);
             select2.interval(debounceTime_ms);
@@ -151,9 +196,11 @@ void setup()
         }
     }
 
-
-    pinMode(board.ESC_ENABLE, OUTPUT);
-    digitalWrite(board.ESC_ENABLE, HIGH);
+    if (pinDefined(board.ESC_ENABLE)){
+        pinMode(board.ESC_ENABLE, OUTPUT);
+        digitalWrite(board.ESC_ENABLE, HIGH); 
+    }
+  
 
     switch (board.pusherDriverType)
     {
@@ -162,6 +209,27 @@ void setup()
         break;
     case FET_DRIVER:
         pusher = new Fet(board.drvEN);
+        break;
+    default:
+        break;
+    }
+
+
+    switch (pusherType) {
+    case PUSHER_MOTOR_CLOSEDLOOP:
+        break;
+    case PUSHER_SOLENOID_OPENLOOP:
+        if (solenoidExtendTimeLow_ms == solenoidExtendTimeHigh_ms || solenoidExtendTimeLowVoltage_mv > solenoidExtendTimeHighVoltage_mv) { // if times are equal, don't do this calc
+            solenoidVoltageTimeIntercept = solenoidExtendTimeHigh_ms;
+        } else {
+            solenoidVoltageTimeSlope = (solenoidExtendTimeHigh_ms - solenoidExtendTimeLow_ms) / ((float)(solenoidExtendTimeHighVoltage_mv - solenoidExtendTimeLowVoltage_mv));
+            solenoidVoltageTimeIntercept = solenoidExtendTimeHigh_ms - (solenoidVoltageTimeSlope * solenoidExtendTimeHighVoltage_mv) + 1;
+            print("solenoidVoltageTimeSlope: ");
+            println(solenoidVoltageTimeSlope);
+            print("solenoidVoltageTimeIntercept: ");
+            println(solenoidVoltageTimeIntercept);
+        }
+
         break;
     default:
         break;
@@ -201,7 +269,19 @@ void setup()
             }
         }
     }
+    dwellTime_ms = dwellTimeSet_ms[fpsMode];
     idleTime_ms = idleTimeSet_ms[fpsMode];
+    // make sure to send neutral throttle to arm esc's
+    for (int j = 0; j < 1000; j++) {
+        for (int i = 0; i < 4; i++)
+        {
+            if (motors[i])
+            {
+                esc[i]->sendThrottle(0);
+            }
+        }
+        delay(1);
+    }
 }
 
 void loop()
@@ -216,31 +296,15 @@ void loop()
     }
 
     fwControlLoop();
-
-    /* move to core1
-        batteryADC_mv = batteryADC.readMiliVolts();
-    if (voltageAveragingWindow == 1) {
-        batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
-    } else {
-        voltageBuffer[voltageBufferIndex] = voltageCalibrationFactor * batteryADC_mv * 11;
-        voltageBufferIndex = (voltageBufferIndex + 1) % voltageAveragingWindow;
-        batteryVoltage_mv = 0;
-        for (int i = 0; i < voltageAveragingWindow; i++) {
-            batteryVoltage_mv += voltageBuffer[i];
-        }
-        batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
-    }
-
-    */
 }
 
 void mainFiringLogic()
 {
-    if (revSwitchPin)
+    if (pinDefined(revSwitchPin))
     {
         revSwitch.update();
     }
-    if (triggerSwitchPin)
+    if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.update();
     }
@@ -286,6 +350,22 @@ void mainFiringLogic()
             shotsToFire = 1;
         }
     }
+    if (isBatteryAdcDefined){
+        batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
+        if (voltageAveragingWindow == 1) {
+            batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
+        } else {
+            voltageBuffer[voltageBufferIndex] = voltageCalibrationFactor * batteryADC_mv * 11;
+            voltageBufferIndex = (voltageBufferIndex + 1) % voltageAveragingWindow;
+            batteryVoltage_mv = 0;
+            for (int i = 0; i < voltageAveragingWindow; i++) {
+                batteryVoltage_mv += voltageBuffer[i];
+            }
+            batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
+        }
+    }
+   
+
 }
 
 bool fwControlLoop()
@@ -295,7 +375,7 @@ bool fwControlLoop()
 
     case STATE_IDLE:
         if (batteryVoltage_mv < lowVoltageCutoff_mv && time_ms > 2000)
-        {
+        {   
             digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
             print("Battery low, shutting down! ");
             print(batteryVoltage_mv);
@@ -304,27 +384,33 @@ bool fwControlLoop()
 
         if (shotsToFire > 0 || revSwitch.isPressed())
         {
-            revStartTime_us = 0;
-            // revStartTime_us = loopStartTimer_us;
+            enableFwControl = true;
+            revStartTime_us = loopStartTimer_us;
             memcpy(targetRPM, revRPM, sizeof(targetRPM)); // Copy revRPM to targetRPM
-            lastRevTime_ms = 0;
+            lastRevTime_ms = time_ms;
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
-
-#ifdef USE_RPM_LOGGING
-            cacheIndex = 0; // reset cache index to start logging
-#endif
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (motors[i])
-                {
-                    PIDIntegral[i] = 0; // reset PID integral
+            resetFWControl();
+            if (flywheelControl == TBH_CONTROL) {
+                for (int i = 0; i < 4; i++) {
+                    if (motors[i]) {
+                        // for optimal rev let's set throttle to max until first crossing
+                        PIDOutput[i] = maxThrottle;
+                        // premptly setup TBH variable to reduce overshoot
+                        PIDIntegral[i] = (2 * map(((targetRPM[i] * 1000) / motorKv), 0, batteryVoltage_mv, 0, maxThrottle)) - PIDOutput[i];
+                    }
                 }
             }
+            #ifdef USE_RPM_LOGGING
+            cacheIndex = 0; // reset cache index to start logging
+            #endif
         }
-        else if (lastRevTime_ms < idleTime_ms && lastRevTime_ms > 0)
+        else if (time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0)
+        { // dwell flywheels
+        }
+        else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
         { // idle flywheels
+            enableFwControl = false;
             if (currentSpindownSpeed < spindownSpeed)
             {
                 currentSpindownSpeed += 1;
@@ -337,13 +423,13 @@ bool fwControlLoop()
 
                     // Prevent targetRPM from going below idle
                     targetRPM[i] = (targetRPM[i] > rpmDrop + idleRPM[i]) ? (targetRPM[i] - rpmDrop) : idleRPM[i];
+
                 }
             }
-            
         }
         else
         { // stop flywheels
-              
+            enableFwControl = false;  
             if (currentSpindownSpeed < spindownSpeed)
             {
                 currentSpindownSpeed += 1;
@@ -374,15 +460,9 @@ bool fwControlLoop()
             flywheelState = STATE_FULLSPEED;
             fromIdle =  true;
             println("STATE_FULLSPEED transition 1");
-        } else if (revStartTime_us > 500000) { //500ms seems a reasonable timeout
+        } else if (loopStartTimer_us - revStartTime_us > 500000) { //500ms seems a reasonable timeout
             flywheelState = STATE_IDLE;
-            for (int i = 0; i < 4; i++)
-            {
-                if (motors[i])
-                {
-                    PIDIntegral[i] = 0; // stop reset PID
-                }
-            }
+            resetFWControl();
             shotsToFire = 0;
             println("Error! Flywheels failed to reach target speed!");
         }
@@ -394,18 +474,11 @@ bool fwControlLoop()
         if (!revSwitch.isPressed() && shotsToFire == 0 && !firing)
         {
             flywheelState = STATE_IDLE;
-            for (int i = 0; i < 4; i++)
-            {
-                if (motors[i])
-                {
-                    PIDIntegral[i] = 0; // stop reset PID
-                }
-            }
             println("state transition: FULLSPEED to IDLE 1");
         }
         else if (shotsToFire > 0 || firing)
         {
-            lastRevTime_ms = 0;
+            lastRevTime_ms = time_ms;
 
             if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
             { // extend solenoid
@@ -413,6 +486,7 @@ bool fwControlLoop()
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
                 pusherTimer_ms = time_ms;
+                solenoidExtendTime_ms = batteryVoltage_mv * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept; // assumes  a linear relationship between voltage and solenoid extend time
                 println("solenoid extending");
             }
             else if (firing && time_ms > pusherTimer_ms + solenoidExtendTime_ms)
@@ -425,39 +499,85 @@ bool fwControlLoop()
         }
         break;
     }
-
-    for (int i = 0; i < 4; i++)
-    {
-        if (motors[i])
-        {
-
-            esc[i]->getTelemetryErpm(&motorRPM[i]);
-            motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
-
-            PIDError[i] = targetRPM[i] - motorRPM[i];
-            PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
-            if (targetRPM[i] == 0) {
-            PIDOutput[i] = 0;
-            } else {
-            PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
-            }
-            esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
-
-            // if we have rpm logging enabled, add the most recent value to the cache
-#ifdef USE_RPM_LOGGING
-            if (cacheIndex < rpmLogLength)
+    if (enableFwControl){
+        switch (flywheelControl){
+            case PID_CONTROL:
+            for (int i = 0; i < 4; i++)
             {
-                rpmCache[cacheIndex][i] = motorRPM[i];
-                targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
-                throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
-                valueCache[cacheIndex][i] = PIDError[i];
+                if (motors[i])
+                {
+                
+                    esc[i]->getTelemetryErpm(&motorRPM[i]);
+                    motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                    
+                    PIDError[i] = targetRPM[i] - motorRPM[i];
+                    
+                    PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
+                    if (targetRPM[i] == 0) {
+                    PIDOutput[i] = 0;
+                    } else {
+                    PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+                    }
+                    
+                    PIDErrorPrior[i] = PIDError[i];
+                    esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
+
+                }
+
             }
-#endif
+            break;
+            case TBH_CONTROL:
+                for (int i = 0; i < 4; i++)
+                {
+                    if (motors[i])
+                    {
+                        /*
+                        so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput for our error accumulator, which we cap at 1999.
+                        Just trying to reuse variables to save runtime memory
+                        */
+                        esc[i]->getTelemetryErpm(&motorRPM[i]);
+                        motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                        
+                        PIDError[i] = targetRPM[i] - motorRPM[i];
+                        PIDOutput[i] += KI * PIDError[i]; // reset PID output
 
-            PIDErrorPrior[i] = PIDError[i];
+
+                        if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
+                            PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
+                            PIDErrorPrior[i] = PIDError[i];
+                        }
+                        
+                        if (PIDOutput[i] > 1999) {
+                            PIDOutput[i] = 1999; // prevent negative output and cap output
+                        } else if (PIDOutput[i] < 0) {
+                            PIDOutput[i] = 0;
+                        }
+                        // prevent output from being zero if non zero targetRPM since we don't want to hard brake if we overshoot for heat optimization
+                        if ((flywheelState == STATE_ACCELERATING || flywheelState == STATE_FULLSPEED)  && targetRPM[i] != 0 && PIDOutput[i] < 1) {
+                            PIDOutput[i] = 1;
+                        }
+                        esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
+        
+                    }
+
+                }
+                break;
         }
-
+    } else {
+        //we are spinning down or idling, just do open loop control
+        for (int i = 0; i < 4; i++) {
+            if (motors[i]) {
+                esc[i]->getTelemetryErpm(&motorRPM[i]);
+                motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                PIDOutput[i] = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0);
+                esc[i]->sendThrottle(PIDOutput[i]);
+            }
+        }
     }
+    
+    logData();
+    
+    
 
     #ifdef USE_RPM_LOGGING
         // increment cache index if we still need to take data
@@ -536,7 +656,7 @@ void updateFiringMode()
     {
         return;
     }
-    if (select0Pin)
+    if (pinDefined(select0Pin))
     {
         select0.update();
         if (select0.isPressed())
@@ -545,7 +665,7 @@ void updateFiringMode()
             return;
         }
     }
-    if (select1Pin)
+    if (pinDefined(select1Pin))
     {
         select1.update();
         if (select1.isPressed())
@@ -554,7 +674,7 @@ void updateFiringMode()
             return;
         }
     }
-    if (select2Pin)
+    if (pinDefined(select2Pin))
     {
         select2.update();
         if (select2.isPressed())
@@ -568,4 +688,26 @@ void updateFiringMode()
         firingMode = defaultFiringMode;
         return;
     }
+}
+
+// call this function to reset PID integral values, or reset I for TBH control
+void resetFWControl()
+{
+    switch (flywheelControl) {
+    case PID_CONTROL:
+        for (int i = 0; i < 4; i++) {
+            if (motors[i]) {
+                PIDIntegral[i] = 0; // stop reset PID
+            }
+        }
+        break;
+    case TBH_CONTROL:
+        for (int i = 0; i < 4; i++) {
+            if (motors[i]) {
+                PIDIntegral[i] = 0; // reset TBH to target RPM value
+            }
+        }
+        break;
+    }
+    return;
 }

@@ -2,6 +2,8 @@
 #define __types_h_
 #include <Arduino.h>
 
+#define PIN_NOT_USED 255
+
 enum flywheelState_t {
     STATE_IDLE,
     STATE_ACCELERATING, // ACCELERATING = wheels not yet at full speed
@@ -12,6 +14,13 @@ enum selectFireType_t {
     NO_SELECT_FIRE,
     SWITCH_SELECT_FIRE,
     BUTTON_SELECT_FIRE
+};
+
+enum flywheelControlType_t {
+    //OPEN_LOOP_CONTROL,
+    //TWO_LEVEL_CONTROL,
+    PID_CONTROL,
+    TBH_CONTROL,
 };
 
 enum burstFireType_t {
