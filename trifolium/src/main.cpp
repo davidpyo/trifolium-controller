@@ -198,6 +198,22 @@ void setup()
 
     if (pinDefined(board.ESC_ENABLE)){
         pinMode(board.ESC_ENABLE, OUTPUT);
+       /* if (pinDefined(triggerSwitchPin)){
+            triggerSwitch.update();
+            delay(20);
+            println("Waiting for trigger press to enable ESCs...");
+            while (!triggerSwitch.isPressed()) {
+                println("help");
+                // block for trigger to be pressed before arming esc's
+                /*displayOverride = true;
+                display.clearDisplay();
+                display.setCursor(0,0);
+                display.setTextSize(2);
+                display.println("PRESS TRIGGER TO BOOT");*/
+               // triggerSwitch.update();
+               // delay(10);
+            //}*/
+        //}
         digitalWrite(board.ESC_ENABLE, HIGH); 
     }
   
