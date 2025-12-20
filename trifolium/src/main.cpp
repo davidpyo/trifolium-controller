@@ -296,7 +296,7 @@ void setup()
                 esc[i]->sendThrottle(0);
             }
         }
-        delay(1);
+        delayMicroseconds(100);
     }
 }
 
