@@ -136,7 +136,7 @@ void setup()
         Serial.begin(115200);
     }
     println("Booting");
-    
+    delay(1000); 
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
     if (pinDefined(board.batteryADC)){
@@ -214,7 +214,7 @@ void setup()
                // delay(10);
             //}*/
         //}
-        digitalWrite(board.ESC_ENABLE, HIGH); 
+        digitalWrite(board.ESC_ENABLE, LOW); 
     }
   
 
@@ -288,7 +288,7 @@ void setup()
     dwellTime_ms = dwellTimeSet_ms[fpsMode];
     idleTime_ms = idleTimeSet_ms[fpsMode];
     // make sure to send neutral throttle to arm esc's
-    for (int j = 0; j < 1000; j++) {
+    for (int j = 0; j < 3000; j++) {
         for (int i = 0; i < 4; i++)
         {
             if (motors[i])
