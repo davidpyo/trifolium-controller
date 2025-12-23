@@ -8,6 +8,27 @@
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
 
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C 
+
+/* 
+ *  The following uses the default Wire instance (for Pico, this uses GP6 for SDA 
+ *  and GP7 for SCL). 
+ *  One can use other I2C combinations by using the following 2 lines instead:
+ *  
+ *  TwoWire myI2C(8,9);  //create instance for SDA=GPGP8 SCL=9 
+ *  Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, OLED_RESET);
+ */
+TwoWire myI2C(i2c1, 14,15); 
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, OLED_RESET);
 
 uint32_t lastRevTime_ms = 0; // for calculating idling
 
@@ -131,12 +152,25 @@ void logData(){
 
 void setup()
 {
+
     if (printTelemetry)
     {
         Serial.begin(115200);
     }
     println("Booting");
     delay(1000); 
+    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+        println("SSD1306 allocation failed");
+        for(;;); // Don't proceed, loop forever
+    }
+    // Clear the buffer
+    display.clearDisplay();
+    display.setTextSize(1);             // Normal 1:1 pixel scale
+    display.setTextColor(SSD1306_WHITE);        // Draw white text
+    display.setCursor(40, 30);
+    display.println("HOWDY !");
+    display.display();
+
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
     if (pinDefined(board.batteryADC)){
