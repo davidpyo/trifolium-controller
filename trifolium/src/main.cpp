@@ -4,6 +4,7 @@
 #include "types.h"
 #include "fetDriver.h"
 #include "drvDriver.h"
+#include "escDriver.h"
 #include "elapsedMillis.h"
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
@@ -226,6 +227,9 @@ void setup()
     case FET_DRIVER:
         pusher = new Fet(board.drvEN);
         break;
+    case ESC_DRIVER:
+        pusher = new EscDriver(board.drvEN);
+        break;
     default:
         break;
     }
@@ -268,19 +272,47 @@ void setup()
             firingRPM[i] = max(revRPM[i] - firingRPMTolerance, minFiringRPM);
             fullThrottleRpmThreshold[i] = revRPM[i] - fullThrottleRpmTolerance;
             if (i == 0)
-            {
+                {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc1, dshotMode);
             }
             else if (i == 1)
             {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc2, dshotMode);
             }
             else if (i == 2)
             {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc3, dshotMode);
             }
             else if (i == 3)
             {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc4, dshotMode);
             }
         }
@@ -381,6 +413,10 @@ void mainFiringLogic()
         }
     }
    
+    if (board.pusherDriverType == ESC_DRIVER)
+    {
+        pusher->update();
+    }
 
 }
 

@@ -39,6 +39,7 @@ enum pusherDriverType_t {
     NO_DRIVER,
     FET_DRIVER,
     DRV_DRIVER,
+    ESC_DRIVER,
 };
 
 enum dshot_mode_t

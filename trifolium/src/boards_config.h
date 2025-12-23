@@ -2,7 +2,7 @@
 
 
 const boards_t trifolium_v1_0 = {
-    .pusherDriverType = FET_DRIVER, 
+    .pusherDriverType = ESC_DRIVER, 
     .esc1 = 0,
     .esc2 = 1,
     .esc3 = 2,
