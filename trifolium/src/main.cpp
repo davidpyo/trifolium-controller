@@ -321,6 +321,11 @@ void setup()
     idleTime_ms = idleTimeSet_ms[fpsMode];
     // make sure to send neutral throttle to arm esc's
     for (int j = 0; j < 3000; j++) {
+        //if pusher is esc driver, do the startup loop for the esc driver too
+        if (board.pusherDriverType == ESC_DRIVER){
+            pusher->update();
+        }
+        //do neutral throttle for all motors
         for (int i = 0; i < 4; i++)
         {
             if (motors[i])
