@@ -34,7 +34,7 @@ int32_t minFiringRPM = 10000; // overrides firingRPMTolerance for low rpm settin
 // Select Fire Settings
 uint32_t burstLengthSet[3] = { 100, 1, 1 };
 burstFireType_t burstModeSet[3] = { AUTO, BINARY, BURST };
-const char * fireModeStrings[3] = { "FULLAUTO", "BINARY", "SEMI" };
+const char * fireModeStrings[3] = { "AUTO", "BINARY", "SEMI" };
 // burstMode AUTO = stops firing when trigger is released
 // burstMode BURST = always completes the burst
 // burstMode BINARY = fires one burst when you pull the trigger and another when you release the trigger
@@ -42,6 +42,7 @@ const char * fireModeStrings[3] = { "FULLAUTO", "BINARY", "SEMI" };
 // for semi auto, set burstLength to 1 and burstMode to BURST
 // for burst fire, set burstLength and burstMode to BURST
 // i find a very useful mode is full auto with a 5 dart limit (burstMode AUTO, burstLength 5)
+// it is your responsibility to set the firemode string to the appropriate option.
 
 uint32_t binaryTriggerTimeout_ms = 2000; // if you hold the trigger for more than this amount of time, releasing the trigger will not fire a burst
 
