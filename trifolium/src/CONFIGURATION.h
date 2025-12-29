@@ -1,9 +1,15 @@
 #include "boards_config.h" // board pinouts are in this file
 
+//config to check config and code versions match
+#define CONFIG_VERSION_MAJOR 1
+#define CONFIG_VERSION_MINOR 0
+#define CONFIG_VERSION_PATCH 0
+
+
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 28000, 28000, 28000, 28000 }, { 28000, 28000, 28000, 28000 }, { 28000, 28000, 28000, 28000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
+int32_t revRPMset[3][4] = { { 28000, 35000, 28000, 350000 }, { 28000, 35000, 28000, 35000 }, { 28000, 35000, 28000, 35000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM. Typically we do assume esc 2/4 and 1/3 are paired
 uint32_t dwellTimeSet_ms[3] = { 500, 500, 500 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
 uint32_t idleTimeSet_ms[3] = { 240000, 240000, 240000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
 //uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
@@ -28,6 +34,7 @@ int32_t minFiringRPM = 10000; // overrides firingRPMTolerance for low rpm settin
 // Select Fire Settings
 uint32_t burstLengthSet[3] = { 100, 1, 1 };
 burstFireType_t burstModeSet[3] = { AUTO, BINARY, BURST };
+const char * fireModeStrings[3] = { "FULLAUTO", "BINARY", "SEMI" };
 // burstMode AUTO = stops firing when trigger is released
 // burstMode BURST = always completes the burst
 // burstMode BINARY = fires one burst when you pull the trigger and another when you release the trigger
@@ -55,7 +62,7 @@ boards_t board = trifolium_v1_0_fet_driver; // select the one that matches your 
 // trifolium_v1_0_fet_driver
 // pico_zero
 // pico_zero_diana
-
+const char * blasterName = "example";//set to blaster name
 bool hasDisplay = true; // set to true if you have an I2C OLED display connected
 
 
@@ -70,7 +77,7 @@ uint8_t select2Pin = board.IO4; // optional for select fire
 
 // Pusher Settings
 pusherType_t pusherType = PUSHER_SOLENOID_OPENLOOP; // either PUSHER_MOTOR_CLOSEDLOOP or PUSHER_SOLENOID_OPENLOOP
-uint32_t pusherVoltage_mv = 13000; // if battery voltage is above this voltage, then use PWM to reduce the voltage that the pusher sees
+//uint32_t pusherVoltage_mv = 13000; // if battery voltage is above this voltage, then use PWM to reduce the voltage that the pusher sees
 bool pusherReverseDirection = false; // make motor spin backwards
 
 
@@ -82,7 +89,7 @@ uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at 
 uint16_t solenoidRetractTime_ms = 35;
 
 // Advanced Settings
-uint16_t pusherStallTime_ms = 750; // for PUSHER_MOTOR_CLOSEDLOOP, how long do you run the motor without seeing an update on the cycle control switch before you decide the motor is stalled?
+//uint16_t pusherStallTime_ms = 750; // for PUSHER_MOTOR_CLOSEDLOOP, how long do you run the motor without seeing an update on the cycle control switch before you decide the motor is stalled?
 bool revSwitchNormallyClosed = false; // invert switch signal?
 bool triggerSwitchNormallyClosed = false;
 bool cycleSwitchNormallyClosed = false;
@@ -90,11 +97,11 @@ uint16_t debounceTime_ms = 100; // decrease if you're unable to make fast double
 uint16_t pusherDebounceTime_ms = 25;
 const int voltageAveragingWindow = 1;
 uint32_t pusherCurrentSmoothingFactor = 90;
-uint8_t telemetryInterval_ms = 5;
-float maxDutyCycle_pct = 98;
-uint8_t deadtime = 10;
-uint16_t pwmFreq_hz = 20000;
-uint16_t servoFreq_hz = 200;
+//uint8_t telemetryInterval_ms = 5;
+//float maxDutyCycle_pct = 98;
+//uint8_t deadtime = 10;
+//uint16_t pwmFreq_hz = 20000;
+//uint16_t servoFreq_hz = 200;
 
 // PID Settings
 float KP = 1.2;

@@ -16,7 +16,9 @@
 #include <Adafruit_SSD1306.h>
 #include "bitmaps.h"
 
-
+#if CONFIG_VERSION_MAJOR != MAJOR_VERSION || CONFIG_VERSION_MINOR != MINOR_VERSION || CONFIG_VERSION_PATCH != PATCH_VERSION
+#error "Your configuration file version does not match code version. Update your configuration file with the missing settings!"
+#endif
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -29,13 +31,16 @@ String displayString = "";
 int cursorX = 0;
 int cursorY = 0;
 bool clearDisplay = false;
-bool displayUpdateRequested = false;
+bool doDisplayString = false;
 //show bootup screen
 bool doBootup = false;
 //show runtime info
 bool showRuntimeInfo = false;
+bool updateRuntimeNow = false;
 //do menu
 bool doMenu = false;
+uint32_t runtimeShotCounter = 0;
+uint32_t displayShotCounter = 0;
 
 //rebooting stuff
 BootReason bootReason;
@@ -499,6 +504,8 @@ void setup()
         }
         delayMicroseconds(100);
     }
+
+    showRuntimeInfo = true;
 }
 
 void loop()
@@ -703,6 +710,12 @@ bool fwControlLoop()
 
             if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
             { // extend solenoid
+                runtimeShotCounter++;
+                displayShotCounter++;
+                if (runtimeShotCounter % 10000 == 0){
+                    displayShotCounter = 0;
+                }
+                updateRuntimeNow = true;
                 pusher->drive(100, pusherReverseDirection);
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
@@ -948,7 +961,7 @@ void setup1(){
 void loop1(){
     if (hasDisplay){
         
-        if (displayUpdateRequested)
+        if (doDisplayString)
         {
             if (clearDisplay)
             {
@@ -957,7 +970,7 @@ void loop1(){
             display.setCursor(cursorX, cursorY);
             display.println(displayString);
             display.display();
-            displayUpdateRequested = false;
+            doDisplayString = false;
         }
 
         if (doBootup){
@@ -965,8 +978,81 @@ void loop1(){
             display.drawBitmap(0, 0, splash, SCREEN_WIDTH, SCREEN_HEIGHT, 1);
             display.display();
             doBootup = false;
+            display.setCursor(0, 56);
+            display.setTextSize(1);
+            display.print("Trifolium v" + String(MAJOR_VERSION) + "." + String(MINOR_VERSION) + "." + String(PATCH_VERSION));
+            display.display();
         }
 
+        unsigned long lastUpdated = 0;
+        while (showRuntimeInfo){
+            if (millis() - lastUpdated > 100 || updateRuntimeNow){
+                //show firing mode
+                display.clearDisplay();
+                display.setCursor(0, 56);
+                display.setTextSize(1);
+                display.print(fireModeStrings[firingMode]);
+                display.drawFastHLine(0, 15, 128, 1);
+                //show motor target rpm
+                //cover the two normal cases of  esc 2/4 and 1/3, and 2 motor operation
+                u8 motorCount = 0;
+                for (int i = 0; i < 4; i++){
+                    if (motors[i]){
+                        motorCount++;
+                    }
+                }
+                if (motorCount == 2){
+                    // assume motors are set to same speed
+                    for (int i = 0; i < 4; i++){
+                        if (motors[i]){
+                            String motorRpmString = String(revRPM[i]/1000) + "K";
+                            display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
+                            display.print(motorRpmString);
+                            break;
+                        }
+                    }
+                } else  if (motorCount == 4){
+                    if (revRPM[0] == revRPM[1] && revRPM[1] == revRPM[2] && revRPM[2] == revRPM[3]){
+                        String motorRpmString = String(revRPM[0]/1000) + "K";
+                        display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
+                        display.print(motorRpmString);
+                    } else {
+                        //assume esc 2/4 and 1/3
+                        String motorRpmString = String(revRPM[0]/1000) + "K|" + String(revRPM[1]/1000) + "K";
+                        display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
+                        display.print(motorRpmString);
+                    }
+                }
+                display.drawFastHLine(0, 54, 128, 1);
+                //show shot counter
+                display.setTextSize(5);
+                String displayShotCounterString(displayShotCounter);
+                display.setCursor(128 - (displayShotCounterString.length() * 32), 18);
+                display.print(displayShotCounterString);
+
+                //show battery voltage
+                if (isBatteryAdcDefined){
+                    display.setTextSize(1);
+                    String batteryVoltageString = String(batteryVoltage_mv / 1000.0, 1) + "V";
+                    display.setCursor(128 - (batteryVoltageString.length() * 6), 5);
+                    display.print(batteryVoltageString);
+                }
+                
+                //display blaster name
+                display.setTextSize(1);
+                display.setCursor(0, 5);
+                display.print(blasterName);
+
+                display.display();
+
+                updateRuntimeNow = false;
+                lastUpdated = millis();
+            }
+        }
+
+        if (doMenu){
+
+        }
     }
     
 }
@@ -979,6 +1065,6 @@ void displayText(String str, int curX, int curY, bool clearScreen)
         cursorX = curX;
         cursorY = curY;
         clearDisplay = clearScreen;
-        displayUpdateRequested = true;
+        doDisplayString = true;
     }
 }
