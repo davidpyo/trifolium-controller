@@ -193,8 +193,15 @@ void setup()
             }
         }
     }
+    
+    // esc passthrough requires a trigger pin
+    if (bootReason == BootReason::TO_ESC_PASSTHROUGH && pinDefined(triggerSwitchPin)) {
+        // setup the trigger pin to exit passthrough
 
-    if (bootReason == BootReason::TO_ESC_PASSTHROUGH) {
+        triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
+        triggerSwitch.interval(debounceTime_ms);
+        triggerSwitch.setPressedState(triggerSwitchNormallyClosed);
+
         // only do esc passthrough for the motors that are defined and esc driver pin if defined
         u8 numPassthrough = 0;
         for (int i = 0; i < 4; i++)
@@ -233,17 +240,26 @@ void setup()
                 currentPin++;
             }
         }
+        // TODO display something on the screen if available to indicate passthrough
         beginPassthrough(pins, numPassthrough);
+        unsigned long currentTime = millis(); 
         while (processPassthrough()) {
-            
+            triggerSwitch.update();
+            if (triggerSwitch.isPressed())
+            {
+                currentTime = millis();
+            }
+            if (millis() - currentTime > 3000) {
+                //exit passthrough after 3 secs of trigger
+                break;
+            }
         }
     }
     
     println("Booting");
-    delay(1000); 
+    //delay to allow gpio to stabilize
+    delay(1000);
 
-    // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
-    // pinMode(board.telem, INPUT_PULLUP);
     if (pinDefined(board.batteryADC)){
         pinMode(board.batteryADC, INPUT);
         batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
@@ -257,6 +273,7 @@ void setup()
         isBatteryAdcDefined = true;
     } else {
         isBatteryAdcDefined = false;
+        //TODO don't assume 4s.
         batteryVoltage_mv = 16800; // assume fully charged if no adc defined
     }
     
@@ -322,6 +339,14 @@ void setup()
         digitalWrite(board.ESC_ENABLE, LOW); 
     }
   
+
+    //if trigger is pulled on boot, enter esc passthrough mode
+    triggerSwitch.update();
+    if (triggerSwitch.isPressed()) {
+        rebootReason = BootReason::TO_ESC_PASSTHROUGH;
+        delay(100);
+        rp2040.reboot();
+    }
 
     switch (board.pusherDriverType)
     {
