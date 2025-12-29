@@ -14,7 +14,7 @@
 //#include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
+#include "bitmaps.h"
 
 
 
@@ -24,7 +24,18 @@
 
 TwoWire myI2C(board.I2C_HW_BLK, board.I2C_SCL, board.I2C_SDA); 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, -1);
-
+//use for communication between cores for display
+String displayString = "";
+int cursorX = 0;
+int cursorY = 0;
+bool clearDisplay = false;
+bool displayUpdateRequested = false;
+//show bootup screen
+bool doBootup = false;
+//show runtime info
+bool showRuntimeInfo = false;
+//do menu
+bool doMenu = false;
 
 //rebooting stuff
 BootReason bootReason;
@@ -114,6 +125,11 @@ void updateFiringMode();
 bool fwControlLoop();
 void mainFiringLogic();
 void resetFWControl();
+
+//display functions
+// I think this will just be used for initial messages? 
+void displayText(String str, int curX = 0, int curY = 0, bool clearScreen = false);
+
 
 template <typename T>
 void println(T value)
@@ -256,7 +272,9 @@ void setup()
                 currentPin++;
             }
         }
-        // TODO display something on the screen if available to indicate passthrough
+
+        displayText("ESC Passthrough, hold trigger to exit", 0, 0, true);
+
         beginPassthrough(pins, numPassthrough);
         unsigned long currentTime = millis(); 
         while (processPassthrough()) {
@@ -271,7 +289,8 @@ void setup()
             }
         }
     }
-    
+    // display bootup screen if available
+    doBootup = true;
     println("Booting");
     //delay to allow gpio to stabilize
     delay(1000);
@@ -915,19 +934,51 @@ void resetFWControl()
 }
 
 void setup1(){
-   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-        println("SSD1306 allocation failed");
-        for(;;); // Don't proceed, loop forever
+    if(hasDisplay){
+        if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+            for(;;); // Don't proceed, loop forever
+        }
+        // Clear the buffer
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
     }
-    // Clear the buffer
-    display.clearDisplay();
-    display.setTextSize(1);             // Normal 1:1 pixel scale
-    display.setTextColor(SSD1306_WHITE);        // Draw white text
-    display.setCursor(40, 30);
-    display.println("HOWDY !");
-    display.display();
 }
 
 void loop1(){
+    if (hasDisplay){
+        
+        if (displayUpdateRequested)
+        {
+            if (clearDisplay)
+            {
+                display.clearDisplay();
+            }
+            display.setCursor(cursorX, cursorY);
+            display.println(displayString);
+            display.display();
+            displayUpdateRequested = false;
+        }
 
+        if (doBootup){
+            display.clearDisplay();
+            display.drawBitmap(0, 0, splash, SCREEN_WIDTH, SCREEN_HEIGHT, 1);
+            display.display();
+            doBootup = false;
+        }
+
+    }
+    
+}
+
+void displayText(String str, int curX, int curY, bool clearScreen)
+{
+    if (hasDisplay)
+    {
+        displayString = str;
+        cursorX = curX;
+        cursorY = curY;
+        clearDisplay = clearScreen;
+        displayUpdateRequested = true;
+    }
 }

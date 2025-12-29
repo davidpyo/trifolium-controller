@@ -56,7 +56,7 @@ boards_t board = trifolium_v1_0_fet_driver; // select the one that matches your 
 // pico_zero
 // pico_zero_diana
 
-bool is4in1ESC = true; // set to true if using a 4-in-1 ESC, false if using single esc's. Passthrough only supports 4in1 ESC's currently. 
+bool hasDisplay = true; // set to true if you have an I2C OLED display connected
 
 
 // Input Pins, set to PIN_NOT_USED if not using
