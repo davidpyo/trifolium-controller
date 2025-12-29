@@ -1,6 +1,8 @@
 #ifndef __types_h_
 #define __types_h_
 #include <Arduino.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 #define PIN_NOT_USED 255
 
@@ -80,6 +82,7 @@ typedef struct {
     // I2C Pins
     uint8_t I2C_SCL;
     uint8_t I2C_SDA;
+    i2c_inst_t * I2C_HW_BLK;
 
     // GPIO Pins
     uint8_t IO2;

@@ -1,9 +1,13 @@
 #include "types.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+
 
 //when creating a new board config, set unused pins to PIN_NOT_USED
 // for FET_DRIVER, set drvEN to the fet pin
 // for ESC_DRIVER, set drvEN to the esc pin
-
+// depending on I2C pins 
 
 const boards_t trifolium_v1_0_fet_driver = {
     .pusherDriverType = FET_DRIVER,
@@ -14,6 +18,7 @@ const boards_t trifolium_v1_0_fet_driver = {
     .telem = PIN_NOT_USED,
     .I2C_SCL = 15,
     .I2C_SDA = 14,
+    .I2C_HW_BLK = i2c1,
     .IO2 = 18,
     .IO5 = 19,
     .IO6 = 20,
@@ -44,6 +49,7 @@ const boards_t trifolium_v1_0_esc_driver = {
     .telem = PIN_NOT_USED,
     .I2C_SCL = 15,
     .I2C_SDA = 14,
+    .I2C_HW_BLK = i2c1,
     .IO2 = 18,
     .IO5 = 19,
     .IO6 = 20,
@@ -71,9 +77,10 @@ const boards_t pico_zero_diana = {
     .esc2 = 1,
     .esc3 = 2,
     .esc4 = 3,
-    .telem = 4,
+    .telem = PIN_NOT_USED,
     .I2C_SCL = 5,
-    .I2C_SDA = 6,
+    .I2C_SDA = 4,
+    .I2C_HW_BLK = i2c0,
     .IO2 = 4,
     .IO5 = 8,
     .IO6 = 6,
@@ -101,9 +108,10 @@ const boards_t pico_zero = {
     .esc2 = 1,
     .esc3 = 2,
     .esc4 = 3,
-    .telem = 4,
+    .telem = PIN_NOT_USED,
     .I2C_SCL = 5,
-    .I2C_SDA = 6,
+    .I2C_SDA = 4,
+    .I2C_HW_BLK = i2c0,
     .IO2 = 7,
     .IO5 = 8,
     .IO6 = 9,
@@ -134,6 +142,7 @@ const boards_t rune_0_2 = {
     .telem = 4,
     .I2C_SCL = 5,
     .I2C_SDA = 6,
+    .I2C_HW_BLK = i2c0, // rune i2c messed up
     .IO2 = 7,
     .IO5 = 8,
     .IO6 = 9,

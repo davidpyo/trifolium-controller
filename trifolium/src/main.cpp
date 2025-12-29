@@ -10,6 +10,22 @@
 #include "esc_passthrough.h"
 #include "global.h"
 
+#include <SPI.h>
+//#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+
+
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C 
+
+TwoWire myI2C(board.I2C_HW_BLK, board.I2C_SCL, board.I2C_SDA); 
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, -1);
+
+
 //rebooting stuff
 BootReason bootReason;
 BootReason __uninitialized_ram(rebootReason);
@@ -464,11 +480,6 @@ void setup()
         }
         delayMicroseconds(100);
     }
-
- 
- 
-  
-    
 }
 
 void loop()
@@ -901,4 +912,22 @@ void resetFWControl()
         break;
     }
     return;
+}
+
+void setup1(){
+   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+        println("SSD1306 allocation failed");
+        for(;;); // Don't proceed, loop forever
+    }
+    // Clear the buffer
+    display.clearDisplay();
+    display.setTextSize(1);             // Normal 1:1 pixel scale
+    display.setTextColor(SSD1306_WHITE);        // Draw white text
+    display.setCursor(40, 30);
+    display.println("HOWDY !");
+    display.display();
+}
+
+void loop1(){
+
 }
