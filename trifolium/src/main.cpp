@@ -8,7 +8,21 @@
 #include "elapsedMillis.h"
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
+#include "esc_passthrough.h"
 
+// deriving from uint32_t etc. would result in problems with function overloading (e.g. when using the same function for i32 variables and int literals, the compiler expects a function for int and one for i32)
+typedef float f32;
+typedef double f64;
+typedef signed char i8;
+typedef signed short i16;
+typedef signed int i32;
+typedef signed long long i64;
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef unsigned long long u64;
+
+#define CHECK_TYPE_SIZE(type, expected) static_assert((sizeof(type)) == (expected), "Size of " #type " is not as expected.")
 
 uint32_t lastRevTime_ms = 0; // for calculating idling
 
@@ -136,8 +150,104 @@ void setup()
     {
         Serial.begin(115200);
     }
+    // need to do some checking for valid motor/esc driver pins here
+    for (int i = 0; i < 4; i++)
+    {
+        if (motors[i])
+        {
+            if (i == 0)
+                {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+            else if (i == 1)
+            {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc2 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+            else if (i == 2)
+            {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc3 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+            else if (i == 3)
+            {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc4 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+        }
+    }
+    // only do esc passthrough for the motors that are defined and esc driver pin if defined
+    u8 numPassthrough = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motors[i])
+        {
+            numPassthrough++;
+        }
+    }
+    if (board.pusherDriverType == ESC_DRIVER)
+        {
+        numPassthrough++; 
+    }
+    u8 pins[numPassthrough] = {0};
+    u8 currentPin = 0;
+    if (board.pusherDriverType == ESC_DRIVER)
+    {
+        pins[currentPin] = board.drvEN; 
+        currentPin++;
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        if (motors[i])
+        {
+            u8 escPin = 0;
+            if (i == 0){
+                escPin = board.esc1;
+            } else if (i == 1){
+                escPin = board.esc2;
+            } else if (i == 2){
+                escPin = board.esc3;
+            } else if (i == 3){
+                escPin = board.esc4;
+            }
+            pins[currentPin] = escPin;
+            currentPin++;
+        }
+    }
+    beginPassthrough(pins, numPassthrough);
+    while (processPassthrough()) {
+    }
+
+
     println("Booting");
+
     delay(1000); 
+
+
+
+
+
     // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
     // pinMode(board.telem, INPUT_PULLUP);
     if (pinDefined(board.batteryADC)){
@@ -335,6 +445,11 @@ void setup()
         }
         delayMicroseconds(100);
     }
+
+ 
+ 
+  
+    
 }
 
 void loop()

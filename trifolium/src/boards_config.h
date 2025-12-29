@@ -1,7 +1,41 @@
 #include "types.h"
 
+//when creating a new board config, set unused pins to PIN_NOT_USED
+// for FET_DRIVER, set drvEN to the fet pin
+// for ESC_DRIVER, set drvEN to the esc pin
 
-const boards_t trifolium_v1_0 = {
+
+const boards_t trifolium_v1_0_fet_driver = {
+    .pusherDriverType = FET_DRIVER,
+    .esc1 = 0,
+    .esc2 = 1,
+    .esc3 = 2,
+    .esc4 = 3,
+    .telem = PIN_NOT_USED,
+    .I2C_SCL = 15,
+    .I2C_SDA = 14,
+    .IO2 = 18,
+    .IO5 = 19,
+    .IO6 = 20,
+    .IO1 = 17,
+    .IO3 = 9,
+    .IO4 = 10,
+    .batteryADC = PIN_NOT_USED,
+    .escADC = PIN_NOT_USED,
+    .drvADC = PIN_NOT_USED,
+    .drvNSLEEP = PIN_NOT_USED,    
+    .drvEN = 27,
+    .drvPH = PIN_NOT_USED,
+    .drvMOSI = PIN_NOT_USED,
+    .drvMISO = PIN_NOT_USED,
+    .drvNSCS = PIN_NOT_USED,
+    .drvSCLK = PIN_NOT_USED,
+    .LED_DATA = PIN_NOT_USED,
+    .ESC_ENABLE = PIN_NOT_USED,
+};
+
+
+const boards_t trifolium_v1_0_esc_driver = {
     .pusherDriverType = ESC_DRIVER, 
     .esc1 = 0,
     .esc2 = 1,
