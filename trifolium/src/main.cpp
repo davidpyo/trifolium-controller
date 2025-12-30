@@ -284,7 +284,7 @@ void setup()
         unsigned long currentTime = millis(); 
         while (processPassthrough()) {
             triggerSwitch.update();
-            if (triggerSwitch.isPressed())
+            if (!triggerSwitch.isPressed())
             {
                 currentTime = millis();
             }

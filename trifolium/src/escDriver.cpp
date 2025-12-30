@@ -4,39 +4,30 @@ EscDriver::EscDriver(uint8_t escPin)
 {
     m_pin = escPin;
     isForward = true; 
-    esc = new BidirDShotX1(escPin, 300);
-    throttleValue = 1500;
-    esc->sendThrottle(throttleValue); //set to neutral on startup
     pinMode(m_pin, OUTPUT);
+    escSolenoidDriver = new RP2040_PWM(m_pin, 490, 73.5);
+    escSolenoidDriver->setPWM(m_pin, 490, 73.5);
 }
 
 // both parameters are ignored
 void EscDriver::drive(float dutyCycle, bool reverseDirection)
 {
     if(isForward == true){
-        throttleValue = 2000;
+        escSolenoidDriver->setPWM(m_pin, 490, 97.5);
         isForward = false;
     } else {
-        throttleValue = 1000;
+        escSolenoidDriver->setPWM(m_pin, 490, 49.5);
         isForward = true;
     }
-    update();
 }
 
 void EscDriver::coast()
 {
-    throttleValue = 1500;
-    update();
+    escSolenoidDriver->setPWM(m_pin, 490, 73.5);
 }
 
 // cannot actually brake with only 1 FET, coast instead
 void EscDriver::brake()
 {
-    throttleValue = 1500;
-    update();
-}
-
-void EscDriver::update()
-{
-    esc->sendThrottle(throttleValue);
+    escSolenoidDriver->setPWM(m_pin, 490, 73.5);
 }
