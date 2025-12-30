@@ -5,7 +5,7 @@ EscDriver::EscDriver(uint8_t escPin)
     m_pin = escPin;
     isForward = true; 
     esc = new BidirDShotX1(escPin, 300);
-    esc->sendRaw11Bit(0); //set to neutral on startup
+    throttleValue = 0;
 }
 
 // both parameters are ignored
