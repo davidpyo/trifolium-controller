@@ -36,9 +36,5 @@ void EscDriver::brake()
 
 void EscDriver::update()
 {
-    if (throttleValue == DSHOT_CMD_MOTOR_STOP){
-        esc->sendRaw11Bit(DSHOT_CMD_MOTOR_STOP); // if throttle is 0, send 0 to stop esc signal
-    } else {
-        esc->sendThrottle(throttleValue);
-    }
+    esc->sendThrottle(throttleValue);
 }
