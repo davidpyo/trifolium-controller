@@ -23,7 +23,7 @@ dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, mus
 
 // Closed Loop Settings
 flywheelControlType_t flywheelControl = TBH_CONTROL; // OPEN_LOOP_CONTROL, TWO_LEVEL_CONTROL, PID_CONTROL, or TBH_CONTROL
-const bool motors[4] = {true, true, true, true}; // which motors are hooked up
+const bool motors[4] = {false, false, false, false}; // which motors are hooked up
 //bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot
 int32_t firingRPMTolerance = 500; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
@@ -56,7 +56,7 @@ uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells b
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
 
-boards_t board = trifolium_v1_0_fet_driver; // select the one that matches your board revision
+boards_t board = trifolium_v1_0_esc_driver; // select the one that matches your board revision
 // Options
 // rune_0_2,
 // trifolium_v1_0_esc_driver
