@@ -5,7 +5,7 @@ EscDriver::EscDriver(uint8_t escPin)
     m_pin = escPin;
     isForward = true; 
     esc = new BidirDShotX1(escPin, 300);
-    throttleValue = 0;
+    throttleValue = DSHOT_CMD_MOTOR_STOP;
 }
 
 // both parameters are ignored
@@ -23,21 +23,21 @@ void EscDriver::drive(float dutyCycle, bool reverseDirection)
 
 void EscDriver::coast()
 {
-    throttleValue = 0;
+    throttleValue = DSHOT_CMD_MOTOR_STOP;
     update();
 }
 
 // cannot actually brake with only 1 FET, coast instead
 void EscDriver::brake()
 {
-    throttleValue = 0;
+    throttleValue = DSHOT_CMD_MOTOR_STOP;
     update();
 }
 
 void EscDriver::update()
 {
-    if (throttleValue == 0){
-        esc->sendRaw11Bit(0); // if throttle is 0, send 0 to stop esc signal
+    if (throttleValue == DSHOT_CMD_MOTOR_STOP){
+        esc->sendRaw11Bit(DSHOT_CMD_MOTOR_STOP); // if throttle is 0, send 0 to stop esc signal
     } else {
         esc->sendThrottle(throttleValue);
     }
