@@ -1,12 +1,51 @@
 #include <Arduino.h>
 #include <PIO_DShot.h>
 #include "../lib/Bounce2/src/Bounce2.h"
-#include "types.h"
 #include "fetDriver.h"
 #include "drvDriver.h"
+#include "escDriver.h"
 #include "elapsedMillis.h"
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
+#include "esc_passthrough.h"
+#include "global.h"
+
+#include <SPI.h>
+//#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "bitmaps.h"
+
+#if CONFIG_VERSION_MAJOR != MAJOR_VERSION || CONFIG_VERSION_MINOR != MINOR_VERSION || CONFIG_VERSION_PATCH != PATCH_VERSION
+#error "Your configuration file version does not match code version. Update your configuration file with the missing settings!"
+#endif
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C 
+
+TwoWire myI2C(board.I2C_HW_BLK, board.I2C_SCL, board.I2C_SDA); 
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, -1);
+//use for communication between cores for display
+String displayString = "";
+int cursorX = 0;
+int cursorY = 0;
+bool clearDisplay = false;
+bool doDisplayString = false;
+//show bootup screen
+bool doBootup = false;
+//show runtime info
+bool showRuntimeInfo = false;
+bool updateRuntimeNow = false;
+//do menu
+bool doMenu = false;
+uint32_t runtimeShotCounter = 0;
+uint32_t displayShotCounter = 0;
+
+//rebooting stuff
+BootReason bootReason;
+BootReason __uninitialized_ram(rebootReason);
+u64 __uninitialized_ram(powerOnResetMagicNumber);
 
 
 uint32_t lastRevTime_ms = 0; // for calculating idling
@@ -92,6 +131,11 @@ bool fwControlLoop();
 void mainFiringLogic();
 void resetFWControl();
 
+//display functions
+// I think this will just be used for initial messages? 
+void displayText(String str, int curX = 0, int curY = 0, bool clearScreen = false);
+
+
 template <typename T>
 void println(T value)
 {
@@ -131,14 +175,134 @@ void logData(){
 
 void setup()
 {
-    if (printTelemetry)
+    if (powerOnResetMagicNumber == 0xdeadbeefdeadbeef)
+		bootReason = rebootReason;
+	else
+	    bootReason = BootReason::POR;
+	powerOnResetMagicNumber = 0xdeadbeefdeadbeef;
+	rebootReason = BootReason::WATCHDOG;
+    Serial.begin(115200);
+    
+    // need to do some checking for valid motor/esc driver pins here
+    for (int i = 0; i < 4; i++)
     {
-        Serial.begin(115200);
+        if (motors[i])
+        {
+            if (i == 0)
+                {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+            else if (i == 1)
+            {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc2 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+            else if (i == 2)
+            {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc3 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+            else if (i == 3)
+            {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc4 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
+            }
+        }
     }
+    
+    // esc passthrough requires a trigger pin
+    if (bootReason == BootReason::TO_ESC_PASSTHROUGH && pinDefined(triggerSwitchPin)) {
+        // setup the trigger pin to exit passthrough
+
+        triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
+        triggerSwitch.interval(debounceTime_ms);
+        triggerSwitch.setPressedState(triggerSwitchNormallyClosed);
+
+        // only do esc passthrough for the motors that are defined and esc driver pin if defined
+        u8 numPassthrough = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            if (motors[i])
+            {
+                numPassthrough++;
+            }
+        }
+        if (board.pusherDriverType == ESC_DRIVER)
+            {
+            numPassthrough++; 
+        }
+        u8 pins[numPassthrough] = {0};
+        u8 currentPin = 0;
+        if (board.pusherDriverType == ESC_DRIVER)
+        {
+            pins[currentPin] = board.drvEN; 
+            currentPin++;
+        }
+        for (int i = 0; i < 4; i++)
+        {
+            if (motors[i])
+            {
+                u8 escPin = 0;
+                if (i == 0){
+                    escPin = board.esc1;
+                } else if (i == 1){
+                    escPin = board.esc2;
+                } else if (i == 2){
+                    escPin = board.esc3;
+                } else if (i == 3){
+                    escPin = board.esc4;
+                }
+                pins[currentPin] = escPin;
+                currentPin++;
+            }
+        }
+
+        displayText("ESC Passthrough, hold trigger to exit", 0, 0, true);
+
+        beginPassthrough(pins, numPassthrough);
+        unsigned long currentTime = millis(); 
+        while (processPassthrough()) {
+            triggerSwitch.update();
+            if (!triggerSwitch.isPressed())
+            {
+                currentTime = millis();
+            }
+            if (millis() - currentTime > 3000) {
+                //exit passthrough after 3 secs of trigger
+                break;
+            }
+        }
+        bootReason == BootReason::FROM_ESC_PASSTHROUGH;
+        delay(100);
+        rp2040.reboot();
+    }
+    // display bootup screen if available
+    doBootup = true;
     println("Booting");
-    delay(1000); 
-    // Serial2.begin(115200, SERIAL_8N1, board.telem, -1);
-    // pinMode(board.telem, INPUT_PULLUP);
+    //delay to allow gpio to stabilize
+    delay(1000);
+
     if (pinDefined(board.batteryADC)){
         pinMode(board.batteryADC, INPUT);
         batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
@@ -152,6 +316,7 @@ void setup()
         isBatteryAdcDefined = true;
     } else {
         isBatteryAdcDefined = false;
+        //TODO don't assume 4s.
         batteryVoltage_mv = 16800; // assume fully charged if no adc defined
     }
     
@@ -218,6 +383,14 @@ void setup()
     }
   
 
+    //if trigger is pulled on boot, enter esc passthrough mode
+    triggerSwitch.update();
+    if (triggerSwitch.isPressed()) {
+        rebootReason = BootReason::TO_ESC_PASSTHROUGH;
+        delay(100);
+        rp2040.reboot();
+    }
+
     switch (board.pusherDriverType)
     {
     case DRV_DRIVER:
@@ -225,6 +398,9 @@ void setup()
         break;
     case FET_DRIVER:
         pusher = new Fet(board.drvEN);
+        break;
+    case ESC_DRIVER:
+        pusher = new EscDriver(board.drvEN);
         break;
     default:
         break;
@@ -268,19 +444,47 @@ void setup()
             firingRPM[i] = max(revRPM[i] - firingRPMTolerance, minFiringRPM);
             fullThrottleRpmThreshold[i] = revRPM[i] - fullThrottleRpmTolerance;
             if (i == 0)
-            {
+                {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc1, dshotMode);
             }
             else if (i == 1)
             {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc2, dshotMode);
             }
             else if (i == 2)
             {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc3, dshotMode);
             }
             else if (i == 3)
             {
+                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
+                    while(1){
+                        println("Motor conflict with solenoid drive pin");
+                        println("Either change pusher type, or disable motor");
+                        delay(1000);
+                    }
+                }
                 esc[i] = new BidirDShotX1(board.esc4, dshotMode);
             }
         }
@@ -289,6 +493,11 @@ void setup()
     idleTime_ms = idleTimeSet_ms[fpsMode];
     // make sure to send neutral throttle to arm esc's
     for (int j = 0; j < 3000; j++) {
+        //if pusher is esc driver, do the startup loop for the esc driver too
+        if (board.pusherDriverType == ESC_DRIVER){
+            pusher->update();
+        }
+        //do neutral throttle for all motors
         for (int i = 0; i < 4; i++)
         {
             if (motors[i])
@@ -298,6 +507,8 @@ void setup()
         }
         delayMicroseconds(100);
     }
+
+    showRuntimeInfo = true;
 }
 
 void loop()
@@ -381,6 +592,10 @@ void mainFiringLogic()
         }
     }
    
+    if (board.pusherDriverType == ESC_DRIVER)
+    {
+        pusher->update();
+    }
 
 }
 
@@ -498,6 +713,12 @@ bool fwControlLoop()
 
             if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
             { // extend solenoid
+                runtimeShotCounter++;
+                displayShotCounter++;
+                if (runtimeShotCounter % 10000 == 0){
+                    displayShotCounter = 0;
+                }
+                updateRuntimeNow = true;
                 pusher->drive(100, pusherReverseDirection);
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
@@ -726,4 +947,127 @@ void resetFWControl()
         break;
     }
     return;
+}
+
+void setup1(){
+    if(hasDisplay){
+        if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+            for(;;); // Don't proceed, loop forever
+        }
+        // Clear the buffer
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+    }
+}
+
+void loop1(){
+    if (hasDisplay){
+        
+        if (doDisplayString)
+        {
+            if (clearDisplay)
+            {
+                display.clearDisplay();
+            }
+            display.setCursor(cursorX, cursorY);
+            display.println(displayString);
+            display.display();
+            doDisplayString = false;
+        }
+
+        if (doBootup){
+            display.clearDisplay();
+            display.drawBitmap(0, 0, splash, SCREEN_WIDTH, SCREEN_HEIGHT, 1);
+            display.display();
+            doBootup = false;
+            display.setCursor(0, 56);
+            display.setTextSize(1);
+            display.print("Trifolium v" + String(MAJOR_VERSION) + "." + String(MINOR_VERSION) + "." + String(PATCH_VERSION));
+            display.display();
+        }
+
+        unsigned long lastUpdated = 0;
+        while (showRuntimeInfo){
+            if (millis() - lastUpdated > 100 || updateRuntimeNow){
+                //show firing mode
+                display.clearDisplay();
+                display.setCursor(0, 56);
+                display.setTextSize(1);
+                display.print(fireModeStrings[firingMode]);
+                display.drawFastHLine(0, 15, 128, 1);
+                //show motor target rpm
+                //cover the two normal cases of  esc 2/4 and 1/3, and 2 motor operation
+                u8 motorCount = 0;
+                for (int i = 0; i < 4; i++){
+                    if (motors[i]){
+                        motorCount++;
+                    }
+                }
+                if (motorCount == 2){
+                    // assume motors are set to same speed
+                    for (int i = 0; i < 4; i++){
+                        if (motors[i]){
+                            String motorRpmString = String(revRPM[i]/1000) + "K";
+                            display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
+                            display.print(motorRpmString);
+                            break;
+                        }
+                    }
+                } else  if (motorCount == 4){
+                    if (revRPM[0] == revRPM[1] && revRPM[1] == revRPM[2] && revRPM[2] == revRPM[3]){
+                        String motorRpmString = String(revRPM[0]/1000) + "K";
+                        display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
+                        display.print(motorRpmString);
+                    } else {
+                        //assume esc 2/4 and 1/3
+                        String motorRpmString = String(revRPM[0]/1000) + "K|" + String(revRPM[1]/1000) + "K";
+                        display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
+                        display.print(motorRpmString);
+                    }
+                }
+                display.drawFastHLine(0, 54, 128, 1);
+                //show shot counter
+                display.setTextSize(5);
+                String displayShotCounterString(displayShotCounter);
+                display.setCursor(128 - (displayShotCounterString.length() * 32), 18);
+                display.print(displayShotCounterString);
+
+                //show battery voltage
+                if (isBatteryAdcDefined){
+                    display.setTextSize(1);
+                    String batteryVoltageString = String(batteryVoltage_mv / 1000.0, 1) + "V";
+                    display.setCursor(128 - (batteryVoltageString.length() * 6), 5);
+                    display.print(batteryVoltageString);
+                }
+                
+                //display blaster name
+                display.setTextSize(1);
+                display.setCursor(0, 5);
+                display.print(blasterName);
+
+                display.display();
+
+                updateRuntimeNow = false;
+                lastUpdated = millis();
+            }
+        }
+
+        if (doMenu){
+
+        }
+    }
+    
+}
+
+void displayText(String str, int curX, int curY, bool clearScreen)
+{
+    if (hasDisplay)
+    {
+        displayString = str;
+        cursorX = curX;
+        cursorY = curY;
+        clearDisplay = clearScreen;
+        doDisplayString = true;
+    }
 }

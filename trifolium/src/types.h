@@ -1,8 +1,24 @@
 #ifndef __types_h_
 #define __types_h_
 #include <Arduino.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 #define PIN_NOT_USED 255
+
+// deriving from uint32_t etc. would result in problems with function overloading (e.g. when using the same function for i32 variables and int literals, the compiler expects a function for int and one for i32)
+typedef float f32;
+typedef double f64;
+typedef signed char i8;
+typedef signed short i16;
+typedef signed int i32;
+typedef signed long long i64;
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef unsigned long long u64;
+
+#define CHECK_TYPE_SIZE(type, expected) static_assert((sizeof(type)) == (expected), "Size of " #type " is not as expected.")
 
 enum flywheelState_t {
     STATE_IDLE,
@@ -39,6 +55,7 @@ enum pusherDriverType_t {
     NO_DRIVER,
     FET_DRIVER,
     DRV_DRIVER,
+    ESC_DRIVER,
 };
 
 enum dshot_mode_t
@@ -50,8 +67,8 @@ enum dshot_mode_t
 
 enum dshot_min_delay_t {
     DSHOT_MIN_DELAY_300 = 1000,//167
-    DSHOT_MIN_DELAY_600 = 113,  
-    DSHOT_MIN_DELAY_1200 = 87, 
+    DSHOT_MIN_DELAY_600 = 1000, //113 
+    DSHOT_MIN_DELAY_1200 = 1000,  //87
 };
 
 typedef struct {
@@ -65,6 +82,7 @@ typedef struct {
     // I2C Pins
     uint8_t I2C_SCL;
     uint8_t I2C_SDA;
+    i2c_inst_t * I2C_HW_BLK;
 
     // GPIO Pins
     uint8_t IO2;
@@ -90,5 +108,15 @@ typedef struct {
     uint8_t ESC_ENABLE;
 
 } boards_t;
+
+enum class BootReason {
+	POR, // Power-on reset
+	WATCHDOG,
+	CLEAR_EEPROM,
+	MENU,
+	TO_ESC_PASSTHROUGH,
+	FROM_ESC_PASSTHROUGH,
+	FROM_BOOT_SELECTION
+};
 
 #endif
