@@ -1045,7 +1045,8 @@ void loop1(){
                 display.setTextSize(1);
                 display.setCursor(0, 5);
                 display.print(blasterName);
-
+                display.print("|P ");
+                display.print(fpsMode);
                 display.display();
 
                 updateRuntimeNow = false;
