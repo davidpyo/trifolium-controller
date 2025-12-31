@@ -492,7 +492,7 @@ void setup()
     dwellTime_ms = dwellTimeSet_ms[fpsMode];
     idleTime_ms = idleTimeSet_ms[fpsMode];
     // make sure to send neutral throttle to arm esc's
-    for (int j = 0; j < 3000; j++) {
+    for (int j = 0; j < 15000; j++) {
         //if pusher is esc driver, do the startup loop for the esc driver too
         if (board.pusherDriverType == ESC_DRIVER){
             pusher->update();
@@ -591,12 +591,6 @@ void mainFiringLogic()
             batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
         }
     }
-   
-    if (board.pusherDriverType == ESC_DRIVER)
-    {
-        pusher->update();
-    }
-
 }
 
 bool fwControlLoop()
@@ -869,8 +863,8 @@ bool fwControlLoop()
         }
 
 #endif
-
-    
+    //update pusher driver
+    pusher->update();
 
     loopTime_us = micros() - loopStartTimer_us; // 'us' is microseconds
     if (loopTime_us > targetLoopTime_us)
