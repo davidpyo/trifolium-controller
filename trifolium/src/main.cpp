@@ -444,47 +444,19 @@ void setup()
             firingRPM[i] = max(revRPM[i] - firingRPMTolerance, minFiringRPM);
             fullThrottleRpmThreshold[i] = revRPM[i] - fullThrottleRpmTolerance;
             if (i == 0)
-                {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
+            {
                 esc[i] = new BidirDShotX1(board.esc1, dshotMode);
             }
             else if (i == 1)
             {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
                 esc[i] = new BidirDShotX1(board.esc2, dshotMode);
             }
             else if (i == 2)
             {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
                 esc[i] = new BidirDShotX1(board.esc3, dshotMode);
             }
             else if (i == 3)
             {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
                 esc[i] = new BidirDShotX1(board.esc4, dshotMode);
             }
         }
