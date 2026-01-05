@@ -182,6 +182,7 @@ void setup()
 	powerOnResetMagicNumber = 0xdeadbeefdeadbeef;
 	rebootReason = BootReason::WATCHDOG;
     Serial.begin(115200);
+    Serial.ignoreFlowControl(true);
     
     // need to do some checking for valid motor/esc driver pins here
     for (int i = 0; i < 4; i++)
