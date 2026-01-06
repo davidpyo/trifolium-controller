@@ -20,6 +20,8 @@
 #error "Your configuration file version does not match code version. Update your configuration file with the missing settings!"
 #endif
 
+static_assert(EMAFilter > 0, "EMAFilter should be greater than zero");
+
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C 
@@ -87,6 +89,9 @@ int32_t pusherCurrent_ma = 0;
 int32_t pusherCurrentSmoothed_ma = 0;
 const int32_t maxThrottle = 1999;
 uint32_t motorRPM[4] = {0, 0, 0, 0};
+uint32_t motorRPMRaw[4] = {0, 0, 0, 0};
+uint32_t motorRPMFilter[4] = {0, 0, 0, 0};
+constexpr static uint32_t half = uint32_t{1} << (EMAFilter - 1);
 uint32_t fullThrottleRpmThreshold[4] = {0, 0, 0, 0};
 Driver *pusher;
 uint16_t solenoidExtendTime_ms = 0;
@@ -714,6 +719,17 @@ bool fwControlLoop()
                     esc[i]->getTelemetryErpm(&motorRPM[i]);
                     motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
                     
+                    // reject impossible rpm readings
+                    if (motorRPMRaw[i] * 1000 > motorKv * batteryVoltage_mv) {
+                        //assign to last valid filtered rpm reading
+                        motorRPMRaw[i] = motorRPM[i];
+                    }
+                    // do some filtering
+                    motorRPMFilter[i] += motorRPMRaw[i];
+                    motorRPM[i] = (motorRPMFilter[i] + half) >> EMAFilter; // 1st-order exponential moving average
+                    motorRPMFilter[i] -= motorRPM[i];
+
+
                     PIDError[i] = targetRPM[i] - motorRPM[i];
                     
                     PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
@@ -742,6 +758,13 @@ bool fwControlLoop()
                         esc[i]->getTelemetryErpm(&motorRPM[i]);
                         motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
                         
+                        // reject impossible rpm readings
+                        if (motorRPM[i] * 1000 > motorKv * batteryVoltage_mv) {
+                            //assign to last valid filtered rpm reading
+                            motorRPM[i] = motorRPMFilter[i];
+                        }
+                        motorRPMFilter[i] = motorRPM[i];
+
                         PIDError[i] = targetRPM[i] - motorRPM[i];
                         PIDOutput[i] += KI * PIDError[i]; // reset PID output
 
@@ -918,13 +941,18 @@ void resetFWControl()
 
 void setup1(){
     if(hasDisplay){
-        if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-            for(;;); // Don't proceed, loop forever
+        while (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+            delay(100);
         }
         // Clear the buffer
         display.clearDisplay();
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
+        if (rotateDisplay){
+            display.setRotation(2);
+        } else {
+            display.setRotation(0);
+        }
     }
 }
 
