@@ -2,7 +2,7 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 0
+#define CONFIG_VERSION_MINOR 1
 #define CONFIG_VERSION_PATCH 0
 
 
@@ -65,7 +65,7 @@ boards_t board = trifolium_v1_0_esc_driver; // select the one that matches your 
 // pico_zero_diana
 const char * blasterName = "example";//set to blaster name
 bool hasDisplay = true; // set to true if you have an I2C OLED display connected
-
+bool rotateDisplay = true; // set to true if your display is upside down
 
 // Input Pins, set to PIN_NOT_USED if not using
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
@@ -105,6 +105,7 @@ uint32_t pusherCurrentSmoothingFactor = 90;
 //uint16_t servoFreq_hz = 200;
 
 // PID Settings
+const uint8_t EMAFilter = 2; // exponential moving average filter constant for flywheel RPM readings, higher values mean more smoothing but more lag.
 float KP = 1.2;
 // float KI = 0.1;
 float KD = 0;
