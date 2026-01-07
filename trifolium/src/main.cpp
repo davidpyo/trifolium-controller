@@ -111,6 +111,7 @@ int32_t PIDErrorPrior[4] = {1,1,1,1};
 int32_t closedLoopRPM[4];
 int32_t PIDOutput[4];
 int32_t PIDIntegral[4] = {0, 0, 0, 0};
+bool firstCrossing[4] = {false, false, false, false};
 
 Bounce2::Button revSwitch = Bounce2::Button();
 Bounce2::Button triggerSwitch = Bounce2::Button();
@@ -716,8 +717,8 @@ bool fwControlLoop()
                 if (motors[i])
                 {
                 
-                    esc[i]->getTelemetryErpm(&motorRPM[i]);
-                    motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                    esc[i]->getTelemetryErpm(&motorRPMRaw[i]);
+                    motorRPMRaw[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
                     
                     // reject impossible rpm readings
                     if (motorRPMRaw[i] * 1000 > motorKv * batteryVoltage_mv) {
@@ -733,6 +734,26 @@ bool fwControlLoop()
                     PIDError[i] = targetRPM[i] - motorRPM[i];
                     
                     PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
+
+                    // do some Integral capping math prior to first crossing?
+                    if (!firstCrossing[i]){
+                        if (PIDIntegral[i] * KI > 2000){
+                            PIDIntegral[i] = 2000/KI;
+                        } else if (PIDIntegral[i] * KI< -2000){
+                            PIDIntegral[i] = -2000/KI;
+                        }
+                    }
+    
+
+                    //lets do first 0 crossing predictive I calc to kill I windup
+                    if (signbit(PIDError[i]) && !firstCrossing[i]) {
+                        if (KI != 0){
+                            PIDIntegral[i] = (max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0) - 
+                            (KP * PIDError[i] + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us)))/KI; //do (open loop throttle - current throttle)/KI 
+                        }
+                         firstCrossing[i] = true;
+                    }
+
                     if (targetRPM[i] == 0) {
                     PIDOutput[i] = 0;
                     } else {
@@ -924,6 +945,8 @@ void resetFWControl()
     case PID_CONTROL:
         for (int i = 0; i < 4; i++) {
             if (motors[i]) {
+                firstCrossing[i] = false;
+                PIDOutput[i] = 0;
                 PIDIntegral[i] = 0; // stop reset PID
             }
         }
