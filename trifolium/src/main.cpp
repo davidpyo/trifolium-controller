@@ -494,6 +494,7 @@ void loop()
 {
     loopStartTimer_us = micros();
     time_ms = millis();
+    fwControlLoop();
 
     if (lastMainLoopTime != time_ms)
     { // run main loop roughly every 1 ms
@@ -501,7 +502,7 @@ void loop()
         lastMainLoopTime = time_ms;
     }
 
-    fwControlLoop();
+    
 }
 
 void mainFiringLogic()
@@ -734,33 +735,59 @@ bool fwControlLoop()
                     PIDError[i] = targetRPM[i] - motorRPM[i];
                     
                     PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
+                    
+                    int16_t openLoopThrottle = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0);
+                    int32_t iCap = (openLoopThrottle + 50)/KI;
+                     
+                    constrain(PIDIntegral[i], -iCap, iCap);
+                    int32_t iTerm = PIDIntegral[i] * KI;
+                    //aggressive antiwindup
+                    if (PIDError[i] < 5000 && !firstCrossing[i]){
+                        //int32_t target = openLoopThrottle + 10;
+                        //float excessThrottle = iTerm - target;
+                        // calc error difference 
+                       // int32_t errorValue = PIDErrorPrior[i] - PIDError[i];
+                        //lets quantify errorValue into a scaler
+                        //if errorValue is very large (going to be physical system dependent??)
+                        // we should slow down harder
+                        //we should also slow down harder if we are close
+                        iTerm += (openLoopThrottle - iTerm) *0.98;
+                        /*
+                        if (excessThrottle > 0) {
+                        const float basePull = 0.02f;      // normal unwind
+                        const float slopeBoost = 3.0f;     // how much slope can amplify it
 
-                    // do some Integral capping math prior to first crossing?
-                    if (!firstCrossing[i]){
-                        if (PIDIntegral[i] * KI > 2000){
-                            PIDIntegral[i] = 2000/KI;
-                        } else if (PIDIntegral[i] * KI< -2000){
-                            PIDIntegral[i] = -2000/KI;
+                        float pullGain = basePull * (1.0f + slopeBoost * slopeFactor);
+                        iTerm -= excessThrottle * pullGain;
                         }
+                        */
+                        
                     }
-    
 
                     //lets do first 0 crossing predictive I calc to kill I windup
                     if (signbit(PIDError[i]) && !firstCrossing[i]) {
                         if (KI != 0){
-                            PIDIntegral[i] = (max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0) - 
-                            (KP * PIDError[i] + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us)))/KI; //do (open loop throttle - current throttle)/KI 
+                             //PIDIntegral[i] = openLoopThrottle/KI;
+                             
                         }
-                         firstCrossing[i] = true;
+                        //iTerm = openLoopThrottle;
+                        firstCrossing[i] = true;
                     }
+
+                    
+                    int32_t dTerm = KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+                    constrain(dTerm, -2000,2000);
 
                     if (targetRPM[i] == 0) {
                     PIDOutput[i] = 0;
                     } else {
-                    PIDOutput[i] = KP * PIDError[i] + KI * (PIDIntegral[i]) + KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+                    PIDOutput[i] = KP * PIDError[i] + iTerm + dTerm;
                     }
                     
                     PIDErrorPrior[i] = PIDError[i];
+                    if (firstCrossing[i]){
+                        //PIDOutput[i] = openLoopThrottle;                        
+                    }
                     esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
 
                 }
