@@ -111,7 +111,9 @@ int32_t PIDErrorPrior[4] = {1,1,1,1};
 int32_t closedLoopRPM[4];
 int32_t PIDOutput[4];
 int32_t PIDIntegral[4] = {0, 0, 0, 0};
-bool firstCrossing[4] = {false, false, false, false};
+int32_t iTerm[4] = {0, 0, 0, 0};
+int32_t dTerm[4] = {0, 0, 0, 0};
+
 
 Bounce2::Button revSwitch = Bounce2::Button();
 Bounce2::Button triggerSwitch = Bounce2::Button();
@@ -128,7 +130,7 @@ BidirDShotX1 *esc[4] = {nullptr, nullptr, nullptr, nullptr}; // array of pointer
 uint32_t targetRpmCache[rpmLogLength][4] = {0};
 uint32_t rpmCache[rpmLogLength][4] = {0};
 int16_t throttleCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
-float valueCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
+uint32_t valueCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
 uint16_t cacheIndex = rpmLogLength + 1;
 #endif
 
@@ -171,7 +173,7 @@ void logData(){
                     rpmCache[cacheIndex][i] = motorRPM[i];
                     targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
                     throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
-                    valueCache[cacheIndex][i] = PIDError[i];
+                    valueCache[cacheIndex][i] = PIDIntegral[i];
                 }
             }
         }
@@ -324,7 +326,7 @@ void setup()
     } else {
         isBatteryAdcDefined = false;
         //TODO don't assume 4s.
-        batteryVoltage_mv = 16800; // assume fully charged if no adc defined
+        batteryVoltage_mv = 14800; // assume fully charged if no adc defined
     }
     
 
@@ -579,7 +581,7 @@ bool fwControlLoop()
     {
 
     case STATE_IDLE:
-        if (batteryVoltage_mv < lowVoltageCutoff_mv && time_ms > 2000)
+        if (isBatteryAdcDefined && batteryVoltage_mv < lowVoltageCutoff_mv && time_ms > 2000)
         {   
             digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
             print("Battery low, shutting down! ");
@@ -737,57 +739,26 @@ bool fwControlLoop()
                     PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
                     
                     int16_t openLoopThrottle = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0);
-                    int32_t iCap = (openLoopThrottle + 50)/KI;
-                     
-                    constrain(PIDIntegral[i], -iCap, iCap);
-                    int32_t iTerm = PIDIntegral[i] * KI;
-                    //aggressive antiwindup
-                    if (PIDError[i] < 5000 && !firstCrossing[i]){
-                        //int32_t target = openLoopThrottle + 10;
-                        //float excessThrottle = iTerm - target;
-                        // calc error difference 
-                       // int32_t errorValue = PIDErrorPrior[i] - PIDError[i];
-                        //lets quantify errorValue into a scaler
-                        //if errorValue is very large (going to be physical system dependent??)
-                        // we should slow down harder
-                        //we should also slow down harder if we are close
-                        iTerm += (openLoopThrottle - iTerm) *0.98;
-                        /*
-                        if (excessThrottle > 0) {
-                        const float basePull = 0.02f;      // normal unwind
-                        const float slopeBoost = 3.0f;     // how much slope can amplify it
-
-                        float pullGain = basePull * (1.0f + slopeBoost * slopeFactor);
-                        iTerm -= excessThrottle * pullGain;
-                        }
-                        */
-                        
+                    // use iTerm to save some memory for the next
+                    if (isBatteryAdcDefined){
+                        iTerm[i] = (openLoopThrottle+20)/KI;
+                    } else {
+                        iTerm[i] = (openLoopThrottle+100)/KI;
                     }
-
-                    //lets do first 0 crossing predictive I calc to kill I windup
-                    if (signbit(PIDError[i]) && !firstCrossing[i]) {
-                        if (KI != 0){
-                             //PIDIntegral[i] = openLoopThrottle/KI;
-                             
-                        }
-                        //iTerm = openLoopThrottle;
-                        firstCrossing[i] = true;
-                    }
-
+                    PIDIntegral[i] = constrain(PIDIntegral[i], - iTerm[i], iTerm[i]);
+                    //overwrite iTerm with real value
+                    iTerm[i] = PIDIntegral[i] * KI;
                     
-                    int32_t dTerm = KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
-                    constrain(dTerm, -2000,2000);
+                    dTerm[i] = KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+                    dTerm[i] = constrain(dTerm[i], -2000,2000);
 
                     if (targetRPM[i] == 0) {
                     PIDOutput[i] = 0;
                     } else {
-                    PIDOutput[i] = KP * PIDError[i] + iTerm + dTerm;
+                    PIDOutput[i] = KP * PIDError[i] + iTerm[i] + dTerm[i];
                     }
                     
                     PIDErrorPrior[i] = PIDError[i];
-                    if (firstCrossing[i]){
-                        //PIDOutput[i] = openLoopThrottle;                        
-                    }
                     esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
 
                 }
@@ -972,7 +943,6 @@ void resetFWControl()
     case PID_CONTROL:
         for (int i = 0; i < 4; i++) {
             if (motors[i]) {
-                firstCrossing[i] = false;
                 PIDOutput[i] = 0;
                 PIDIntegral[i] = 0; // stop reset PID
             }
