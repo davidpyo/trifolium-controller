@@ -115,6 +115,7 @@ float KD = 0;
 // for TBH PIDIntegral is used for TBH variable, and Gain is KI
 
 float KI = 0.03;
+const uint16_t throttleCap = 300;
 
 // Debug settings
 bool printTelemetry = true; // output printing

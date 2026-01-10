@@ -603,7 +603,7 @@ bool fwControlLoop()
                 for (int i = 0; i < 4; i++) {
                     if (motors[i]) {
                         // for optimal rev let's set throttle to max until first crossing
-                        PIDOutput[i] = maxThrottle;
+                        PIDOutput[i] = max(min(maxThrottle, (maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv) + throttleCap), 0);
                         // premptly setup TBH variable to reduce overshoot
                         PIDIntegral[i] = (2 * map(((targetRPM[i] * 1000) / motorKv), 0, batteryVoltage_mv, 0, maxThrottle)) - PIDOutput[i];
                     }
@@ -793,9 +793,13 @@ bool fwControlLoop()
 
                         PIDError[i] = targetRPM[i] - motorRPM[i];
 
-                        PIDOutput[i] += KI * PIDError[i]; // reset PID output
-
-                        
+                        if (signbit(PIDError[i])  && !firstCrossing[i]) {
+                            firstCrossing[i] = true;
+                        }
+                        if (firstCrossing[i]){
+                            PIDOutput[i] += KI * PIDError[i]; // reset PID output
+                        }
+                       
                         if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
                             PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
                             PIDErrorPrior[i] = PIDError[i];
