@@ -299,7 +299,7 @@ void setup()
                 break;
             }
         }
-        bootReason == BootReason::FROM_ESC_PASSTHROUGH;
+        bootReason = BootReason::FROM_ESC_PASSTHROUGH;
         delay(100);
         rp2040.reboot();
     }

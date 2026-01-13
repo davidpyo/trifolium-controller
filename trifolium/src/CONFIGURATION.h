@@ -59,6 +59,8 @@ float voltageCalibrationFactor = 1.0; // measure the battery voltage with a mult
 boards_t board = trifolium_v1_0_esc_driver; // select the one that matches your board revision
 // Options
 // rune_0_2,
+// trifolium_v1_1_esc_driver
+// trifolium_v1_1_fet_driver
 // trifolium_v1_0_esc_driver
 // trifolium_v1_0_fet_driver
 // pico_zero
