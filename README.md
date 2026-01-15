@@ -4,23 +4,23 @@ trifolium-controller
 
 
 
-> Based on `rune-firmware` and the Dettlaff codebase.  
+> Based on `rune-firmware` and the Dettlaff codebase as well as passthrough from the Stinger codebase.  
 
-> Designed for the `Rune` controller or a generic `RP2040` target with FET drive.
+> Designed for the `trifolium` controller or `Rune` controller or a generic `RP2040` target with FET drive.
 
 
 
 
 ## TODO
- - [ ] Feed forward control  
+ - [x] Feed forward control  
  - [x] Telemetry printing  
  - [x] Python live graphing  
- - [ ] Screen support  
+ - [x] Screen support  
  - [ ] Menu support  
  - [ ] Auto PID tuning  
  - [ ] PID variables per motor (asymmetrical setup support)  
  - [ ] ESC temperature monitoring  
- - [ ] ESC passthrough  
+ - [x] ESC passthrough  
  - [ ] DRV error clearing  
  - [ ] DRV current → closed-loop solenoid control  
 
