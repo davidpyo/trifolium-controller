@@ -2,7 +2,7 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 1
+#define CONFIG_VERSION_MINOR 2
 #define CONFIG_VERSION_PATCH 0
 
 
@@ -108,14 +108,16 @@ uint32_t pusherCurrentSmoothingFactor = 90;
 
 // PID Settings
 const uint8_t EMAFilter = 2; // exponential moving average filter constant for flywheel RPM readings, higher values mean more smoothing but more lag.
-float KP = 1.2;
-// float KI = 0.1;
+const uint8_t iThreshold = 50; //abs error threshold to activate integration. If this is too low, integration might not activate. If this is too high, integration might activate too soon and cause overshoot.  
+float KP = .2;
+float KI = 0.5;
 float KD = 0;
 
 // TBH Settings
 // for TBH PIDIntegral is used for TBH variable, and Gain is KI
 
 float KI = 0.03;
+const uint16_t throttleCap = 300;
 
 // Debug settings
 bool printTelemetry = true; // output printing
