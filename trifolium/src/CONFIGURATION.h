@@ -2,7 +2,7 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 1
+#define CONFIG_VERSION_MINOR 2
 #define CONFIG_VERSION_PATCH 0
 
 
