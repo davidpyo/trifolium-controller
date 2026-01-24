@@ -43,6 +43,10 @@ bool updateRuntimeNow = false;
 bool doMenu = false;
 uint32_t runtimeShotCounter = 0;
 uint32_t displayShotCounter = 0;
+uint32_t lastStartShotRpm[4] = {0, 0, 0, 0};
+uint16_t shotsUnderThreshold[4] = {0, 0, 0, 0};
+bool allowShotDetection = false;
+
 
 //rebooting stuff
 BootReason bootReason;
@@ -690,12 +694,29 @@ bool fwControlLoop()
 
             if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
             { // extend solenoid
-                runtimeShotCounter++;
-                displayShotCounter++;
-                if (runtimeShotCounter % 10000 == 0){
-                    displayShotCounter = 0;
+                if (!useRpmBaseShotCounter){
+                    runtimeShotCounter++;
+                    displayShotCounter++;
+                    if (runtimeShotCounter % 10000 == 0){
+                        displayShotCounter = 0;
+                    }
+                    updateRuntimeNow = true;
+                } else {
+                    allowShotDetection = true;
+                    for (int j = 0; j < 4; j++){
+                    shotsUnderThreshold[j] = 0;
+                    }
+                    for (int i = 0; i < 4; i++){
+                        if (motors[i]){
+                            //save the rpm at the start of the shot 
+
+                            lastStartShotRpm[i] = motorRPM[i];
+                            //println("lastShotRPM " + String(lastStartShotRpm[i]));
+                            //println("cacheIndex " + String(cacheIndex));
+                        }
+                    }
                 }
-                updateRuntimeNow = true;
+               
                 pusher->drive(100, pusherReverseDirection);
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
@@ -709,10 +730,43 @@ bool fwControlLoop()
                 firing = false;
                 pusherTimer_ms = time_ms;
                 println("solenoid retracting");
+            } 
+        } else if (allowShotDetection && !firing && shotsToFire == 0  && time_ms > pusherTimer_ms + solenoidRetractTime_ms){
+            allowShotDetection = false;
+            for (int j = 0; j < 4; j++){
+                shotsUnderThreshold[j] = 0;
             }
+            println("timeout reached");
+            //println("cacheIndex " + String(cacheIndex));
         }
         break;
     }
+    //let's do the solenoid counting
+    if (allowShotDetection && useRpmBaseShotCounter){
+        for (int i = 0; i < 4; i++){
+            if (motors[i]){
+                if ((lastStartShotRpm[i] > motorRPM[i]) && (lastStartShotRpm[i] - motorRPM[i]  > rpmDropThreshold)){
+                    shotsUnderThreshold[i]++;
+                }
+            }
+
+            if (shotsUnderThreshold[i] >= goodRpmShotReads){
+                println("SHOT DETECTED!!!");
+                runtimeShotCounter++;
+                displayShotCounter++;
+                if (runtimeShotCounter % 10000 == 0){
+                    displayShotCounter = 0;
+                }
+                updateRuntimeNow = true;
+                allowShotDetection = false;
+                for (int j = 0; j < 4; j++){
+                    shotsUnderThreshold[j] = 0;
+                }
+                break;
+            }
+        }
+    }
+
     if (enableFwControl){
         switch (flywheelControl){
             case PID_CONTROL:
