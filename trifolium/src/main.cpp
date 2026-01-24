@@ -945,6 +945,8 @@ bool fwControlLoop()
             }
             // increment cache index to prevent re-dumping
             cacheIndex++;
+
+            rp2040.reboot();
         }
 
 #endif
