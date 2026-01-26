@@ -1,7 +1,7 @@
 #include "types.h"
 
 #define MAJOR_VERSION 1
-#define MINOR_VERSION 2
+#define MINOR_VERSION 3
 #define PATCH_VERSION 0
 
 extern BootReason bootReason; // Reason for booting
