@@ -1,16 +1,13 @@
-#include "menuItem.h"
+#include "global.h"
 
 bool MenuItem::settingsBeep = false;
 bool MenuItem::settingsAreInEeprom = false;
 uint8_t MenuItem::lastSettingsBeepMotor = 0;
 uint32_t MenuItem::scheduledSettingsBeep = 0;
-elapsedMillis MenuItem::lastSettingsBeepTimer = 0;
+//elapsedMillis MenuItem::lastSettingsBeepTimer = 0;
 uint8_t MenuItem::scheduledBeepTone = 0;
 bool MenuItem::enteredRotationNavigation = false;
 int16_t MenuItem::lastTickCount = 0;
-#if HW_VERSION == 2
-bool MenuItem::settingsSolenoidClickFlag = false;
-#endif
 
 MenuItem::MenuItem(const VariableType varType, void *data, const int32_t defaultVal, const int32_t stepSize, const int32_t min, const int32_t max, const int32_t displayDivider, const uint8_t displayDecimals, const uint32_t eepromPos, const bool isProfileDependent, const char *identifier, const char *displayName, const char *description, const int32_t offset, const bool rebootOnChange, bool rollover)
 	: varType(varType),
@@ -1579,11 +1576,6 @@ void MenuItem::onRight() {
 		break;
 	case MenuItemType::SUBMENU:
 		if (lastGesture.type == GESTURE_PRESS) {
-#if HW_VERSION == 1
-			scheduleBeep(SETTINGS_BEEP_PERIOD, 1);
-#elif HW_VERSION == 2
-			beep(SETTINGS_BEEP_MIN_FREQ + SETTINGS_BEEP_FREQ_RANGE / 3);
-#endif
 			for (uint8_t i = 0; i < this->children.size(); i++) {
 				if (this->children[i]->focused) {
 					this->children[i]->onEnter();
@@ -1593,11 +1585,6 @@ void MenuItem::onRight() {
 		}
 		break;
 	default:
-#if HW_VERSION == 1
-		scheduleBeep(SETTINGS_BEEP_PERIOD, 1);
-#elif HW_VERSION == 2
-		beep(SETTINGS_BEEP_MIN_FREQ + SETTINGS_BEEP_FREQ_RANGE / 3);
-#endif
 	}
 }
 

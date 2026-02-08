@@ -1,9 +1,10 @@
 #pragma once
 #include "Arduino.h"
-#include "elapsedMillis.h"
 #include "EEPROM.h"
 #include <vector>
 using std::vector;
+
+#define MENU_MAX_DEFAULT_DATA_SIZE 64
 
 enum class MenuItemType {
 	INFO,
@@ -234,19 +235,12 @@ public:
 	static bool settingsBeep;
 	static bool settingsAreInEeprom;
 	static bool enteredRotationNavigation;
-#if HW_VERSION == 1
-	static void scheduleBeep(int16_t msSinceLast, uint8_t tone);
-	static void makeSettingsBeep(uint8_t tone);
-#elif HW_VERSION == 2
-	static void beep(uint16_t freq);
-	uint16_t getValueBeepFreq();
-	static bool settingsSolenoidClickFlag;
-#endif
+
 
 private:
 	static uint8_t lastSettingsBeepMotor;
 	static uint32_t scheduledSettingsBeep;
-	static elapsedMillis lastSettingsBeepTimer;
+	//static elapsedMillis lastSettingsBeepTimer;
 	static uint8_t scheduledBeepTone;
 	static int16_t lastTickCount;
 	vector<MenuItem *> children;
@@ -291,9 +285,9 @@ private:
 	const bool rebootOnChange;
 	bool rebootRequired = false;
 	const bool rollover = true;
-	elapsedMillis focusTimer;
+	//elapsedMillis focusTimer;
 	uint16_t scrollTop = 0;
-	uint8_t lastEntryDrawType = DRAW_UNFOCUSED;
+	//uint8_t lastEntryDrawType = DRAW_UNFOCUSED;
 	void getNumberValueString(char buf[8]);
 	bool redrawValue = true;
 	uint16_t lastProfileColor565 = 0;

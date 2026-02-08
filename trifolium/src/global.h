@@ -1,4 +1,6 @@
 #include "types.h"
+#include "eepromImpl.h"
+#include "menu.h"
 
 #define MAJOR_VERSION 1
 #define MINOR_VERSION 1

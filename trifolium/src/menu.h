@@ -4,8 +4,6 @@
 #define DEFAULT_MAX_RPM (HW_VERSION == 2 ? 53000 : 60000)
 
 extern MenuItem *mainMenu;
-extern MenuItem *firstBootMenu;
-extern MenuItem *onboardingMenu;
 extern MenuItem *openedMenu;
 extern uint8_t profileColor[3];
 extern char profileName[16];

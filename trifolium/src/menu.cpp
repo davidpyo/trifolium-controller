@@ -1,4 +1,3 @@
-#include "menu.h"
 #include "global.h"
 
 MenuItem *mainMenu = new MenuItem(MenuItemType::SUBMENU, "main", "Main Menu");
@@ -6,31 +5,6 @@ MenuItem *mainMenu = new MenuItem(MenuItemType::SUBMENU, "main", "Main Menu");
 MenuItem *openedMenu = nullptr;
 uint8_t copyToProfile = 0;
 
-char profileName[16] = "Profile";
-uint8_t profileColor[3] = {255, 255, 255};
-uint16_t profileColor565 = 0xFFFF;
-bool extendedRpmRange = false;
-
-uint8_t rotationTickSensitivity = 0;
-const char rotationSensitivityStrings[3][10] = {"Slow", "Medium", "Fast"};
-
-#if HW_VERSION == 1
-#define DEFAULT_PID_P 50
-#define DEFAULT_PID_I 30
-#define DEFAULT_PID_D 60
-#define DEFAULT_IN_RANGE_MS 10
-#define DEFAULT_PRECISION 10
-#elif HW_VERSION == 2
-#define DEFAULT_PID_P 60
-#define DEFAULT_PID_I 12
-#define DEFAULT_PID_D 18
-#define DEFAULT_IN_RANGE_MS 1
-#define DEFAULT_PRECISION 5
-#endif
-
-void onExtRpmChange(MenuItem *_item) {
-	mainMenu->search("rpm")->setMax(extendedRpmRange ? 80000 : DEFAULT_MAX_RPM);
-}
 
 void loadSettings() {
 	mainMenu->init();
@@ -130,6 +104,7 @@ void copySwapProfileCheck(MenuItem *_item) {
 	mainMenu->search("copyProfileAction")->setVisible((copyToProfile - 1) != selectedProfile);
 	mainMenu->search("swapProfileAction")->setVisible((copyToProfile - 1) != selectedProfile);
 }
+
 bool copyProfile(MenuItem *item) {
 	mainMenu->save();
 	EEPROM.commit();
