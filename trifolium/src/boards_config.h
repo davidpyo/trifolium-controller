@@ -8,6 +8,70 @@
 // for FET_DRIVER, set drvEN to the fet pin
 // for ESC_DRIVER, set drvEN to the esc pin
 // depending on I2C pins 
+const boards_t trifolium_v1_2_fet_driver = {
+    .pusherDriverType = FET_DRIVER,
+    .esc1 = 0,
+    .esc2 = 1,
+    .esc3 = 2,
+    .esc4 = 3,
+    .telem = 4,
+    .I2C_SCL = 15,
+    .I2C_SDA = 14,
+    .I2C_HW_BLK = i2c1,
+    .IO2 = 18,
+    .IO5 = 19,
+    .IO6 = 20,
+    .IO1 = 21,
+    .IO3 = 9,
+    .IO4 = 10,
+    .batteryADC = 28,
+    .escADC = 26,
+    .drvADC = PIN_NOT_USED,
+    .drvNSLEEP = PIN_NOT_USED,    
+    .drvEN = 24,
+    .drvPH = PIN_NOT_USED,
+    .drvMOSI = PIN_NOT_USED,
+    .drvMISO = PIN_NOT_USED,
+    .drvNSCS = PIN_NOT_USED,
+    .drvSCLK = PIN_NOT_USED,
+    .LED_DATA = PIN_NOT_USED,
+    .ESC_ENABLE = PIN_NOT_USED,
+};
+
+
+const boards_t trifolium_v1_2_esc_driver = {
+    .pusherDriverType = ESC_DRIVER, 
+    .esc1 = 0,
+    .esc2 = 1,
+    .esc3 = 2,
+    .esc4 = 3,
+    .telem = 4,
+    .I2C_SCL = 15,
+    .I2C_SDA = 14,
+    .I2C_HW_BLK = i2c1,
+    .IO2 = 18,
+    .IO5 = 19,
+    .IO6 = 20,
+    .IO1 = 21,
+    .IO3 = 9,
+    .IO4 = 10,
+    .batteryADC = 28,
+    .escADC = 26,
+    .drvADC = PIN_NOT_USED,
+    .drvNSLEEP = PIN_NOT_USED,    
+    .drvEN = 2,
+    .drvPH = PIN_NOT_USED,
+    .drvMOSI = PIN_NOT_USED,
+    .drvMISO = PIN_NOT_USED,
+    .drvNSCS = PIN_NOT_USED,
+    .drvSCLK = PIN_NOT_USED,
+    .LED_DATA = PIN_NOT_USED,
+    .ESC_ENABLE = PIN_NOT_USED,
+};
+
+
+
+
 const boards_t trifolium_v1_1_fet_driver = {
     .pusherDriverType = FET_DRIVER,
     .esc1 = 0,

@@ -8,7 +8,7 @@ trifolium-controller
 
 > Designed for the `trifolium` controller or `Rune` controller or a generic `RP2040` target with FET drive.
 
-
+> Here's a video on setup and an overview of the board: https://www.youtube.com/live/lg1xlSH4bGQ?si=-dB7dRIhKSCSjfnB
 
 
 ## TODO
@@ -31,8 +31,5 @@ trifolium-controller
  **Note:** This project uses `PlatformIO` in `VSCode`.
  **To flash a board:**  
 
- > 1. Hold the `BOOTSEL` button (next to the USB port) while plugging in your USB cable.  
- > 2. The board will show up as a drive named `RPI-RP2`.  
- > 3. Drag the `.uf2` file from the `build/` folder onto the drive.  
- > 4. It will reboot and begin running your code.
+ > 1. Press the "Upload" button in PlatformIO (if board has not been flashed before, putting the board in bootloader mode may be required).
 
