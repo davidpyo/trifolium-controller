@@ -43,7 +43,6 @@ bool updateRuntimeNow = false;
 bool doMenu = false;
 uint32_t runtimeShotCounter = 0;
 uint32_t displayShotCounter = 0;
-uint32_t lastStartShotRpm[4] = {0, 0, 0, 0};
 uint16_t shotsUnderThreshold[4] = {0, 0, 0, 0};
 bool allowShotDetection = false;
 
@@ -716,15 +715,7 @@ bool fwControlLoop()
                     for (int j = 0; j < 4; j++){
                     shotsUnderThreshold[j] = 0;
                     }
-                    for (int i = 0; i < 4; i++){
-                        if (motors[i]){
-                            //save the rpm at the start of the shot 
-
-                            lastStartShotRpm[i] = motorRPM[i];
-                            //println("lastShotRPM " + String(lastStartShotRpm[i]));
-                            //println("cacheIndex " + String(cacheIndex));
-                        }
-                    }
+                    //println("cacheIndex " + String(cacheIndex));  
                 }
                
                 pusher->drive(100, pusherReverseDirection);
@@ -748,7 +739,7 @@ bool fwControlLoop()
     if (allowShotDetection && useRpmBaseShotCounter){
         for (int i = 0; i < 4; i++){
             if (motors[i]){
-                if ((lastStartShotRpm[i] > motorRPM[i]) && (lastStartShotRpm[i] - motorRPM[i]  > rpmDropThreshold)){
+                if ((targetRPM[i] > motorRPM[i]) && (targetRPM[i] - motorRPM[i]  > rpmDropThreshold)){
                     shotsUnderThreshold[i]++;
                 }
             }
