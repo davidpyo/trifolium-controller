@@ -43,6 +43,9 @@ bool updateRuntimeNow = false;
 bool doMenu = false;
 uint32_t runtimeShotCounter = 0;
 uint32_t displayShotCounter = 0;
+uint16_t shotsUnderThreshold[4] = {0, 0, 0, 0};
+bool allowShotDetection = false;
+
 
 //rebooting stuff
 BootReason bootReason;
@@ -613,8 +616,18 @@ bool fwControlLoop()
             cacheIndex = 0; // reset cache index to start logging
             #endif
         }
-        else if (time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0)
+        else if ((time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0) || allowShotDetection)
         { // dwell flywheels
+            if (allowShotDetection && time_ms > pusherTimer_ms + solenoidRetractTime_ms){
+                allowShotDetection = false;
+                for (int j = 0; j < 4; j++){
+                    shotsUnderThreshold[j] = 0;
+                }
+                //println("timeout reached");
+            } else {
+                //println("holding for dwell");
+            }
+
         }
         else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
         { // idle flywheels
@@ -690,12 +703,21 @@ bool fwControlLoop()
 
             if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
             { // extend solenoid
-                runtimeShotCounter++;
-                displayShotCounter++;
-                if (runtimeShotCounter % 10000 == 0){
-                    displayShotCounter = 0;
+                if (!useRpmBaseShotCounter){
+                    runtimeShotCounter++;
+                    displayShotCounter++;
+                    if (runtimeShotCounter % 10000 == 0){
+                        displayShotCounter = 0;
+                    }
+                    updateRuntimeNow = true;
+                } else {
+                    allowShotDetection = true;
+                    for (int j = 0; j < 4; j++){
+                    shotsUnderThreshold[j] = 0;
+                    }
+                    //println("cacheIndex " + String(cacheIndex));  
                 }
-                updateRuntimeNow = true;
+               
                 pusher->drive(100, pusherReverseDirection);
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
@@ -709,10 +731,36 @@ bool fwControlLoop()
                 firing = false;
                 pusherTimer_ms = time_ms;
                 println("solenoid retracting");
-            }
+            } 
         }
         break;
     }
+    //let's do the solenoid counting
+    if (allowShotDetection && useRpmBaseShotCounter){
+        for (int i = 0; i < 4; i++){
+            if (motors[i]){
+                if ((targetRPM[i] > motorRPM[i]) && (targetRPM[i] - motorRPM[i]  > rpmDropThreshold)){
+                    shotsUnderThreshold[i]++;
+                }
+            }
+
+            if (shotsUnderThreshold[i] >= goodRpmShotReads){
+                println("SHOT DETECTED!!!");
+                runtimeShotCounter++;
+                displayShotCounter++;
+                if (runtimeShotCounter % 10000 == 0){
+                    displayShotCounter = 0;
+                }
+                updateRuntimeNow = true;
+                allowShotDetection = false;
+                for (int j = 0; j < 4; j++){
+                    shotsUnderThreshold[j] = 0;
+                }
+                break;
+            }
+        }
+    }
+
     if (enableFwControl){
         switch (flywheelControl){
             case PID_CONTROL:
@@ -891,6 +939,8 @@ bool fwControlLoop()
             }
             // increment cache index to prevent re-dumping
             cacheIndex++;
+
+            rp2040.reboot();
         }
 
 #endif

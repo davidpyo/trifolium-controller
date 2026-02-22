@@ -2,7 +2,7 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 2
+#define CONFIG_VERSION_MINOR 3
 #define CONFIG_VERSION_PATCH 0
 
 
@@ -70,6 +70,9 @@ boards_t board = trifolium_v1_0_esc_driver; // select the one that matches your 
 const char * blasterName = "example";//set to blaster name
 bool hasDisplay = true; // set to true if you have an I2C OLED display connected
 bool rotateDisplay = true; // set to true if your display is upside down
+bool useRpmBaseShotCounter = true; // if true, shot counter increases based on detected rpm drop, otherwise increases based on pusher cycles
+uint16_t goodRpmShotReads = 5;  // number of good rpm reads below threshold to count as a shot
+uint16_t rpmDropThreshold = 200; // rpm drop to count as a shot
 
 // Input Pins, set to PIN_NOT_USED if not using
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
@@ -100,7 +103,7 @@ bool triggerSwitchNormallyClosed = false;
 bool cycleSwitchNormallyClosed = false;
 uint16_t debounceTime_ms = 100; // decrease if you're unable to make fast double taps in semi auto, increase if you're getting accidental double taps in semi auto
 uint16_t pusherDebounceTime_ms = 25; // NOT USED
-const int voltageAveragingWindow = 1;
+const int voltageAveragingWindow = 5;
 uint32_t pusherCurrentSmoothingFactor = 90;
 //uint8_t telemetryInterval_ms = 5;
 //float maxDutyCycle_pct = 98;
