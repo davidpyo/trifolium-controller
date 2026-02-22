@@ -619,6 +619,16 @@ bool fwControlLoop()
         }
         else if ((time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0) || allowShotDetection)
         { // dwell flywheels
+            if (allowShotDetection && time_ms > pusherTimer_ms + solenoidRetractTime_ms){
+                allowShotDetection = false;
+                for (int j = 0; j < 4; j++){
+                    shotsUnderThreshold[j] = 0;
+                }
+                //println("timeout reached");
+            } else {
+                //println("holding for dwell");
+            }
+
         }
         else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
         { // idle flywheels
@@ -731,13 +741,6 @@ bool fwControlLoop()
                 pusherTimer_ms = time_ms;
                 println("solenoid retracting");
             } 
-        } else if (allowShotDetection && !firing && shotsToFire == 0  && time_ms > pusherTimer_ms + solenoidRetractTime_ms){
-            allowShotDetection = false;
-            for (int j = 0; j < 4; j++){
-                shotsUnderThreshold[j] = 0;
-            }
-            println("timeout reached");
-            //println("cacheIndex " + String(cacheIndex));
         }
         break;
     }
