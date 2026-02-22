@@ -70,7 +70,7 @@ bool hasDisplay = true; // set to true if you have an I2C OLED display connected
 bool rotateDisplay = true; // set to true if your display is upside down
 bool useRpmBaseShotCounter = true; // if true, shot counter increases based on detected rpm drop, otherwise increases based on pusher cycles
 uint16_t goodRpmShotReads = 5;  // number of good rpm reads below threshold to count as a shot
-uint16_t rpmDropThreshold = 1000; // rpm drop to count as a shot
+uint16_t rpmDropThreshold = 200; // rpm drop to count as a shot
 
 // Input Pins, set to PIN_NOT_USED if not using
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
