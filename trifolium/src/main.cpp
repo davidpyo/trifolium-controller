@@ -617,7 +617,7 @@ bool fwControlLoop()
             cacheIndex = 0; // reset cache index to start logging
             #endif
         }
-        else if (time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0)
+        else if ((time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0) || allowShotDetection)
         { // dwell flywheels
         }
         else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
