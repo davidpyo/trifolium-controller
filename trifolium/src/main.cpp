@@ -773,7 +773,7 @@ bool fwControlLoop()
                     motorRPMRaw[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
                     
                     // reject impossible rpm readings
-                    if (motorRPMRaw[i] * 1000 > motorKv * batteryVoltage_mv) {
+                    if (motorRPMRaw[i] * 1000 > motorKv * 16800) {
                         //assign to last valid filtered rpm reading
                         motorRPMRaw[i] = motorRPM[i];
                     }

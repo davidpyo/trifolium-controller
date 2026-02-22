@@ -2,15 +2,15 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 2
+#define CONFIG_VERSION_MINOR 3
 #define CONFIG_VERSION_PATCH 0
 
 
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 0, 10000, 0, 10000 }, { 0, 35000, 0, 35000 }, { 0, 34000, 0, 34000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM. Typically we do assume esc 2/4 and 1/3 are paired
-uint32_t dwellTimeSet_ms[3] = { 500, 500,500 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
+int32_t revRPMset[3][4] = { { 0, 10000, 0, 10000 }, { 0, 28000, 0, 28000 }, { 0, 27000, 0, 27000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM. Typically we do assume esc 2/4 and 1/3 are paired
+uint32_t dwellTimeSet_ms[3] = { 0, 0,0 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
 uint32_t idleTimeSet_ms[3] = { 5000, 5000, 5000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
 //uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
 //uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
@@ -59,6 +59,8 @@ float voltageCalibrationFactor = 1.0; // measure the battery voltage with a mult
 boards_t board = trifolium_v1_1_esc_driver; // select the one that matches your board revision
 // Options
 // rune_0_2,
+// trifolium_v1_2_esc_driver
+// trifolium_v1_2_fet_driver
 // trifolium_v1_1_esc_driver
 // trifolium_v1_1_fet_driver
 // trifolium_v1_0_esc_driver
@@ -68,6 +70,9 @@ boards_t board = trifolium_v1_1_esc_driver; // select the one that matches your 
 const char * blasterName = "Fencer";//set to blaster name
 bool hasDisplay = true; // set to true if you have an I2C OLED display connected
 bool rotateDisplay = true; // set to true if your display is upside down
+bool useRpmBaseShotCounter = true; // if true, shot counter increases based on detected rpm drop, otherwise increases based on pusher cycles
+uint16_t goodRpmShotReads = 5;  // number of good rpm reads below threshold to count as a shot
+uint16_t rpmDropThreshold = 200; // rpm drop to count as a shot
 
 // Input Pins, set to PIN_NOT_USED if not using
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
@@ -91,15 +96,14 @@ uint16_t solenoidExtendTimeLow_ms = 25;
 uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeLow_ms time (from log)
 uint16_t solenoidRetractTime_ms = 35;
 
-
 // Advanced Settings
 //uint16_t pusherStallTime_ms = 750; // for PUSHER_MOTOR_CLOSEDLOOP, how long do you run the motor without seeing an update on the cycle control switch before you decide the motor is stalled?
-bool revSwitchNormallyClosed = true; // invert switch signal?
+bool revSwitchNormallyClosed = false; // invert switch signal?
 bool triggerSwitchNormallyClosed = false;
 bool cycleSwitchNormallyClosed = false;
 uint16_t debounceTime_ms = 100; // decrease if you're unable to make fast double taps in semi auto, increase if you're getting accidental double taps in semi auto
 uint16_t pusherDebounceTime_ms = 25; // NOT USED
-const int voltageAveragingWindow = 1;
+const int voltageAveragingWindow = 5;
 uint32_t pusherCurrentSmoothingFactor = 90;
 //uint8_t telemetryInterval_ms = 5;
 //float maxDutyCycle_pct = 98;
@@ -121,6 +125,7 @@ float KD = 0;
 const uint16_t throttleCap = 300;
 
 // Debug settings
+// For running the blaster without telemetry, set printTelemetry to false and comment out #define USE_RPM_LOGGING
 bool printTelemetry = false; // output printing
 //#define USE_RPM_LOGGING //RPM Logging
 #ifdef USE_RPM_LOGGING
@@ -129,3 +134,4 @@ const uint32_t rpmLogLength = 2000;
 
 
 #define MOTOR_POLES 14
+s
