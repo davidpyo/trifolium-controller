@@ -795,22 +795,22 @@ bool fwControlLoop()
                         PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
                         
                         // use iTerm to save some memory for the next
-                        iTerm[i] = (openLoopThrottle)/(KI*2);
+                        iTerm[i] = (openLoopThrottle)/(motorsPID[i].m_iTerm*2);
                         PIDIntegral[i] = constrain(PIDIntegral[i], - iTerm[i], iTerm[i]);
                     
                         //overwrite iTerm with real value
-                        iTerm[i] = PIDIntegral[i] * KI;
+                        iTerm[i] = PIDIntegral[i] * motorsPID[i].m_iTerm;
                     
                     }
              
-                    
-                    dTerm[i] = KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+
+                    dTerm[i] = motorsPID[i].m_dTerm * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
                     dTerm[i] = constrain(dTerm[i], -2000,2000);
 
                     if (targetRPM[i] == 0) {
                     PIDOutput[i] = 0;
                     } else {
-                    PIDOutput[i] = (openLoopThrottle) + KP * PIDError[i] + iTerm[i] + dTerm[i];
+                    PIDOutput[i] = (openLoopThrottle) + motorsPID[i].m_pTerm * PIDError[i] + iTerm[i] + dTerm[i];
                     }
                     
                     PIDErrorPrior[i] = PIDError[i];
@@ -845,7 +845,7 @@ bool fwControlLoop()
                             firstCrossing[i] = true;
                         }
                         if (firstCrossing[i]){
-                            PIDOutput[i] += KI * PIDError[i]; // reset PID output
+                            PIDOutput[i] += motorsPID[i].m_iTerm * PIDError[i]; // reset PID output
                         }
                        
                         if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
