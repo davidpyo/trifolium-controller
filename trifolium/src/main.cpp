@@ -794,22 +794,22 @@ bool fwControlLoop()
                         PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
                         
                         // use iTerm to save some memory for the next
-                        iTerm[i] = (openLoopThrottle)/(motorsObj[i].m_iTerm*2);
+                        iTerm[i] = (openLoopThrottle)/(motorsObj[i].m_iGain*2);
                         PIDIntegral[i] = constrain(PIDIntegral[i], - iTerm[i], iTerm[i]);
                     
                         //overwrite iTerm with real value
-                        iTerm[i] = PIDIntegral[i] * motorsObj[i].m_iTerm;
+                        iTerm[i] = PIDIntegral[i] * motorsObj[i].m_iGain;
                     
                     }
              
 
-                    dTerm[i] = motorsObj[i].m_dTerm * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+                    dTerm[i] = motorsObj[i].m_dGain * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
                     dTerm[i] = constrain(dTerm[i], -2000,2000);
 
                     if (targetRPM[i] == 0) {
                     PIDOutput[i] = 0;
                     } else {
-                    PIDOutput[i] = (openLoopThrottle) + motorsObj[i].m_pTerm * PIDError[i] + iTerm[i] + dTerm[i];
+                    PIDOutput[i] = (openLoopThrottle) + motorsObj[i].m_pGain * PIDError[i] + iTerm[i] + dTerm[i];
                     }
                     
                     PIDErrorPrior[i] = PIDError[i];
@@ -844,7 +844,7 @@ bool fwControlLoop()
                             firstCrossing[i] = true;
                         }
                         if (firstCrossing[i]){
-                            PIDOutput[i] += motorsObj[i].m_iTerm * PIDError[i]; // reset PID output
+                            PIDOutput[i] += motorsObj[i].m_iGain * PIDError[i]; // reset PID output
                         }
                        
                         if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
