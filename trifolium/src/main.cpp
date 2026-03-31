@@ -267,11 +267,6 @@ void setup()
         }
         u8 pins[numPassthrough] = {0};
         u8 currentPin = 0;
-        if (board.pusherDriverType == ESC_DRIVER)
-        {
-            pins[currentPin] = board.drvEN; 
-            currentPin++;
-        }
         for (int i = 0; i < 4; i++)
         {
             if (motors[i])
@@ -289,6 +284,10 @@ void setup()
                 pins[currentPin] = escPin;
                 currentPin++;
             }
+        }
+        if (board.pusherDriverType == ESC_DRIVER)
+        {
+            pins[currentPin] = board.drvEN; 
         }
 
         displayText("ESC Passthrough, hold trigger to exit", 0, 0, true);
