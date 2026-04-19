@@ -139,6 +139,7 @@ uint16_t cacheIndex = rpmLogLength + 1;
 #endif
 
 void updateFiringMode();
+void selectRPMProfile();
 bool fwControlLoop();
 void mainFiringLogic();
 void resetFWControl();
@@ -443,10 +444,11 @@ void setup()
     // change FPS using select fire switch position at boot time
     if (variableFPS)
     {
-        updateFiringMode();
+        selectRPMProfile();
     }
 
     fpsMode = firingMode;
+	firingMode = 0;
     print("fpsMode: ");
     println(fpsMode);
     for (int i = 0; i < 4; i++)
@@ -845,7 +847,7 @@ bool fwControlLoop()
                             firstCrossing[i] = true;
                         }
                         if (firstCrossing[i]){
-                            PIDOutput[i] += KI * PIDError[i]; // reset PID output
+                            PIDOutput[i] += TBH_KI * PIDError[i]; // reset PID output
                         }
                        
                         if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
@@ -968,37 +970,51 @@ void updateFiringMode()
     {
         return;
     }
-    if (pinDefined(select0Pin))
+    else if (selectFireType == SWITCH_SELECT_FIRE)
     {
-        select0.update();
-        if (select0.isPressed())
+        if (pinDefined(select0Pin))
         {
-            firingMode = 0;
-            return;
+            select0.update();
+            if (select0.isPressed())
+            {
+                firingMode = 0;
+                return;
+            }
+        }
+        if (pinDefined(select1Pin))
+        {
+            select1.update();
+            if (select1.isPressed())
+            {
+                firingMode = 1;
+                return;
+            }
+        }
+        if (pinDefined(select2Pin))
+        {
+            select2.update();
+            if (select2.isPressed())
+            {
+                firingMode = 2;
+                return;
+            }
         }
     }
-    if (pinDefined(select1Pin))
+    else if (selectFireType == BUTTON_SELECT_FIRE)
     {
-        select1.update();
-        if (select1.isPressed())
+        if (pinDefined(select0Pin))
         {
-            firingMode = 1;
-            return;
+            select0.update();
+            if (select0.pressed())
+            {
+                firingMode++;
+                if (firingMode > 2)
+                {
+                    firingMode = 0;
+                }
+                return;
+            }
         }
-    }
-    if (pinDefined(select2Pin))
-    {
-        select2.update();
-        if (select2.isPressed())
-        {
-            firingMode = 2;
-            return;
-        }
-    }
-    if (selectFireType == SWITCH_SELECT_FIRE)
-    { // if BUTTON_SELECT_FIRE then don't change modes
-        firingMode = defaultFiringMode;
-        return;
     }
 }
 
@@ -1024,6 +1040,64 @@ void resetFWControl()
         break;
     }
     return;
+}
+
+void selectRPMProfile()
+{
+    firingMode = 0;
+
+    if (selectFireType == SWITCH_SELECT_FIRE)
+    {
+        if (pinDefined(select0Pin))
+        {
+            select0.update();
+            if (select0.isPressed())
+            {
+                firingMode = 0;
+                return;
+            }
+        }
+        if (pinDefined(select1Pin))
+        {
+            select1.update();
+            if (select1.isPressed())
+            {
+                firingMode = 1;
+                return;
+            }
+        }
+        if (pinDefined(select2Pin))
+        {
+            select2.update();
+            if (select2.isPressed())
+            {
+                firingMode = 2;
+                return;
+            }
+        }
+    }
+    else if (selectFireType == BUTTON_SELECT_FIRE)
+    {
+        if (pinDefined(select0Pin))
+        {
+            select0.update();
+            if (select0.isPressed())
+            {
+                firingMode = 1;
+                return;
+            }
+        }
+
+        if (pinDefined(revSwitchPin))
+        {
+            revSwitch.update();
+            if (revSwitch.isPressed())
+            {
+                firingMode = 2;
+                return;
+            }
+        }
+    }
 }
 
 void setup1(){
