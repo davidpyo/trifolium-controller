@@ -145,6 +145,19 @@ uint32_t pusherCurrentSmoothingFactor = 90;
 //uint16_t pwmFreq_hz = 20000;
 //uint16_t servoFreq_hz = 200;
 
+// PID Settings
+const uint8_t EMAFilter = 2; // exponential moving average filter constant for flywheel RPM readings, higher values mean more smoothing but more lag.
+const uint8_t iThreshold = 50; //abs error threshold to activate integration. If this is too low, integration might not activate. If this is too high, integration might activate too soon and cause overshoot.  
+float KP = .2;
+float KI = 0.5;
+float KD = 0;
+
+// TBH Settings
+// for TBH PIDIntegral is used for TBH variable, and Gain is KI
+
+float TBH_KI = 0.03;
+const uint16_t throttleCap = 300;
+
 // Debug settings
 // For running the blaster without telemetry, set printTelemetry to false and comment out #define USE_RPM_LOGGING
 bool printTelemetry = false; // output printing
