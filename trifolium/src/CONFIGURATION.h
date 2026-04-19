@@ -14,8 +14,6 @@ bool variableFPS = true;
 int32_t revRPMset[3][4] = { { 28000, 35000, 28000, 350000 }, { 28000, 35000, 28000, 35000 }, { 28000, 35000, 28000, 35000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM. Typically we do assume esc 2/4 and 1/3 are paired
 uint32_t dwellTimeSet_ms[3] = { 500, 500, 500 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
 uint32_t idleTimeSet_ms[3] = { 240000, 240000, 240000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
-//uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
-//uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
 uint32_t spindownSpeed = 100; // RPM per ms
 
 int32_t idleRPM[4] = { 1000, 1000, 1000, 1000 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
@@ -41,7 +39,7 @@ const uint16_t throttleCap = 300;
 // Motor Settings
 //comment out one or the other if you are using the same or different
 //#define SAME_MOTOR_CONFIG
-#define DIFFERNT_MOTOR_CONFIG
+#define DIFFERENT_MOTOR_CONFIG
 
 #ifdef SAME_MOTOR_CONFIG
 float KP = .2;
@@ -55,8 +53,8 @@ Motor motorsObj[4] = {
     Motor(KP, KI, KD, motorKv, motorPolesDiv2),
     Motor(KP, KI, KD, motorKv, motorPolesDiv2)
 }; 
-#elif defined(DIFFERNT_MOTOR_CONFIG) 
-//Adjust according to Motor(KP, KI, KD, motorKV, motorPolesDiv2) 
+#elif defined(DIFFERENT_MOTOR_CONFIG) 
+//Adjust according to Motor(KP, KI, KD, motorKV, motorPolesDiv2). For TBH, only KI is used. 
 Motor motorsObj[4] = {
     Motor(0.2, 0.5, 0, 3200, 7),
     Motor(0.2, 0.5, 0, 3200, 7),
@@ -131,7 +129,6 @@ uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at 
 uint16_t solenoidRetractTime_ms = 35;
 
 // Advanced Settings
-//uint16_t pusherStallTime_ms = 750; // for PUSHER_MOTOR_CLOSEDLOOP, how long do you run the motor without seeing an update on the cycle control switch before you decide the motor is stalled?
 bool revSwitchNormallyClosed = false; // invert switch signal?
 bool triggerSwitchNormallyClosed = false;
 bool cycleSwitchNormallyClosed = false;
@@ -139,24 +136,6 @@ uint16_t debounceTime_ms = 100; // decrease if you're unable to make fast double
 uint16_t pusherDebounceTime_ms = 25; // NOT USED
 const int voltageAveragingWindow = 5;
 uint32_t pusherCurrentSmoothingFactor = 90;
-//uint8_t telemetryInterval_ms = 5;
-//float maxDutyCycle_pct = 98;
-//uint8_t deadtime = 10;
-//uint16_t pwmFreq_hz = 20000;
-//uint16_t servoFreq_hz = 200;
-
-// PID Settings
-const uint8_t EMAFilter = 2; // exponential moving average filter constant for flywheel RPM readings, higher values mean more smoothing but more lag.
-const uint8_t iThreshold = 50; //abs error threshold to activate integration. If this is too low, integration might not activate. If this is too high, integration might activate too soon and cause overshoot.  
-float KP = .2;
-float KI = 0.5;
-float KD = 0;
-
-// TBH Settings
-// for TBH PIDIntegral is used for TBH variable, and Gain is KI
-
-float TBH_KI = 0.03;
-const uint16_t throttleCap = 300;
 
 // Debug settings
 // For running the blaster without telemetry, set printTelemetry to false and comment out #define USE_RPM_LOGGING
