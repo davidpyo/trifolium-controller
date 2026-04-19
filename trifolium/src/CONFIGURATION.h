@@ -1,9 +1,11 @@
+#include "motor.h"
 #include "boards_config.h" // board pinouts are in this file
+
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 3
-#define CONFIG_VERSION_PATCH 1
+#define CONFIG_VERSION_MINOR 4
+#define CONFIG_VERSION_PATCH 0
 
 
 // Flywheel Settings
@@ -16,7 +18,6 @@ uint32_t idleTimeSet_ms[3] = { 240000, 240000, 240000 }; // how long to keep the
 //uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
 uint32_t spindownSpeed = 100; // RPM per ms
 
-int32_t motorKv = 3200; // critical for closed loop
 int32_t idleRPM[4] = { 1000, 1000, 1000, 1000 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
 dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
@@ -24,12 +25,45 @@ dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, mus
 // Closed Loop Settings
 flywheelControlType_t flywheelControl = TBH_CONTROL; // PID_CONTROL, or TBH_CONTROL
 const bool motors[4] = {false, false, false, false}; // which motors are hooked up
-//bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot NOT USED CURRENTLY
 int32_t firingRPMTolerance = 500; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
 int32_t minFiringRPM = 10000; // overrides firingRPMTolerance for low rpm settings
-//int32_t minFiringDelaySet_ms[3] = {0, 0, 0}; // when not idling, don't fire the pusher before this amount of time, even if wheels are up to speed. makes the delay more consistent
-//int32_t minFiringDelayIdleSet_ms[3] = {0, 0, 0}; // same but when idling
+
+// PID Settings
+// Set your PID constants below
+const uint8_t EMAFilter = 2; // exponential moving average filter constant for flywheel RPM readings, higher values mean more smoothing but more lag.
+const uint8_t iThreshold = 50; //abs error threshold to activate integration. If this is too low, integration might not activate. If this is too high, integration might activate too soon and cause overshoot.  
+
+// TBH Settings
+// for TBH KI is the value you adjust below in the motor settings
+const uint16_t throttleCap = 300;
+
+// Motor Settings
+//comment out one or the other if you are using the same or different
+//#define SAME_MOTOR_CONFIG
+#define DIFFERNT_MOTOR_CONFIG
+
+#ifdef SAME_MOTOR_CONFIG
+float KP = .2;
+float KI = 0.5;
+float KD = 0;
+int16_t motorPolesDiv2 = 7; //motor poles divided by 2 (14 pole motor = 7)
+int32_t motorKv = 3200; // critical for closed loop
+Motor motorsObj[4] = {
+    Motor(KP, KI, KD, motorKv, motorPolesDiv2),
+    Motor(KP, KI, KD, motorKv, motorPolesDiv2),
+    Motor(KP, KI, KD, motorKv, motorPolesDiv2),
+    Motor(KP, KI, KD, motorKv, motorPolesDiv2)
+}; 
+#elif defined(DIFFERNT_MOTOR_CONFIG) 
+//Adjust according to Motor(KP, KI, KD, motorKV, motorPolesDiv2) 
+Motor motorsObj[4] = {
+    Motor(0.2, 0.5, 0, 3200, 7),
+    Motor(0.2, 0.5, 0, 3200, 7),
+    Motor(0.2, 0.5, 0, 3200, 7),
+    Motor(0.2, 0.5, 0, 3200, 7)
+};
+#endif
 
 // Select Fire Settings
 uint32_t burstLengthSet[3] = { 100, 1, 1 };
@@ -133,4 +167,4 @@ const uint32_t rpmLogLength = 2000;
 #endif
 
 
-#define MOTOR_POLES 14
+

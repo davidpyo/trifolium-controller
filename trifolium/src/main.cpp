@@ -268,11 +268,6 @@ void setup()
         }
         u8 pins[numPassthrough] = {0};
         u8 currentPin = 0;
-        if (board.pusherDriverType == ESC_DRIVER)
-        {
-            pins[currentPin] = board.drvEN; 
-            currentPin++;
-        }
         for (int i = 0; i < 4; i++)
         {
             if (motors[i])
@@ -290,6 +285,10 @@ void setup()
                 pins[currentPin] = escPin;
                 currentPin++;
             }
+        }
+        if (board.pusherDriverType == ESC_DRIVER)
+        {
+            pins[currentPin] = board.drvEN; 
         }
 
         displayText("ESC Passthrough, hold trigger to exit", 0, 0, true);
@@ -608,9 +607,9 @@ bool fwControlLoop()
                 for (int i = 0; i < 4; i++) {
                     if (motors[i]) {
                         // for optimal rev let's set throttle to max until first crossing
-                        PIDOutput[i] = max(min(maxThrottle, (maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv) + throttleCap), 0);
+                        PIDOutput[i] = max(min(maxThrottle, (maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv) + throttleCap), 0);
                         // premptly setup TBH variable to reduce overshoot
-                        PIDIntegral[i] = (2 * map(((targetRPM[i] * 1000) / motorKv), 0, batteryVoltage_mv, 0, maxThrottle)) - PIDOutput[i];
+                        PIDIntegral[i] = (2 * map(((targetRPM[i] * 1000) / motorsObj[i].m_motorKv), 0, batteryVoltage_mv, 0, maxThrottle)) - PIDOutput[i];
                     }
                 }
             }
@@ -772,10 +771,10 @@ bool fwControlLoop()
                 {
                 
                     esc[i]->getTelemetryErpm(&motorRPMRaw[i]);
-                    motorRPMRaw[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                    motorRPMRaw[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
                     
                     // reject impossible rpm readings
-                    if (motorRPMRaw[i] * 1000 > motorKv * 16800) {
+                    if (motorRPMRaw[i] * 1000 > motorsObj[i].m_motorKv * 16800) {
                         //assign to last valid filtered rpm reading
                         motorRPMRaw[i] = motorRPM[i];
                     }
@@ -789,7 +788,7 @@ bool fwControlLoop()
                     if ((signbit(PIDError[i]) || ((abs(PIDErrorPrior[i] - PIDError[i]) < iThreshold) && motorRPM[i] > (targetRPM[i]/2))) && !firstCrossing[i]) {
                         firstCrossing[i] = true;
                     }
-                    int16_t openLoopThrottle = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv), 0);
+                    int16_t openLoopThrottle = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv), 0);
                     if (!firstCrossing[i]){
                         PIDIntegral[i] = 0;
                         iTerm[i] = 0;
@@ -797,22 +796,22 @@ bool fwControlLoop()
                         PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
                         
                         // use iTerm to save some memory for the next
-                        iTerm[i] = (openLoopThrottle)/(KI*2);
+                        iTerm[i] = (openLoopThrottle)/(motorsObj[i].m_iGain*2);
                         PIDIntegral[i] = constrain(PIDIntegral[i], - iTerm[i], iTerm[i]);
                     
                         //overwrite iTerm with real value
-                        iTerm[i] = PIDIntegral[i] * KI;
+                        iTerm[i] = PIDIntegral[i] * motorsObj[i].m_iGain;
                     
                     }
              
-                    
-                    dTerm[i] = KD * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
+
+                    dTerm[i] = motorsObj[i].m_dGain * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
                     dTerm[i] = constrain(dTerm[i], -2000,2000);
 
                     if (targetRPM[i] == 0) {
                     PIDOutput[i] = 0;
                     } else {
-                    PIDOutput[i] = (openLoopThrottle) + KP * PIDError[i] + iTerm[i] + dTerm[i];
+                    PIDOutput[i] = (openLoopThrottle) + motorsObj[i].m_pGain * PIDError[i] + iTerm[i] + dTerm[i];
                     }
                     
                     PIDErrorPrior[i] = PIDError[i];
@@ -832,10 +831,10 @@ bool fwControlLoop()
                         Just trying to reuse variables to save runtime memory
                         */
                         esc[i]->getTelemetryErpm(&motorRPM[i]);
-                        motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
+                        motorRPM[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
                         
                         // reject impossible rpm readings
-                        if (motorRPM[i] * 1000 > motorKv * batteryVoltage_mv) {
+                        if (motorRPM[i] * 1000 > motorsObj[i].m_motorKv * batteryVoltage_mv) {
                             //assign to last valid filtered rpm reading
                             motorRPM[i] = motorRPMFilter[i];
                         }
@@ -847,7 +846,7 @@ bool fwControlLoop()
                             firstCrossing[i] = true;
                         }
                         if (firstCrossing[i]){
-                            PIDOutput[i] += TBH_KI * PIDError[i]; // reset PID output
+                            PIDOutput[i] += motorsObj[i].m_iGain * PIDError[i]; // reset PID output
                         }
                        
                         if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
@@ -876,8 +875,8 @@ bool fwControlLoop()
         for (int i = 0; i < 4; i++) {
             if (motors[i]) {
                 esc[i]->getTelemetryErpm(&motorRPM[i]);
-                motorRPM[i] /= (MOTOR_POLES / 2); // convert eRPM to RPM
-                int32_t openLoopTarget = maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorKv ;
+                motorRPM[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
+                int32_t openLoopTarget = maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv ;
                 if (openLoopTarget < PIDOutput[i]){
                     PIDOutput[i] = openLoopTarget;
                 }
