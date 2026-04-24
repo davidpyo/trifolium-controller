@@ -998,6 +998,9 @@ void updateFiringMode()
                 return;
             }
         }
+        //if no other options, set to defaultFiring
+        firingMode = defaultFiringMode;
+        return;
     }
     else if (selectFireType == BUTTON_SELECT_FIRE)
     {
@@ -1074,6 +1077,9 @@ void selectRPMProfile()
                 return;
             }
         }
+        //if no other options, set to defaultFiring
+        firingMode = defaultFiringMode;
+        return;
     }
     else if (selectFireType == BUTTON_SELECT_FIRE)
     {

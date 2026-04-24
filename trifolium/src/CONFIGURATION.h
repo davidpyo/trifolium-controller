@@ -5,7 +5,7 @@
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
 #define CONFIG_VERSION_MINOR 4
-#define CONFIG_VERSION_PATCH 0
+#define CONFIG_VERSION_PATCH 1
 
 
 // Flywheel Settings
@@ -132,7 +132,7 @@ uint16_t solenoidRetractTime_ms = 35;
 bool revSwitchNormallyClosed = false; // invert switch signal?
 bool triggerSwitchNormallyClosed = false;
 bool cycleSwitchNormallyClosed = false;
-uint16_t debounceTime_ms = 100; // decrease if you're unable to make fast double taps in semi auto, increase if you're getting accidental double taps in semi auto
+uint16_t debounceTime_ms = 20; // decrease if you're unable to make fast double taps in semi auto, increase if you're getting accidental double taps in semi auto
 uint16_t pusherDebounceTime_ms = 25; // NOT USED
 const int voltageAveragingWindow = 5;
 uint32_t pusherCurrentSmoothingFactor = 90;
