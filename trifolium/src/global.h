@@ -2,7 +2,7 @@
 
 #define MAJOR_VERSION 1
 #define MINOR_VERSION 4
-#define PATCH_VERSION 1
+#define PATCH_VERSION 2
 
 extern BootReason bootReason; // Reason for booting
 extern BootReason rebootReason; // Reason for rebooting (can be set right before an intentional reboot, WATCHDOG otherwise)
