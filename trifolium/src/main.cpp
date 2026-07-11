@@ -84,7 +84,7 @@ bool reverseBraking = false;
 bool pusherDwelling = false;
 bool isBatteryAdcDefined = false;
 uint32_t batteryADC_mv = 0;
-int32_t batteryVoltage_mv = 14800;
+int32_t batteryVoltage_mv = batteryVoltageMax_mv[batteryType] - (batteryType * 500);
 int32_t voltageBuffer[voltageAveragingWindow] = {0};
 int voltageBufferIndex = 0;
 int32_t pusherShunt_mv = 0;
@@ -774,7 +774,7 @@ bool fwControlLoop()
                     motorRPMRaw[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
                     
                     // reject impossible rpm readings
-                    if (motorRPMRaw[i] * 1000 > motorsObj[i].m_motorKv * 16800) {
+                    if (motorRPMRaw[i] * 1000 > motorsObj[i].m_motorKv * batteryVoltageMax_mv[batteryType] + (batteryType * 500)) {
                         //assign to last valid filtered rpm reading
                         motorRPMRaw[i] = motorRPM[i];
                     }

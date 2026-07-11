@@ -4,8 +4,8 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 4
-#define CONFIG_VERSION_PATCH 2
+#define CONFIG_VERSION_MINOR 5
+#define CONFIG_VERSION_PATCH 0
 
 
 // Flywheel Settings
@@ -21,7 +21,7 @@ dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, 
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
-flywheelControlType_t flywheelControl = TBH_CONTROL; // PID_CONTROL, or TBH_CONTROL
+flywheelControlType_t flywheelControl = PID_CONTROL; // PID_CONTROL, or TBH_CONTROL
 const bool motors[4] = {false, false, false, false}; // which motors are hooked up
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot NOT USED CURRENTLY
 int32_t firingRPMTolerance = 500; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
@@ -38,8 +38,8 @@ const uint16_t throttleCap = 300;
 
 // Motor Settings
 //comment out one or the other if you are using the same or different
-//#define SAME_MOTOR_CONFIG
-#define DIFFERENT_MOTOR_CONFIG
+#define SAME_MOTOR_CONFIG
+//#define DIFFERENT_MOTOR_CONFIG
 
 #ifdef SAME_MOTOR_CONFIG
 float KP = .2;
@@ -79,18 +79,21 @@ const char * fireModeStrings[3] = { "AUTO", "BINARY", "SEMI" };
 uint32_t binaryTriggerTimeout_ms = 2000; // if you hold the trigger for more than this amount of time, releasing the trigger will not fire a burst
 
 
-selectFireType_t selectFireType = SWITCH_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, 
+selectFireType_t selectFireType = SWITCH_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, BUTTON_SELECT_FIRE
 uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to select if no pins are connected
 
 // Board Settings
-uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
+batteryType_t batteryType = BATTERY_4S; // set to your battery type
+uint32_t lowVoltageCutoff_mv = 2500 * (batteryType + 1); // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
 // to protect your batteries, i reccomend doing the calibration below and then setting the cutoff to 3.2V to 3.4V per cell
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
 
-boards_t board = trifolium_v1_0_esc_driver; // select the one that matches your board revision
+boards_t board = trifolium_v1_2_fet_driver; // select the one that matches your board revision
 // Options
 // rune_0_2,
+// trifolium_v1_4_fet_driver
+// trifolium_v1_3_fet_driver
 // trifolium_v1_2_esc_driver
 // trifolium_v1_2_fet_driver
 // trifolium_v1_1_esc_driver

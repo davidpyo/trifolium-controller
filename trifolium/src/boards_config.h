@@ -38,6 +38,8 @@ const boards_t trifolium_v1_2_fet_driver = {
     .ESC_ENABLE = PIN_NOT_USED,
 };
 
+const boards_t trifolium_v1_4_fet_driver = trifolium_v1_2_fet_driver;
+const boards_t trifolium_v1_3_fet_driver = trifolium_v1_2_fet_driver;
 
 const boards_t trifolium_v1_2_esc_driver = {
     .pusherDriverType = ESC_DRIVER, 

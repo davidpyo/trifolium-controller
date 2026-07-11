@@ -119,4 +119,13 @@ enum class BootReason {
 	FROM_BOOT_SELECTION
 };
 
+int32_t batteryVoltageMax_mv[4] = { 12600, 16800, 21000, 25200 }; // max battery voltage for 3S, 4S, 5S, 6S
+
+enum batteryType_t {
+    BATTERY_3S = 0,
+    BATTERY_4S = 1,
+    BATTERY_5S = 2,
+    BATTERY_6S = 3
+};
+
 #endif
