@@ -5,7 +5,7 @@
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
 #define CONFIG_VERSION_MINOR 5
-#define CONFIG_VERSION_PATCH 0
+#define CONFIG_VERSION_PATCH 1
 
 
 // Flywheel Settings
@@ -84,7 +84,7 @@ uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to sele
 
 // Board Settings
 batteryType_t batteryType = BATTERY_4S; // set to your battery type
-uint32_t lowVoltageCutoff_mv = 2500 * (batteryType + 1); // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
+uint32_t lowVoltageCutoff_mv = 2500 * (batteryType + 3); // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
 // to protect your batteries, i reccomend doing the calibration below and then setting the cutoff to 3.2V to 3.4V per cell
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 

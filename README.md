@@ -8,6 +8,8 @@ trifolium-controller
 
 > Designed for the `trifolium` controller or `Rune` controller or a generic `RP2040` target with FET drive.
 
+> See some older example configs in /example_configs.
+
 > Here's a video on setup and an overview of the board: https://www.youtube.com/live/lg1xlSH4bGQ?si=-dB7dRIhKSCSjfnB
 
 
@@ -18,14 +20,14 @@ trifolium-controller
  - [x] Screen support  
  - [ ] Menu support  
  - [ ] Auto PID tuning  
- - [ ] PID variables per motor (asymmetrical setup support)  
+ - [X] PID variables per motor (asymmetrical setup support)  
  - [ ] ESC temperature monitoring  
- - [x] ESC passthrough  
- - [ ] DRV error clearing  
- - [ ] DRV current → closed-loop solenoid control  
+ - [x] ESC passthrough
 
 ## Features
  Maybe works™
+
+ Closed loop PID, voltage monitoring, nonblocking screen, rpm drop based dart counting, voltage based solenoid timing adjustment etc.
 
 ## Usage (TODO)
  **Note:** This project uses `PlatformIO` in `VSCode`.
