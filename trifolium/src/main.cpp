@@ -958,8 +958,10 @@ bool fwControlLoop()
             {
                 if (motors[j])
                 {
-                    len += snprintf(rowBuf + len, sizeof(rowBuf) - len, "%lu,%lu,%d,%.2f,",
-                                    (unsigned long)rpmCache[i][j], (unsigned long)targetRpmCache[i][j], throttleCache[i][j], valueCache[i][j]);
+                    char valueStr[10];
+                    dtostrf(valueCache[i][j], 1, 2, valueStr);
+                    len += snprintf(rowBuf + len, sizeof(rowBuf) - len, "%lu,%lu,%d,%s,",
+                                    (unsigned long)rpmCache[i][j], (unsigned long)targetRpmCache[i][j], throttleCache[i][j], valueStr);
                 }
             }
             println(rowBuf);
