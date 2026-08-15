@@ -59,6 +59,8 @@ uint32_t loopStartTimer_us = micros();
 int32_t loopTime_us = targetLoopTime_us;
 uint32_t lastMainLoopTime = millis();
 uint32_t time_ms = millis();
+uint32_t ledTime_ms = 0;
+bool ledOn = true;
 // uint32_t lastRevTime_ms = 0; // for calculating idling
 uint32_t pusherTimer_ms = 0;
 uint32_t revStartTime_us = 0;
@@ -121,6 +123,7 @@ bool firstCrossing[4] = {false, false, false, false};
 Bounce2::Button revSwitch = Bounce2::Button();
 Bounce2::Button triggerSwitch = Bounce2::Button();
 Bounce2::Button cycleSwitch = Bounce2::Button();
+Bounce2::Button idleSwitch = Bounce2::Button();
 Bounce2::Button button = Bounce2::Button();
 Bounce2::Button select0 = Bounce2::Button();
 Bounce2::Button select1 = Bounce2::Button();
@@ -357,6 +360,12 @@ void setup()
         cycleSwitch.interval(pusherDebounceTime_ms);
         cycleSwitch.setPressedState(cycleSwitchNormallyClosed);
     }
+    if (pinDefined(idleSwitchPin))
+    {
+        idleSwitch.attach(idleSwitchPin, INPUT_PULLUP);
+        idleSwitch.interval(debounceTime_ms);
+        idleSwitch.setPressedState(idleSwitchNormallyClosed);
+    }
     if (selectFireType != NO_SELECT_FIRE)
     {
         if (pinDefined(select0Pin))
@@ -400,7 +409,11 @@ void setup()
         //}
         digitalWrite(board.ESC_ENABLE, LOW);
     }
-
+  
+    if (pinDefined(board.LED_DATA)) {
+        pinMode(board.LED_DATA, OUTPUT);   
+        digitalWrite(board.LED_DATA, HIGH);
+    }
     // if trigger is pulled on boot, enter esc passthrough mode
     triggerSwitch.update();
     if (triggerSwitch.isPressed())
@@ -535,6 +548,26 @@ void mainFiringLogic()
     if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.update();
+        if (triggerSwitch.pressed())
+        {
+            logger.info("Trigger switch pressed");
+        }
+        else if (triggerSwitch.released())
+        {
+            logger.info("Trigger switch released");
+        }
+    }
+    if (pinDefined(idleSwitchPin))
+    {
+        idleSwitch.update();
+        if (idleSwitch.pressed())
+        {
+            logger.info("Idle switch pressed");
+        }
+        else if (idleSwitch.released())
+        {
+            logger.info("Idle switch released");
+        }
     }
     updateFiringMode();
     // changes burst options
@@ -597,6 +630,14 @@ bool fwControlLoop()
         {
             digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
             logger.error("Battery low, shutting down! ", batteryVoltage_mv, "mv");
+            if (time_ms > ledTime_ms + 500)
+            {
+                ledTime_ms = time_ms;
+                ledOn = !ledOn;
+                digitalWrite(board.LED_DATA, ledOn ? HIGH : LOW);
+            }
+        } else {
+            digitalWrite(board.LED_DATA, HIGH); 
         }
 
         if (shotsToFire > 0 || revSwitch.isPressed())
@@ -641,8 +682,20 @@ bool fwControlLoop()
                 // logger.info("Holding for dwell");
             }
         }
-        else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
-        { // idle flywheels
+        else if (idleSwitch.isPressed() && targetRPM[0] == 0 && targetRPM[1] == 0 && targetRPM[2] == 0 && targetRPM[3] == 0)
+        { // idle flywheels coming from stop
+            enableFwControl = false;
+            currentSpindownSpeed = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                if (motors[i])
+                {
+                    targetRPM[i] = idleRPM[i];
+                    PIDOutput[i] = maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv;;
+                }
+            }
+        } else if ( idleSwitch.isPressed() || (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)){
+            // idle flywheels due to idle time or idle switch pressed
             enableFwControl = false;
             if (currentSpindownSpeed < spindownSpeed)
             {

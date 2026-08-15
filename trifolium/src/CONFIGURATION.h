@@ -4,25 +4,25 @@
 
 //config to check config and code versions match
 #define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 5
-#define CONFIG_VERSION_PATCH 1
+#define CONFIG_VERSION_MINOR 6
+#define CONFIG_VERSION_PATCH 0
 
 
 // Flywheel Settings
 // If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
 bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 28000, 35000, 28000, 350000 }, { 28000, 35000, 28000, 35000 }, { 28000, 35000, 28000, 35000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM. Typically we do assume esc 2/4 and 1/3 are paired
+int32_t revRPMset[3][4] = { { 50000, 50000, 0, 0 }, { 50000, 50000, 0, 0 }, { 50000, 50000, 0, 0 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM. Typically we do assume esc 2/4 and 1/3 are paired
 uint32_t dwellTimeSet_ms[3] = { 500, 500, 500 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
-uint32_t idleTimeSet_ms[3] = { 240000, 240000, 240000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
+uint32_t idleTimeSet_ms[3] = { 0, 0, 0 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
 uint32_t spindownSpeed = 100; // RPM per ms
 
-int32_t idleRPM[4] = { 1000, 1000, 1000, 1000 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
+int32_t idleRPM[4] = { 300, 300, 0, 0 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
 dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
 dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
 
 // Closed Loop Settings
 flywheelControlType_t flywheelControl = PID_CONTROL; // PID_CONTROL, or TBH_CONTROL
-const bool motors[4] = {false, false, false, false}; // which motors are hooked up
+const bool motors[4] = {true, true, false, false}; // which motors are hooked up
 int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot NOT USED CURRENTLY
 int32_t firingRPMTolerance = 500; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
 int32_t minFiringRPM = 10000; // overrides firingRPMTolerance for low rpm settings
@@ -42,11 +42,11 @@ const uint16_t throttleCap = 300;
 //#define DIFFERENT_MOTOR_CONFIG
 
 #ifdef SAME_MOTOR_CONFIG
-float KP = .2;
-float KI = 0.5;
+float KP = .1;
+float KI = 0.2;
 float KD = 0;
-int16_t motorPolesDiv2 = 7; //motor poles divided by 2 (14 pole motor = 7)
-int32_t motorKv = 3200; // critical for closed loop
+int16_t motorPolesDiv2 = 6; //motor poles divided by 2 (14 pole motor = 7)
+int32_t motorKv = 4800; // critical for closed loop
 Motor motorsObj[4] = {
     Motor(KP, KI, KD, motorKv, motorPolesDiv2),
     Motor(KP, KI, KD, motorKv, motorPolesDiv2),
@@ -89,7 +89,7 @@ uint32_t lowVoltageCutoff_mv = 2500 * (batteryType + 3); // default is 2.5V per 
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
 
-boards_t board = trifolium_v1_2_fet_driver; // select the one that matches your board revision
+boards_t board = diana_v1_0; // select the one that matches your board revision
 // Options
 // rune_0_2,
 // trifolium_v1_4_fet_driver
@@ -103,7 +103,7 @@ boards_t board = trifolium_v1_2_fet_driver; // select the one that matches your 
 // pico_zero
 // pico_zero_diana
 const char * blasterName = "example";//set to blaster name
-bool hasDisplay = true; // set to true if you have an I2C OLED display connected
+bool hasDisplay = false; // set to true if you have an I2C OLED display connected
 bool rotateDisplay = true; // set to true if your display is upside down
 bool useRpmBaseShotCounter = true; // if true, shot counter increases based on detected rpm drop, otherwise increases based on pusher cycles
 uint16_t goodRpmShotReads = 5;  // number of good rpm reads below threshold to count as a shot
@@ -111,11 +111,12 @@ uint16_t rpmDropThreshold = 200; // rpm drop to count as a shot
 
 // Input Pins, set to PIN_NOT_USED if not using
 uint8_t triggerSwitchPin = board.IO1; // main trigger pin
-uint8_t revSwitchPin = board.IO2; // optional rev trigger
+uint8_t revSwitchPin =  PIN_NOT_USED; // optional rev trigger
+uint8_t idleSwitchPin = board.IO2; // optional idle switch pin
 uint8_t cycleSwitchPin = PIN_NOT_USED; // pusher motor home switch
 uint8_t select0Pin = board.IO3; // optional for select fire
-uint8_t select1Pin = PIN_NOT_USED; // optional for select fire
-uint8_t select2Pin = board.IO4; // optional for select fire
+uint8_t select1Pin = board.IO4; // optional for select fire
+uint8_t select2Pin = board.IO5; // optional for select fire
 
 
 // Pusher Settings
@@ -125,16 +126,17 @@ bool pusherReverseDirection = false; // make motor spin backwards NOT USED
 
 
 // Solenoid Settings
-uint16_t solenoidExtendTimeHigh_ms = 25; // set this to the high voltage min push time
+uint16_t solenoidExtendTimeHigh_ms = 15; // set this to the high voltage min push time
 uint32_t solenoidExtendTimeHighVoltage_mv = 16800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeHigh_ms time (from log)
-uint16_t solenoidExtendTimeLow_ms = 40;
+uint16_t solenoidExtendTimeLow_ms = 15;
 uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeLow_ms time (from log)
-uint16_t solenoidRetractTime_ms = 35;
+uint16_t solenoidRetractTime_ms = 20;
 
 // Advanced Settings
 bool revSwitchNormallyClosed = false; // invert switch signal?
 bool triggerSwitchNormallyClosed = false;
 bool cycleSwitchNormallyClosed = false;
+bool idleSwitchNormallyClosed = false;
 uint16_t debounceTime_ms = 20; // decrease if you're unable to make fast double taps in semi auto, increase if you're getting accidental double taps in semi auto
 uint16_t pusherDebounceTime_ms = 25; // NOT USED
 const int voltageAveragingWindow = 5;
@@ -142,7 +144,7 @@ uint32_t pusherCurrentSmoothingFactor = 90;
 
 // Debug settings
 // For running the blaster without telemetry, set printTelemetry to false and comment out #define USE_RPM_LOGGING
-bool printTelemetry = false; // output printing
+bool printTelemetry = true; // output printing
 //#define USE_RPM_LOGGING //RPM Logging
 #ifdef USE_RPM_LOGGING
 const uint32_t rpmLogLength = 2000;
