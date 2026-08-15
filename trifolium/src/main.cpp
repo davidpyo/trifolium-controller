@@ -336,8 +336,7 @@ void setup()
     else
     {
         isBatteryAdcDefined = false;
-        // TODO don't assume 4s.
-        batteryVoltage_mv = 14000; // assume min battery voltage charged if no adc defined
+        batteryVoltage_mv = ((batteryType + 3) * 3500); // assume lower battery voltage charged if no adc defined (more efficient for PID algo)
     }
 
     if (pinDefined(revSwitchPin))
@@ -798,8 +797,8 @@ bool fwControlLoop()
                     esc[i]->getTelemetryErpm(&motorRPMRaw[i]);
                     motorRPMRaw[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
 
-                    // reject impossible rpm readings
-                    if (motorRPMRaw[i] * 1000 > motorsObj[i].m_motorKv * batteryVoltageMax_mv[batteryType] + (batteryType * 500))
+                    // reject impossible rpm readings high pass plus some tolerance
+                    if (motorRPMRaw[i] * 1000 > motorsObj[i].m_motorKv * batteryVoltageMax_mv[batteryType] + ((batteryType + 3) * 500))
                     {
                         // assign to last valid filtered rpm reading
                         motorRPMRaw[i] = motorRPM[i];
