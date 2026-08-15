@@ -144,7 +144,7 @@ uint32_t pusherCurrentSmoothingFactor = 90;
 
 // Debug settings
 // For running the blaster without telemetry, set printTelemetry to false and comment out #define USE_RPM_LOGGING
-bool printTelemetry = true; // output printing
+bool printTelemetry = false; // output printing
 //#define USE_RPM_LOGGING //RPM Logging
 #ifdef USE_RPM_LOGGING
 const uint32_t rpmLogLength = 2000;
