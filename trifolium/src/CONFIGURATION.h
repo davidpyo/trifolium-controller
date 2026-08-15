@@ -64,9 +64,9 @@ Motor motorsObj[4] = {
 #endif
 
 // Select Fire Settings
-uint32_t burstLengthSet[3] = { 100, 1, 1 };
-burstFireType_t burstModeSet[3] = { AUTO, BINARY, BURST };
-const char * fireModeStrings[3] = { "AUTO", "BINARY", "SEMI" };
+uint32_t burstLengthSet[3] = { 1, 100, 0 };
+burstFireType_t burstModeSet[3] = { BURST, AUTO, SAFE };
+const char * fireModeStrings[3] = { "SEMI", "AUTO", "SAFE" };
 // burstMode AUTO = stops firing when trigger is released
 // burstMode BURST = always completes the burst
 // burstMode BINARY = fires one burst when you pull the trigger and another when you release the trigger
@@ -84,7 +84,7 @@ uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to sele
 
 // Board Settings
 batteryType_t batteryType = BATTERY_4S; // set to your battery type
-uint32_t lowVoltageCutoff_mv = 2500 * (batteryType + 3); // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
+uint32_t lowVoltageCutoff_mv = 3500 * (batteryType + 3); // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
 // to protect your batteries, i reccomend doing the calibration below and then setting the cutoff to 3.2V to 3.4V per cell
 float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
 
@@ -128,7 +128,7 @@ bool pusherReverseDirection = false; // make motor spin backwards NOT USED
 // Solenoid Settings
 uint16_t solenoidExtendTimeHigh_ms = 15; // set this to the high voltage min push time
 uint32_t solenoidExtendTimeHighVoltage_mv = 16800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeHigh_ms time (from log)
-uint16_t solenoidExtendTimeLow_ms = 15;
+uint16_t solenoidExtendTimeLow_ms = 20;
 uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeLow_ms time (from log)
 uint16_t solenoidRetractTime_ms = 20;
 

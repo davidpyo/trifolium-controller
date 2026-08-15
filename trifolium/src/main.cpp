@@ -573,8 +573,10 @@ void mainFiringLogic()
     // changes burst options
     burstLength = burstLengthSet[firingMode];
     burstMode = burstModeSet[firingMode];
-
-    if (triggerSwitch.pressed() || (burstMode == BINARY && triggerSwitch.released() && time_ms < triggerTime_ms + binaryTriggerTimeout_ms))
+    if (burstMode == SAFE)
+    {
+        shotsToFire = 0;
+    } else if (triggerSwitch.pressed() || (burstMode == BINARY && triggerSwitch.released() && time_ms < triggerTime_ms + binaryTriggerTimeout_ms))
     { // pressed and released are transitions, isPressed is for state
         const char *eventLabel = triggerSwitch.pressed() ? "Trigger pressed, burstMode " : " binary trigger released, burstMode ";
         triggerTime_ms = time_ms;
@@ -682,7 +684,7 @@ bool fwControlLoop()
                 // logger.info("Holding for dwell");
             }
         }
-        else if (idleSwitch.isPressed() && targetRPM[0] == 0 && targetRPM[1] == 0 && targetRPM[2] == 0 && targetRPM[3] == 0)
+        else if (idleSwitch.isPressed() && targetRPM[0] == 0 && targetRPM[1] == 0 && targetRPM[2] == 0 && targetRPM[3] == 0 && burstMode != SAFE)
         { // idle flywheels coming from stop
             enableFwControl = false;
             currentSpindownSpeed = 0;
@@ -694,7 +696,7 @@ bool fwControlLoop()
                     PIDOutput[i] = maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv;;
                 }
             }
-        } else if ( idleSwitch.isPressed() || (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)){
+        } else if ((idleSwitch.isPressed() && burstMode != SAFE) || (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)){
             // idle flywheels due to idle time or idle switch pressed
             enableFwControl = false;
             if (currentSpindownSpeed < spindownSpeed)

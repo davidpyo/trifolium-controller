@@ -42,7 +42,8 @@ enum flywheelControlType_t {
 enum burstFireType_t {
     AUTO,
     BURST,
-    BINARY
+    BINARY,
+    SAFE
 };
 
 enum pusherType_t {
