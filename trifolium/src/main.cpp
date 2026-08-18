@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <cstdio>
 #include <PIO_DShot.h>
 #include "../lib/Bounce2/src/Bounce2.h"
 #include "fetDriver.h"
@@ -9,49 +10,65 @@
 #include "CONFIGURATION.h"
 #include "esc_passthrough.h"
 #include "global.h"
+#include "logging.h"
+#include "flywheelMotor.h"
+#include "menu.h"
+#include "runtimeSettings.h"
+#include "profileStore.h"
+#include "deviceSettings.h"
+#include "deviceStore.h"
+#include "splashStore.h"
+#include "batteryMonitor.h"
+#include "rpmLogger.h"
+#include "displayManager.h"
 
 #include <SPI.h>
-//#include <Wire.h>
+// #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "bitmaps.h"
 
-#if CONFIG_VERSION_MAJOR != MAJOR_VERSION || CONFIG_VERSION_MINOR != MINOR_VERSION || CONFIG_VERSION_PATCH != PATCH_VERSION
-#error "Your configuration file version does not match code version. Update your configuration file with the missing settings!"
+#if CONFIG_VERSION_MAJOR != MAJOR_VERSION || CONFIG_VERSION_MINOR != MINOR_VERSION ||              \
+    CONFIG_VERSION_PATCH != PATCH_VERSION
+#error                                                                                             \
+    "Your configuration file version does not match code version. Update your configuration file with the missing settings!"
 #endif
 
-static_assert(EMAFilter > 0, "EMAFilter should be greater than zero");
+#define SCREEN_WIDTH 128    // OLED display width, in pixels
+#define SCREEN_HEIGHT 64    // OLED display height, in pixels
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C 
+int32_t batteryVoltageMax_mv[4] = {12600, 16800, 21000, 25200}; // 3S, 4S, 5S, 6S
 
-TwoWire myI2C(board.I2C_HW_BLK, board.I2C_SCL, board.I2C_SDA); 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, -1);
-//use for communication between cores for display
-String displayString = "";
-int cursorX = 0;
-int cursorY = 0;
-bool clearDisplay = false;
-bool doDisplayString = false;
-//show bootup screen
-bool doBootup = false;
-//show runtime info
+RuntimeSettings activeProfile;
+uint8_t activeProfileIndex; // which slot activeProfile came from
+
+DeviceSettings deviceSettings;
+
+// setup1() (core 1) spins on this until core 0 finishes its boot-time profile/device load, so
+// it can't race that load and skip DisplayManager::begin().
+volatile bool bootSettingsLoaded = false;
+
+TwoWire myI2C(board.I2C_HW_BLK, board.I2C_SCL, board.I2C_SDA);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, -1); // menu.cpp externs this directly
+DisplayManager displayManager(display);
+
+uint8_t menuButtonPin;
+bool menuButtonNormallyClosed;
+uint8_t triggerSwitchPin;
+uint8_t revSwitchPin;
+uint16_t debounceTime_ms;
+// show runtime info
 bool showRuntimeInfo = false;
 bool updateRuntimeNow = false;
-//do menu
-bool doMenu = false;
 uint32_t runtimeShotCounter = 0;
 uint32_t displayShotCounter = 0;
-uint16_t shotsUnderThreshold[4] = {0, 0, 0, 0};
 bool allowShotDetection = false;
 
-
-//rebooting stuff
+// rebooting stuff
 BootReason bootReason;
 BootReason __uninitialized_ram(rebootReason);
 u64 __uninitialized_ram(powerOnResetMagicNumber);
-
 
 uint32_t lastRevTime_ms = 0; // for calculating idling
 
@@ -63,18 +80,16 @@ uint32_t time_ms = millis();
 uint32_t pusherTimer_ms = 0;
 uint32_t revStartTime_us = 0;
 uint32_t triggerTime_ms = 0;
+static uint32_t lastShotExtendTime_ms = 0; // for the per-shot achieved-DPS log line below
+static float lastMeasuredDPS = 0; // last extend-to-extend rate, read by loop1() for Show DPS
 
-uint32_t revRPM[4];                   // stores value from revRPMSet on boot for current firing mode
-uint32_t dwellTime_ms;                 // stores value from dwellTimeSet_ms on boot for current firing mode
-uint32_t idleTime_ms;                 // stores value from idleTimeSet_ms on boot for current firing mode
-uint32_t targetRPM[4] = {0, 0, 0, 0}; // stores current target rpm
-uint32_t firingRPM[4];
-// uint32_t throttleValue[4] = { 0, 0, 0, 0 }; // scale is 0 - 2000
+uint32_t dwellTime_ms;
+uint32_t idleTime_ms;
 uint32_t currentSpindownSpeed = 0;
-uint16_t burstLength;      // stores value from burstLengthSet for current firing mode
-burstFireType_t burstMode; // stores value from burstModeSet for current firing mode
-int8_t firingMode = 0;     // current firing mode
-int8_t fpsMode = 0;        // copy of firingMode locked at boot
+uint16_t burstLength;
+burstFireType_t burstMode;
+int8_t firingMode = 0;
+int8_t fpsMode = 0;
 bool fromIdle;
 int32_t dshotValue = 0;
 int16_t shotsToFire = 0;
@@ -82,23 +97,19 @@ flywheelState_t flywheelState = STATE_IDLE;
 bool firing = false;
 bool reverseBraking = false;
 bool pusherDwelling = false;
-bool isBatteryAdcDefined = false;
-uint32_t batteryADC_mv = 0;
-int32_t batteryVoltage_mv = batteryVoltageMax_mv[batteryType] - (batteryType * 500);
-int32_t voltageBuffer[voltageAveragingWindow] = {0};
-int voltageBufferIndex = 0;
+
+BatteryMonitor* batteryMonitor; // constructed in setup(), once activeProfile is loaded
+
 int32_t pusherShunt_mv = 0;
 int32_t pusherCurrent_ma = 0;
 int32_t pusherCurrentSmoothed_ma = 0;
 const int32_t maxThrottle = 1999;
-uint32_t motorRPM[4] = {0, 0, 0, 0};
-uint32_t motorRPMRaw[4] = {0, 0, 0, 0};
-uint32_t motorRPMFilter[4] = {0, 0, 0, 0};
-constexpr static uint32_t half = uint32_t{1} << (EMAFilter - 1);
-uint32_t fullThrottleRpmThreshold[4] = {0, 0, 0, 0};
-Driver *pusher;
+uint32_t half =
+    0; // 1 << (activeProfile.EMAFilter - 1); computed in setup(), once activeProfile is loaded
+Driver* pusher;
 uint16_t solenoidExtendTime_ms = 0;
-float solenoidVoltageTimeSlope = 0; // relationship between voltage and solenoid extend time calculated at setup
+float solenoidVoltageTimeSlope =
+    0; // relationship between voltage and solenoid extend time calculated at setup
 int16_t solenoidVoltageTimeIntercept = 0;
 bool wifiState = false;
 // String telemBuffer = "";
@@ -108,201 +119,334 @@ int32_t tempRPM;
 bool currentlyLogging = false;
 bool enableFwControl = true;
 
-// closed loop variables
-int32_t PIDError[4];
-int32_t PIDErrorPrior[4] = {1,1,1,1};
-int32_t closedLoopRPM[4];
-int32_t PIDOutput[4];
-float PIDIntegral[4] = {0, 0, 0, 0};
-float iTerm[4] = {0, 0, 0, 0};
-float dTerm[4] = {0, 0, 0, 0};
-bool firstCrossing[4] = {false, false, false, false};
+// Set by a menu action that needs direct, exclusive throttle control (flywheel test, storage
+// discharge) - fwControlLoop() skips its own motor/ESC handling while this is set.
+volatile bool directMotorControlActive = false;
 
+// True only while the ESC Dashboard screen is open, so Rev can keep spinning flywheels for that
+// one read-only view even though every other menu screen blocks it.
+bool escDashboardOpen = false;
+
+bool revControlAllowed()
+{
+    return !menuIsOpen() || escDashboardOpen;
+}
+
+bool revSafetyLatched = false;
+
+// True once the battery drops below the non-cutoff warning threshold - drives a blinking
+// indicator in DisplayManager::renderTelemetry().
+bool batteryWarningActive = false;
 
 Bounce2::Button revSwitch = Bounce2::Button();
 Bounce2::Button triggerSwitch = Bounce2::Button();
 Bounce2::Button cycleSwitch = Bounce2::Button();
-Bounce2::Button button = Bounce2::Button();
+Bounce2::Button idleSwitch = Bounce2::Button();
 Bounce2::Button select0 = Bounce2::Button();
 Bounce2::Button select1 = Bounce2::Button();
 Bounce2::Button select2 = Bounce2::Button();
+Bounce2::Button* selectSwitches[3] = {&select0, &select1, &select2};
+uint8_t selectPins[3]; // populated in setup() from deviceSettings.select0/1/2Pin
 
-BidirDShotX1 *esc[4] = {nullptr, nullptr, nullptr, nullptr}; // array of pointers to BidirDShotX1 objects for each motor
+Motor motorsObj[4] = {Motor(0, 0, 0, 0, 0), Motor(0, 0, 0, 0, 0), Motor(0, 0, 0, 0, 0),
+                      Motor(0, 0, 0, 0, 0)};
 
-// rpm logging
-#ifdef USE_RPM_LOGGING
-uint32_t targetRpmCache[rpmLogLength][4] = {0};
-uint32_t rpmCache[rpmLogLength][4] = {0};
-int16_t throttleCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
-float valueCache[rpmLogLength][4] = {0}; // float gets converted to an integer [0, 1999]
-uint16_t cacheIndex = rpmLogLength + 1;
-#endif
+// per-motor runtime state - one instance per motors[]/motorsObj[] slot
+FlywheelMotor motorArr[4] = {FlywheelMotor(&motorsObj[0]), FlywheelMotor(&motorsObj[1]),
+                             FlywheelMotor(&motorsObj[2]), FlywheelMotor(&motorsObj[3])};
+
+RpmLogger rpmLogger;
 
 void updateFiringMode();
 void selectRPMProfile();
 bool fwControlLoop();
 void mainFiringLogic();
 void resetFWControl();
-
-//display functions
-// I think this will just be used for initial messages? 
-void displayText(String str, int curX = 0, int curY = 0, bool clearScreen = false);
-
-
-template <typename T>
-void println(T value)
-{
-    if (printTelemetry)
-        Serial.println(value);
-}
-
-template <typename T>
-void print(T value)
-{
-    if (printTelemetry)
-        Serial.print(value);
-}
+void registerShot();
+void handleSerialCommands();
+void applyMotorConfig();
+void applyEmaFilterConstant();
+void applyFiringRpmThresholds();
+void applySolenoidTimingCurve();
+void applyDebounceInterval();
+void applyStageRatios();
+void applyPrintTelemetry();
+uint32_t computePusherDwellPadding_ms();
 
 bool pinDefined(uint8_t pin)
 {
     return pin != PIN_NOT_USED;
 }
 
-void logData(){
-    // if we have rpm logging enabled, add the most recent value to the cache
-    #ifdef USE_RPM_LOGGING
-    for (int i = 0; i < 4; i++) {
-            if (motors[i]) {
-                if (cacheIndex < rpmLogLength)
-                {
-                    rpmCache[cacheIndex][i] = motorRPM[i];
-                    targetRpmCache[cacheIndex][i] = targetRPM[i]; // mostly for reference
-                    throttleCache[cacheIndex][i] = (int16_t)((PIDOutput[i]));
-                    valueCache[cacheIndex][i] = PIDIntegral[i];
-                }
-            }
-        }
-    #endif
+void logData()
+{
+    // record() is a no-op unless a capture is currently armed (startCapture() succeeded and
+    // hasn't been dumped yet) - no separate deviceSettings.useRpmLogging check needed here.
+    rpmLogger.record(motorArr, activeProfile.motors);
 }
 
+// call this whenever a shot is detected/fired, regardless of which detection method triggered it
+void registerShot()
+{
+    runtimeShotCounter++;
+    displayShotCounter++;
+    if (runtimeShotCounter % 10000 == 0)
+    {
+        displayShotCounter = 0;
+    }
+    updateRuntimeNow = true;
+}
+
+// Rebuilds motorsObj[i] from the active profile's PID gains/Kv/poles. Safe to call live.
+void applyMotorConfig()
+{
+    for (int i = 0; i < 4; i++)
+    {
+        motorsObj[i] = Motor(activeProfile.KP[i], activeProfile.KI[i], activeProfile.KD[i],
+                             activeProfile.motorKv[i], activeProfile.motorPolesDiv2[i]);
+    }
+}
+
+// Recomputes `half`, the EMA filter shift constant. EMAFilter must be >= 1.
+void applyEmaFilterConstant()
+{
+    if (activeProfile.EMAFilter == 0)
+    {
+        logger.error("Profile EMAFilter is 0, clamping to 1");
+        activeProfile.EMAFilter = 1;
+    }
+    half = uint32_t{1} << (activeProfile.EMAFilter - 1);
+}
+
+// Recomputes each enabled motor's firingRPM ("at speed" threshold) from revRPM plus
+// firingRPMTolerance/minFiringRPM.
+void applyFiringRpmThresholds()
+{
+    for (int i = 0; i < 4; i++)
+    {
+        if (activeProfile.motors[i])
+        {
+            motorArr[i].firingRPM = max(motorArr[i].revRPM - activeProfile.firingRPMTolerance,
+                                        activeProfile.minFiringRPM);
+        }
+    }
+}
+
+// Recomputes the solenoid extend-time/voltage slope+intercept from the four Solenoid/Pusher fields.
+void applySolenoidTimingCurve()
+{
+    if (deviceSettings.pusherType != PUSHER_SOLENOID_OPENLOOP)
+        return;
+
+    if (activeProfile.solenoidExtendTimeLow_ms == activeProfile.solenoidExtendTimeHigh_ms ||
+        activeProfile.solenoidExtendTimeLowVoltage_mv >
+            activeProfile.solenoidExtendTimeHighVoltage_mv)
+    { // if times are equal, don't do this calc
+        solenoidVoltageTimeSlope = 0;
+        solenoidVoltageTimeIntercept = activeProfile.solenoidExtendTimeHigh_ms;
+    }
+    else
+    {
+        solenoidVoltageTimeSlope =
+            (activeProfile.solenoidExtendTimeHigh_ms - activeProfile.solenoidExtendTimeLow_ms) /
+            ((float)(activeProfile.solenoidExtendTimeHighVoltage_mv -
+                     activeProfile.solenoidExtendTimeLowVoltage_mv));
+        solenoidVoltageTimeIntercept =
+            activeProfile.solenoidExtendTimeHigh_ms -
+            (solenoidVoltageTimeSlope * activeProfile.solenoidExtendTimeHighVoltage_mv) + 1;
+        logger.info("solenoidVoltageTimeSlope: ", solenoidVoltageTimeSlope);
+        logger.info("solenoidVoltageTimeIntercept: ", solenoidVoltageTimeIntercept);
+    }
+}
+
+// Auto Timing's additive dwell on top of the existing voltage-compensated extend/retract cycle.
+uint32_t computePusherDwellPadding_ms()
+{
+    if (!activeProfile.autoTiming || activeProfile.targetDPS <= 0)
+        return 0;
+
+    float extendAtVoltage_ms =
+        batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept;
+    float cycleTarget_ms = 1000.0f / activeProfile.targetDPS;
+    float padding_ms = cycleTarget_ms - extendAtVoltage_ms - activeProfile.solenoidRetractTime_ms;
+    if (padding_ms < 0) // requested DPS isn't reachable - fire as fast as the hardware allows
+        padding_ms = 0;
+    return (uint32_t)padding_ms;
+}
+
+void applyDebounceInterval()
+{
+    debounceTime_ms = deviceSettings.debounceTime_ms;
+    if (pinDefined(revSwitchPin))
+        revSwitch.interval(debounceTime_ms);
+    if (pinDefined(triggerSwitchPin))
+        triggerSwitch.interval(debounceTime_ms);
+    if (pinDefined(deviceSettings.idleSwitchPin))
+        idleSwitch.interval(debounceTime_ms);
+    for (int i = 0; i < 3; i++)
+    {
+        if (pinDefined(selectPins[i]))
+            selectSwitches[i]->interval(debounceTime_ms);
+    }
+}
+
+// Mirrors deviceSettings.printTelemetry into the plain global logging.h actually gates on.
+void applyPrintTelemetry()
+{
+    printTelemetry = deviceSettings.printTelemetry;
+}
+
+// For any RPM profile in Ratio mode, sets every Stage 2 motor's revRPMset entry to stage2Rpm, and
+// every Stage 1 motor's entry to stage2Rpm x stageRatioPercent / 100. Custom-mode profiles
+// untouched.
+void applyStageRatios()
+{
+    for (int p = 0; p < 3; p++)
+    {
+        if (activeProfile.rpmMode[p] != RPM_RATIO)
+            continue;
+
+        int32_t stage2Rpm = activeProfile.stage2Rpm[p];
+        int32_t stage1Rpm = (stage2Rpm * activeProfile.stageRatioPercent[p]) / 100;
+        for (int i = 0; i < 4; i++)
+        {
+            if (!activeProfile.motors[i])
+                continue;
+            activeProfile.revRPMset[p][i] =
+                (activeProfile.motorStage[i] == STAGE_2) ? stage2Rpm : stage1Rpm;
+        }
+    }
+}
 
 void setup()
 {
     if (powerOnResetMagicNumber == 0xdeadbeefdeadbeef)
-		bootReason = rebootReason;
-	else
-	    bootReason = BootReason::POR;
-	powerOnResetMagicNumber = 0xdeadbeefdeadbeef;
-	rebootReason = BootReason::WATCHDOG;
+        bootReason = rebootReason;
+    else
+        bootReason = BootReason::POR;
+    powerOnResetMagicNumber = 0xdeadbeefdeadbeef;
+    rebootReason = BootReason::WATCHDOG;
     Serial.begin(115200);
     Serial.ignoreFlowControl(true);
-    
+
+    // load the active runtime settings profile and device-wide settings before anything below
+    // reads a field
+    ProfileStore::begin();
+    activeProfileIndex = ProfileStore::loadActiveProfileIndex();
+    ProfileStore::loadProfile(activeProfileIndex, activeProfile);
+    DeviceStore::loadDeviceSettings(deviceSettings);
+    applyPrintTelemetry(); // as early as possible so logging behaves correctly for the rest of boot
+    targetLoopTime_us = dshotMinDelayFor(deviceSettings.dshotMode); // before attachEsc() calls
+
+    // Headless BOOTSEL entry: hold Menu or Rev at power-on to jump into the USB bootloader
+    if (bootReason == BootReason::POR)
+    {
+        auto heldAtBoot = [](uint8_t pin, bool normallyClosed) -> bool
+        {
+            if (!pinDefined(pin))
+                return false;
+            pinMode(pin, INPUT_PULLUP);
+            bool pressedLevel = normallyClosed ? HIGH : LOW;
+            if (digitalRead(pin) != pressedLevel)
+                return false;
+            delay(50); // reject power-on electrical noise - must still read held after a beat
+            return digitalRead(pin) == pressedLevel;
+        };
+
+        if (heldAtBoot(deviceSettings.menuButtonPin, deviceSettings.menuButtonNormallyClosed) ||
+            heldAtBoot(deviceSettings.revSwitchPin, deviceSettings.revSwitchNormallyClosed))
+        {
+            rp2040.rebootToBootloader();
+        }
+    }
+
+    menuButtonPin = deviceSettings.menuButtonPin;
+    menuButtonNormallyClosed = deviceSettings.menuButtonNormallyClosed;
+    triggerSwitchPin = deviceSettings.triggerSwitchPin;
+    revSwitchPin = deviceSettings.revSwitchPin;
+    debounceTime_ms = deviceSettings.debounceTime_ms;
+    selectPins[0] = deviceSettings.select0Pin;
+    selectPins[1] = deviceSettings.select1Pin;
+    selectPins[2] = deviceSettings.select2Pin;
+
+    displayManager.setHasDisplay(deviceSettings.hasDisplay);
+
+    bootSettingsLoaded = true;
+
+    applyEmaFilterConstant();
+    applyMotorConfig();
+
+    // per-motor ESC pin, indexed same as motors[]/motorsObj[]
+    const uint8_t escPins[4] = {board.esc1, board.esc2, board.esc3, board.esc4};
+
     // need to do some checking for valid motor/esc driver pins here
     for (int i = 0; i < 4; i++)
     {
-        if (motors[i])
+        if (activeProfile.motors[i])
         {
-            if (i == 0)
+            if (board.pusherDriverType == ESC_DRIVER && board.drvEN == escPins[i])
+            {
+                while (1)
                 {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc1 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
-            }
-            else if (i == 1)
-            {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc2 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
-            }
-            else if (i == 2)
-            {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc3 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
-                }
-            }
-            else if (i == 3)
-            {
-                if(board.pusherDriverType == ESC_DRIVER && board.drvEN == board.esc4 ){
-                    while(1){
-                        println("Motor conflict with solenoid drive pin");
-                        println("Either change pusher type, or disable motor");
-                        delay(1000);
-                    }
+                    logger.error("Motor conflict with solenoid drive pin");
+                    logger.error("Either change pusher type, or disable motor");
+                    delay(1000);
                 }
             }
         }
     }
-    
+
     // esc passthrough requires a trigger pin
-    if (bootReason == BootReason::TO_ESC_PASSTHROUGH && pinDefined(triggerSwitchPin)) {
+    if (bootReason == BootReason::TO_ESC_PASSTHROUGH && pinDefined(triggerSwitchPin))
+    {
         // setup the trigger pin to exit passthrough
 
         triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
         triggerSwitch.interval(debounceTime_ms);
-        triggerSwitch.setPressedState(triggerSwitchNormallyClosed);
+        triggerSwitch.setPressedState(deviceSettings.triggerSwitchNormallyClosed);
 
         // only do esc passthrough for the motors that are defined and esc driver pin if defined
         u8 numPassthrough = 0;
         for (int i = 0; i < 4; i++)
         {
-            if (motors[i])
+            if (activeProfile.motors[i])
             {
                 numPassthrough++;
             }
         }
         if (board.pusherDriverType == ESC_DRIVER)
-            {
-            numPassthrough++; 
+        {
+            numPassthrough++;
         }
         u8 pins[numPassthrough] = {0};
         u8 currentPin = 0;
         for (int i = 0; i < 4; i++)
         {
-            if (motors[i])
+            if (activeProfile.motors[i])
             {
-                u8 escPin = 0;
-                if (i == 0){
-                    escPin = board.esc1;
-                } else if (i == 1){
-                    escPin = board.esc2;
-                } else if (i == 2){
-                    escPin = board.esc3;
-                } else if (i == 3){
-                    escPin = board.esc4;
-                }
-                pins[currentPin] = escPin;
+                pins[currentPin] = escPins[i];
                 currentPin++;
             }
         }
         if (board.pusherDriverType == ESC_DRIVER)
         {
-            pins[currentPin] = board.drvEN; 
+            pins[currentPin] = board.drvEN;
         }
 
-        displayText("ESC Passthrough, hold trigger to exit", 0, 0, true);
+        displayManager.showText("ESC Passthrough, hold trigger to exit", 0, 0, true);
 
         beginPassthrough(pins, numPassthrough);
-        unsigned long currentTime = millis(); 
-        while (processPassthrough()) {
+        unsigned long currentTime = millis();
+        while (processPassthrough())
+        {
             triggerSwitch.update();
             if (!triggerSwitch.isPressed())
             {
                 currentTime = millis();
             }
-            if (millis() - currentTime > 3000) {
-                //exit passthrough after 3 secs of trigger
+            if (millis() - currentTime > 3000)
+            {
+                // exit passthrough after 3 secs of trigger
                 break;
             }
         }
@@ -311,94 +455,67 @@ void setup()
         rp2040.reboot();
     }
     // display bootup screen if available
-    doBootup = true;
-    println("Booting");
-    //delay to allow gpio to stabilize
+    displayManager.requestBootupSplash();
+    logger.info("Booting");
+    // delay to allow gpio to stabilize
     delay(1000);
 
-    if (pinDefined(board.batteryADC)){
-        pinMode(board.batteryADC, INPUT);
-        batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
-        batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
-        print("Battery voltage (before calibration): ");
-        println(batteryADC_mv * 11);
-        if (voltageCalibrationFactor != 1.0) {
-            print("Battery voltage (after calibration): ");
-            println(voltageCalibrationFactor * batteryADC_mv * 11);
-        }
-        isBatteryAdcDefined = true;
-    } else {
-        isBatteryAdcDefined = false;
-        //TODO don't assume 4s.
-        batteryVoltage_mv = 14000; // assume min battery voltage charged if no adc defined
-    }
-    
+    batteryMonitor = new BatteryMonitor(board.batteryADC, activeProfile.voltageCalibrationFactor,
+                                        deviceSettings.voltageAveragingWindow,
+                                        cellCount(activeProfile.batteryType));
+    batteryMonitor->begin();
 
     if (pinDefined(revSwitchPin))
     {
         revSwitch.attach(revSwitchPin, INPUT_PULLUP);
-        revSwitch.interval(debounceTime_ms);
-        revSwitch.setPressedState(revSwitchNormallyClosed);
+        revSwitch.setPressedState(deviceSettings.revSwitchNormallyClosed);
     }
     if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
-        triggerSwitch.interval(debounceTime_ms);
-        triggerSwitch.setPressedState(triggerSwitchNormallyClosed);
+        triggerSwitch.setPressedState(deviceSettings.triggerSwitchNormallyClosed);
     }
-    if (pinDefined(cycleSwitchPin))
+    if (pinDefined(deviceSettings.cycleSwitchPin))
     {
-        cycleSwitch.attach(cycleSwitchPin, INPUT_PULLUP);
-        cycleSwitch.interval(pusherDebounceTime_ms);
-        cycleSwitch.setPressedState(cycleSwitchNormallyClosed);
+        cycleSwitch.attach(deviceSettings.cycleSwitchPin, INPUT_PULLUP);
+        cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms);
+        cycleSwitch.setPressedState(deviceSettings.cycleSwitchNormallyClosed);
     }
-    if (selectFireType != NO_SELECT_FIRE)
+    if (pinDefined(deviceSettings.idleSwitchPin))
     {
-        if (pinDefined(select0Pin))
+        idleSwitch.attach(deviceSettings.idleSwitchPin, INPUT_PULLUP);
+        idleSwitch.setPressedState(deviceSettings.idleSwitchNormallyClosed);
+    }
+    setupMenuButton();
+    if (activeProfile.selectFireType != NO_SELECT_FIRE)
+    {
+        for (int i = 0; i < 3; i++)
         {
-            select0.attach(select0Pin, INPUT_PULLUP);
-            select0.interval(debounceTime_ms);
-            select0.setPressedState(false);
-        }
-        if (pinDefined(select1Pin))
-        {
-            select1.attach(select1Pin, INPUT_PULLUP);
-            select1.interval(debounceTime_ms);
-            select1.setPressedState(false);
-        }
-        if (pinDefined(select2Pin))
-        {
-            select2.attach(select2Pin, INPUT_PULLUP);
-            select2.interval(debounceTime_ms);
-            select2.setPressedState(false);
+            if (pinDefined(selectPins[i]))
+            {
+                selectSwitches[i]->attach(selectPins[i], INPUT_PULLUP);
+                selectSwitches[i]->setPressedState(false);
+            }
         }
     }
+    applyDebounceInterval();
 
-    if (pinDefined(board.ESC_ENABLE)){
+    if (pinDefined(board.ESC_ENABLE))
+    {
         pinMode(board.ESC_ENABLE, OUTPUT);
-       /* if (pinDefined(triggerSwitchPin)){
-            triggerSwitch.update();
-            delay(20);
-            println("Waiting for trigger press to enable ESCs...");
-            while (!triggerSwitch.isPressed()) {
-                println("help");
-                // block for trigger to be pressed before arming esc's
-                /*displayOverride = true;
-                display.clearDisplay();
-                display.setCursor(0,0);
-                display.setTextSize(2);
-                display.println("PRESS TRIGGER TO BOOT");*/
-               // triggerSwitch.update();
-               // delay(10);
-            //}*/
-        //}
-        digitalWrite(board.ESC_ENABLE, LOW); 
+        digitalWrite(board.ESC_ENABLE, LOW);
     }
-  
 
-    //if trigger is pulled on boot, enter esc passthrough mode
+    if (pinDefined(board.LED_DATA))
+    {
+        pinMode(board.LED_DATA, OUTPUT);
+        digitalWrite(board.LED_DATA, HIGH); // steady on = armed, blinks on low-voltage cutoff
+    }
+
+    // if trigger is pulled on boot, enter esc passthrough mode
     triggerSwitch.update();
-    if (triggerSwitch.isPressed()) {
+    if (triggerSwitch.isPressed())
+    {
         rebootReason = BootReason::TO_ESC_PASSTHROUGH;
         delay(100);
         rp2040.reboot();
@@ -407,7 +524,8 @@ void setup()
     switch (board.pusherDriverType)
     {
     case DRV_DRIVER:
-        pusher = new Drv(board.drvPH, board.drvEN, board.drvNSLEEP, board.drvMOSI, board.drvMISO, board.drvNSCS, board.drvSCLK);
+        pusher = new Drv(board.drvPH, board.drvEN, board.drvNSLEEP, board.drvMOSI, board.drvMISO,
+                         board.drvNSCS, board.drvSCLK);
         break;
     case FET_DRIVER:
         pusher = new Fet(board.drvEN);
@@ -419,79 +537,60 @@ void setup()
         break;
     }
 
-
-    switch (pusherType) {
-    case PUSHER_MOTOR_CLOSEDLOOP:
-        break;
-    case PUSHER_SOLENOID_OPENLOOP:
-        if (solenoidExtendTimeLow_ms == solenoidExtendTimeHigh_ms || solenoidExtendTimeLowVoltage_mv > solenoidExtendTimeHighVoltage_mv) { // if times are equal, don't do this calc
-            solenoidVoltageTimeIntercept = solenoidExtendTimeHigh_ms;
-        } else {
-            solenoidVoltageTimeSlope = (solenoidExtendTimeHigh_ms - solenoidExtendTimeLow_ms) / ((float)(solenoidExtendTimeHighVoltage_mv - solenoidExtendTimeLowVoltage_mv));
-            solenoidVoltageTimeIntercept = solenoidExtendTimeHigh_ms - (solenoidVoltageTimeSlope * solenoidExtendTimeHighVoltage_mv) + 1;
-            print("solenoidVoltageTimeSlope: ");
-            println(solenoidVoltageTimeSlope);
-            print("solenoidVoltageTimeIntercept: ");
-            println(solenoidVoltageTimeIntercept);
-        }
-
-        break;
-    default:
-        break;
-    }
+    applySolenoidTimingCurve();
 
     // change FPS using select fire switch position at boot time
-    if (variableFPS)
+    if (activeProfile.variableFPS)
     {
         selectRPMProfile();
     }
 
     fpsMode = firingMode;
-	firingMode = 0;
-    print("fpsMode: ");
-    println(fpsMode);
+    firingMode = 0;
+    logger.info("fpsMode: ", fpsMode);
+    applyStageRatios(); // enforce Ratio-mode profiles' derived RPMs before reading revRPMset below
     for (int i = 0; i < 4; i++)
     {
-        if (motors[i])
+        if (activeProfile.motors[i])
         {
-            revRPM[i] = revRPMset[fpsMode][i];
-            firingRPM[i] = max(revRPM[i] - firingRPMTolerance, minFiringRPM);
-            fullThrottleRpmThreshold[i] = revRPM[i] - fullThrottleRpmTolerance;
-            if (i == 0)
-            {
-                esc[i] = new BidirDShotX1(board.esc1, dshotMode);
-            }
-            else if (i == 1)
-            {
-                esc[i] = new BidirDShotX1(board.esc2, dshotMode);
-            }
-            else if (i == 2)
-            {
-                esc[i] = new BidirDShotX1(board.esc3, dshotMode);
-            }
-            else if (i == 3)
-            {
-                esc[i] = new BidirDShotX1(board.esc4, dshotMode);
-            }
+            motorArr[i].revRPM = activeProfile.revRPMset[fpsMode][i];
+            motorArr[i].attachEsc(new BidirDShotX1(escPins[i], deviceSettings.dshotMode));
         }
     }
-    dwellTime_ms = dwellTimeSet_ms[fpsMode];
-    idleTime_ms = idleTimeSet_ms[fpsMode];
+    applyFiringRpmThresholds();
+    dwellTime_ms = activeProfile.dwellTimeSet_ms[fpsMode];
+    idleTime_ms = activeProfile.idleTimeSet_ms[fpsMode];
+
     // make sure to send neutral throttle to arm esc's
-    for (int j = 0; j < 15000; j++) {
-        //if pusher is esc driver, do the startup loop for the esc driver too
-        if (board.pusherDriverType == ESC_DRIVER){
+    for (int j = 0; j < 15000; j++)
+    {
+        // if pusher is esc driver, do the startup loop for the esc driver too
+        if (board.pusherDriverType == ESC_DRIVER)
+        {
             pusher->update();
         }
-        //do neutral throttle for all motors
+        // do neutral throttle for all motors
         for (int i = 0; i < 4; i++)
         {
-            if (motors[i])
+            if (activeProfile.motors[i])
             {
-                esc[i]->sendThrottle(0);
+                motorArr[i].sendThrottle(0);
             }
         }
         delayMicroseconds(100);
+    }
+
+    // Request Extended DShot Telemetry from ESCs that support it
+    for (int i = 0; i < 4; i++)
+    {
+        if (activeProfile.motors[i])
+        {
+            for (int rep = 0; rep < 10; rep++)
+            {
+                motorArr[i].esc->sendRaw11Bit(DSHOT_CMD_EXTENDED_TELEMETRY_ENABLE);
+                delayMicroseconds(1000);
+            }
+        }
     }
 
     showRuntimeInfo = true;
@@ -508,8 +607,6 @@ void loop()
         mainFiringLogic();
         lastMainLoopTime = time_ms;
     }
-
-    
 }
 
 void mainFiringLogic()
@@ -517,32 +614,59 @@ void mainFiringLogic()
     if (pinDefined(revSwitchPin))
     {
         revSwitch.update();
+        if (revSwitch.pressed())
+        {
+            logger.info("Rev switch pressed");
+        }
+        else if (revSwitch.released())
+        {
+            logger.info("Rev switch released");
+            revSafetyLatched = false;
+        }
     }
     if (pinDefined(triggerSwitchPin))
     {
         triggerSwitch.update();
+        if (triggerSwitch.pressed())
+        {
+            logger.info("Trigger switch pressed");
+        }
+        else if (triggerSwitch.released())
+        {
+            logger.info("Trigger switch released");
+        }
+    }
+    if (pinDefined(deviceSettings.idleSwitchPin))
+    {
+        idleSwitch.update();
+        if (idleSwitch.pressed())
+        {
+            logger.info("Idle switch pressed");
+        }
+        else if (idleSwitch.released())
+        {
+            logger.info("Idle switch released");
+        }
     }
     updateFiringMode();
     // changes burst options
-    burstLength = burstLengthSet[firingMode];
-    burstMode = burstModeSet[firingMode];
+    burstLength = activeProfile.burstLengthSet[firingMode];
+    burstMode = activeProfile.burstModeSet[firingMode];
 
-
-    if (triggerSwitch.pressed() || (burstMode == BINARY && triggerSwitch.released() && time_ms < triggerTime_ms + binaryTriggerTimeout_ms))
+    if (menuIsOpen() || burstMode == SAFE)
+    {
+        // menu mode and firing mode are mutually exclusive, or the active mode's burst mode is
+        // the safety - either way, ignore trigger input and cancel any shots already queued
+        shotsToFire = 0;
+    }
+    else if (triggerSwitch.pressed() ||
+             (burstMode == BINARY && triggerSwitch.released() &&
+              time_ms < triggerTime_ms + activeProfile.binaryTriggerTimeout_ms))
     { // pressed and released are transitions, isPressed is for state
-        print(time_ms);
-        if (triggerSwitch.pressed())
-        {
-            print(" trigger pressed, burstMode ");
-        }
-        else if (burstMode == BINARY && triggerSwitch.released() && time_ms < triggerTime_ms + binaryTriggerTimeout_ms)
-        {
-            print(" binary trigger released, burstMode ");
-        }
+        const char* eventLabel = triggerSwitch.pressed() ? "Trigger pressed, burstMode "
+                                                         : " binary trigger released, burstMode ";
         triggerTime_ms = time_ms;
-        print(burstMode);
-        print(" shotsToFire before ");
-        print(shotsToFire);
+        int16_t shotsToFireBefore = shotsToFire;
         if (burstMode == AUTO)
         {
             shotsToFire = burstLength;
@@ -554,8 +678,8 @@ void mainFiringLogic()
                 shotsToFire += burstLength;
             }
         }
-        print(" after ");
-        println(shotsToFire);
+        logger.info(eventLabel, burstMode, " shotsToFire before ", shotsToFireBefore, " after ",
+                    shotsToFire);
     }
     else if (triggerSwitch.released())
     {
@@ -564,106 +688,222 @@ void mainFiringLogic()
             shotsToFire = 1;
         }
     }
-    if (isBatteryAdcDefined){
-        batteryADC_mv = (analogRead(board.batteryADC) * 3300UL) / 1023;
-        if (voltageAveragingWindow == 1) {
-            batteryVoltage_mv = voltageCalibrationFactor * batteryADC_mv * 11;
-        } else {
-            voltageBuffer[voltageBufferIndex] = voltageCalibrationFactor * batteryADC_mv * 11;
-            voltageBufferIndex = (voltageBufferIndex + 1) % voltageAveragingWindow;
-            batteryVoltage_mv = 0;
-            for (int i = 0; i < voltageAveragingWindow; i++) {
-                batteryVoltage_mv += voltageBuffer[i];
+    batteryMonitor->update();
+}
+
+static uint32_t ledTime_ms = 0;
+static bool ledOn = true;
+
+void checkLowVoltageCutoff()
+{
+    if (batteryMonitor->isDefined() && time_ms > 2000)
+    {
+        uint8_t cells = cellCount(activeProfile.batteryType);
+        bool belowCutoff =
+            batteryMonitor->getVoltage_mv() < activeProfile.lowVoltageCutoffPerCell_mv * cells;
+        if (belowCutoff)
+        {
+            digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
+            logger.error("Battery low, shutting down! ", batteryMonitor->getVoltage_mv(), "mv");
+        }
+        // Non-cutoff early warning - lowVoltageWarningPerCell_mv is above the cutoff, so this
+        // trips first as the battery depletes.
+        batteryWarningActive =
+            batteryMonitor->getVoltage_mv() < activeProfile.lowVoltageWarningPerCell_mv * cells;
+
+        if (pinDefined(board.LED_DATA))
+        {
+            bool shouldBlink =
+                (deviceSettings.ledWarningMode == LED_WARNING_LOW_BATT && belowCutoff) ||
+                (deviceSettings.ledWarningMode == LED_WARNING_WARN_BATT && batteryWarningActive);
+            if (!shouldBlink)
+            {
+                digitalWrite(board.LED_DATA, HIGH);
             }
-            batteryVoltage_mv /= voltageAveragingWindow; // apply exponential moving average to smooth out noise. Time constant ≈ 1.44 ms
+            else if (time_ms > ledTime_ms + 500)
+            {
+                ledTime_ms = time_ms;
+                ledOn = !ledOn;
+                digitalWrite(board.LED_DATA, ledOn ? HIGH : LOW);
+            }
+        }
+    }
+}
+
+// RPM-drop-based shot detection
+void checkRpmDropShotDetection()
+{
+    if (!(allowShotDetection && deviceSettings.useRpmBaseShotCounter))
+    {
+        return;
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        if (activeProfile.motors[i])
+        {
+            if ((motorArr[i].targetRPM > motorArr[i].motorRPM) &&
+                (motorArr[i].targetRPM - motorArr[i].motorRPM > deviceSettings.rpmDropThreshold))
+            {
+                motorArr[i].shotsUnderThreshold++;
+            }
+        }
+
+        if (motorArr[i].shotsUnderThreshold >= deviceSettings.goodRpmShotReads)
+        {
+            logger.info("SHOT DETECTED!!!");
+            registerShot();
+            allowShotDetection = false;
+            for (int j = 0; j < 4; j++)
+            {
+                motorArr[j].shotsUnderThreshold = 0;
+            }
+            break;
         }
     }
 }
 
 bool fwControlLoop()
 {
+    if (directMotorControlActive)
+    {
+        pusher->update();
+        loopTime_us = micros() - loopStartTimer_us;
+        if (loopTime_us > targetLoopTime_us)
+        {
+            logger.error("Loop over time, ", loopTime_us);
+        }
+        else
+        {
+            delayMicroseconds(max((long)(0), (long)(targetLoopTime_us - loopTime_us)));
+            loopTime_us = targetLoopTime_us;
+        }
+        return true;
+    }
+
     switch (flywheelState)
     {
 
     case STATE_IDLE:
-        if (isBatteryAdcDefined && batteryVoltage_mv < lowVoltageCutoff_mv && time_ms > 2000)
-        {   
-            digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
-            print("Battery low, shutting down! ");
-            print(batteryVoltage_mv);
-            println("mv");
-        }
+        checkLowVoltageCutoff();
 
-        if (shotsToFire > 0 || revSwitch.isPressed())
+        if (shotsToFire > 0 || (revControlAllowed() && revSwitch.isPressed() && !revSafetyLatched))
         {
             enableFwControl = true;
             revStartTime_us = loopStartTimer_us;
-            memcpy(targetRPM, revRPM, sizeof(targetRPM)); // Copy revRPM to targetRPM
+            for (int i = 0; i < 4; i++)
+            {
+                motorArr[i].targetRPM = motorArr[i].revRPM; // Copy revRPM to targetRPM
+            }
             lastRevTime_ms = time_ms;
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
             resetFWControl();
-            if (flywheelControl == TBH_CONTROL) {
-                for (int i = 0; i < 4; i++) {
-                    if (motors[i]) {
+            if (activeProfile.flywheelControl == TBH_CONTROL)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    if (activeProfile.motors[i])
+                    {
                         // for optimal rev let's set throttle to max until first crossing
-                        PIDOutput[i] = max(min(maxThrottle, (maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv) + throttleCap), 0);
+                        motorArr[i].PIDOutput =
+                            max(min(maxThrottle, (maxThrottle * motorArr[i].targetRPM /
+                                                  batteryMonitor->getVoltage_mv() * 1000 /
+                                                  motorArr[i].m_config->m_motorKv) +
+                                                     activeProfile.throttleCap),
+                                0);
                         // premptly setup TBH variable to reduce overshoot
-                        PIDIntegral[i] = (2 * map(((targetRPM[i] * 1000) / motorsObj[i].m_motorKv), 0, batteryVoltage_mv, 0, maxThrottle)) - PIDOutput[i];
+                        motorArr[i].PIDIntegral =
+                            (2 *
+                             map(((motorArr[i].targetRPM * 1000) / motorArr[i].m_config->m_motorKv),
+                                 0, batteryMonitor->getVoltage_mv(), 0, maxThrottle)) -
+                            motorArr[i].PIDOutput;
                     }
                 }
             }
-            #ifdef USE_RPM_LOGGING
-            cacheIndex = 0; // reset cache index to start logging
-            #endif
-        }
-        else if ((time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0) || allowShotDetection)
-        { // dwell flywheels
-            if (allowShotDetection && time_ms > pusherTimer_ms + solenoidRetractTime_ms){
-                allowShotDetection = false;
-                for (int j = 0; j < 4; j++){
-                    shotsUnderThreshold[j] = 0;
-                }
-                //println("timeout reached");
-            } else {
-                //println("holding for dwell");
+            if (deviceSettings.useRpmLogging)
+            {
+                if (!rpmLogger.startCapture(deviceSettings.rpmLogLength))
+                    logger.error(
+                        "RPM logging: capture buffer allocation failed, skipping this rev");
             }
-
         }
-        else if (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0)
-        { // idle flywheels
+        else if ((time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0) ||
+                 allowShotDetection)
+        { // dwell flywheels
+            if (allowShotDetection &&
+                time_ms > pusherTimer_ms + activeProfile.solenoidRetractTime_ms)
+            {
+                allowShotDetection = false;
+                for (int j = 0; j < 4; j++)
+                {
+                    motorArr[j].shotsUnderThreshold = 0;
+                }
+                // logger.info("Timeout reached");
+            }
+            else
+            {
+                // logger.info("Holding for dwell");
+            }
+        }
+        else if (pinDefined(deviceSettings.idleSwitchPin) && idleSwitch.isPressed() &&
+                 burstMode != SAFE && motorArr[0].targetRPM == 0 && motorArr[1].targetRPM == 0 &&
+                 motorArr[2].targetRPM == 0 && motorArr[3].targetRPM == 0)
+        { // idle switch pressed from a full stop - open-loop kick straight to idle RPM, since
+          // updateOpenLoop() only ever ratchets throttle down, never up
             enableFwControl = false;
-            if (currentSpindownSpeed < spindownSpeed)
+            currentSpindownSpeed = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                if (activeProfile.motors[i])
+                {
+                    motorArr[i].targetRPM = activeProfile.idleRPM[i];
+                    motorArr[i].PIDOutput = maxThrottle * motorArr[i].targetRPM /
+                                            batteryMonitor->getVoltage_mv() * 1000 /
+                                            motorArr[i].m_config->m_motorKv;
+                }
+            }
+        }
+        else if ((pinDefined(deviceSettings.idleSwitchPin) && idleSwitch.isPressed() &&
+                  burstMode != SAFE) ||
+                 (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0))
+        { // idle flywheels - post-dwell idle window, or the idle switch held
+            enableFwControl = false;
+            if (currentSpindownSpeed < activeProfile.spindownSpeed)
             {
                 currentSpindownSpeed += 1;
             }
             for (int i = 0; i < 4; i++)
             {
-                if (motors[i])
+                if (activeProfile.motors[i])
                 {
-                    int32_t rpmDrop = (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
+                    int32_t rpmDrop =
+                        (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
 
                     // Prevent targetRPM from going below idle
-                    targetRPM[i] = (targetRPM[i] > rpmDrop + idleRPM[i]) ? (targetRPM[i] - rpmDrop) : idleRPM[i];
-
+                    motorArr[i].targetRPM =
+                        (motorArr[i].targetRPM > rpmDrop + activeProfile.idleRPM[i])
+                            ? (motorArr[i].targetRPM - rpmDrop)
+                            : activeProfile.idleRPM[i];
                 }
             }
         }
         else
         { // stop flywheels
-            enableFwControl = false;  
-            if (currentSpindownSpeed < spindownSpeed)
+            enableFwControl = false;
+            if (currentSpindownSpeed < activeProfile.spindownSpeed)
             {
                 currentSpindownSpeed += 1;
             }
             for (int i = 0; i < 4; i++)
             {
-                if (motors[i] && targetRPM[i] != 0)
+                if (activeProfile.motors[i] && motorArr[i].targetRPM != 0)
                 {
-                    int32_t rpmDrop = (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
+                    int32_t rpmDrop =
+                        (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
 
                     // Prevent targetRPM from going below zero
-                    targetRPM[i] = (targetRPM[i] > rpmDrop) ? (targetRPM[i] - rpmDrop) : 0;
+                    motorArr[i].targetRPM =
+                        (motorArr[i].targetRPM > rpmDrop) ? (motorArr[i].targetRPM - rpmDrop) : 0;
                 }
             }
             fromIdle = false;
@@ -672,292 +912,166 @@ bool fwControlLoop()
 
     case STATE_ACCELERATING:
         // clang-format off
-       
+
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
-        if ((!motors[0] || motorRPM[0] > firingRPM[0]) &&
-            (!motors[1] || motorRPM[1] > firingRPM[1]) &&
-            (!motors[2] || motorRPM[2] > firingRPM[2]) &&
-            (!motors[3] || motorRPM[3] > firingRPM[3])
+        if ((!activeProfile.motors[0] || motorArr[0].motorRPM > motorArr[0].firingRPM) &&
+            (!activeProfile.motors[1] || motorArr[1].motorRPM > motorArr[1].firingRPM) &&
+            (!activeProfile.motors[2] || motorArr[2].motorRPM > motorArr[2].firingRPM) &&
+            (!activeProfile.motors[3] || motorArr[3].motorRPM > motorArr[3].firingRPM)
         ) {
             flywheelState = STATE_FULLSPEED;
             fromIdle =  true;
-            println("STATE_FULLSPEED transition 1");
-        } else if (loopStartTimer_us - revStartTime_us > 500000) { //500ms seems a reasonable timeout
+            logger.info("STATE_FULLSPEED transition 1");
+        } else if (loopStartTimer_us - revStartTime_us > activeProfile.rampupTimeout_ms * 1000UL) {
             flywheelState = STATE_IDLE;
             resetFWControl();
             shotsToFire = 0;
-            println("Error! Flywheels failed to reach target speed!");
+            for (int i = 0; i < 4; i++) {
+                if (activeProfile.motors[i] && motorArr[i].motorRPM <= motorArr[i].firingRPM) {
+                    logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", motorArr[i].firingRPM);
+                }
+            }
         }
-    
+
         break;
         // clang-format on
 
     case STATE_FULLSPEED:
-        if (!revSwitch.isPressed() && shotsToFire == 0 && !firing)
+        if ((!revControlAllowed() || !revSwitch.isPressed()) && shotsToFire == 0 && !firing)
         {
             flywheelState = STATE_IDLE;
-            println("state transition: FULLSPEED to IDLE 1");
+            logger.info("State transition: FULLSPEED to IDLE 1");
+        }
+        // Rev-safety timeout
+        else if (activeProfile.revSafetyTimeout_ms > 0 && shotsToFire == 0 && !firing &&
+                 time_ms - lastRevTime_ms > activeProfile.revSafetyTimeout_ms)
+        {
+            flywheelState = STATE_IDLE;
+            revSafetyLatched = true;
+            logger.error(
+                "Rev safety timeout - motors held revved too long without firing, spinning down");
         }
         else if (shotsToFire > 0 || firing)
         {
             lastRevTime_ms = time_ms;
 
-            if (shotsToFire > 0 && !firing && time_ms > pusherTimer_ms + solenoidRetractTime_ms)
+            if (shotsToFire > 0 && !firing &&
+                time_ms > pusherTimer_ms + activeProfile.solenoidRetractTime_ms +
+                              computePusherDwellPadding_ms())
             { // extend solenoid
-                if (!useRpmBaseShotCounter){
-                    runtimeShotCounter++;
-                    displayShotCounter++;
-                    if (runtimeShotCounter % 10000 == 0){
-                        displayShotCounter = 0;
-                    }
-                    updateRuntimeNow = true;
-                } else {
-                    allowShotDetection = true;
-                    for (int j = 0; j < 4; j++){
-                    shotsUnderThreshold[j] = 0;
-                    }
-                    //println("cacheIndex " + String(cacheIndex));  
+                if (!deviceSettings.useRpmBaseShotCounter)
+                {
+                    registerShot();
                 }
-               
-                pusher->drive(100, pusherReverseDirection);
+                else
+                {
+                    allowShotDetection = true;
+                    for (int j = 0; j < 4; j++)
+                    {
+                        motorArr[j].shotsUnderThreshold = 0;
+                    }
+                    // logger.info("cacheIndex ", cacheIndex);
+                }
+
+                pusher->drive(100, deviceSettings.pusherReverseDirection);
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
                 pusherTimer_ms = time_ms;
-                solenoidExtendTime_ms = batteryVoltage_mv * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept; // assumes  a linear relationship between voltage and solenoid extend time
-                println("solenoid extending");
+                solenoidExtendTime_ms =
+                    batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope +
+                    solenoidVoltageTimeIntercept; // assumes  a linear relationship between voltage
+                                                  // and solenoid extend time
+
+                // Per-shot DPS verification: extend-to-extend interval, skipping the first shot
+                // (no prior extend to measure from).
+                if (lastShotExtendTime_ms != 0)
+                {
+                    uint32_t interval_ms = time_ms - lastShotExtendTime_ms;
+                    lastMeasuredDPS = interval_ms > 0 ? 1000.0f / interval_ms : 0;
+                    logger.info("Solenoid extending, interval_ms=", interval_ms,
+                                " achievedDPS=", lastMeasuredDPS,
+                                activeProfile.autoTiming ? " targetDPS=" : "",
+                                activeProfile.autoTiming ? activeProfile.targetDPS : 0);
+                }
+                else
+                {
+                    logger.info("Solenoid extending");
+                }
+                lastShotExtendTime_ms = time_ms;
             }
             else if (firing && time_ms > pusherTimer_ms + solenoidExtendTime_ms)
             { // retract solenoid
                 pusher->coast();
                 firing = false;
                 pusherTimer_ms = time_ms;
-                println("solenoid retracting");
-            } 
+                logger.info("Solenoid retracting");
+            }
         }
         break;
     }
-    //let's do the solenoid counting
-    if (allowShotDetection && useRpmBaseShotCounter){
-        for (int i = 0; i < 4; i++){
-            if (motors[i]){
-                if ((targetRPM[i] > motorRPM[i]) && (targetRPM[i] - motorRPM[i]  > rpmDropThreshold)){
-                    shotsUnderThreshold[i]++;
-                }
-            }
+    // let's do the solenoid counting
+    checkRpmDropShotDetection();
 
-            if (shotsUnderThreshold[i] >= goodRpmShotReads){
-                println("SHOT DETECTED!!!");
-                runtimeShotCounter++;
-                displayShotCounter++;
-                if (runtimeShotCounter % 10000 == 0){
-                    displayShotCounter = 0;
-                }
-                updateRuntimeNow = true;
-                allowShotDetection = false;
-                for (int j = 0; j < 4; j++){
-                    shotsUnderThreshold[j] = 0;
-                }
-                break;
-            }
-        }
-    }
-
-    if (enableFwControl){
-        switch (flywheelControl){
-            case PID_CONTROL:
+    if (enableFwControl)
+    {
+        switch (activeProfile.flywheelControl)
+        {
+        case PID_CONTROL:
             for (int i = 0; i < 4; i++)
             {
-                if (motors[i])
+                if (activeProfile.motors[i])
                 {
-                
-                    esc[i]->getTelemetryErpm(&motorRPMRaw[i]);
-                    motorRPMRaw[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
-                    
-                    // reject impossible rpm readings
-                    if (motorRPMRaw[i] * 1000 > motorsObj[i].m_motorKv * batteryVoltageMax_mv[batteryType] + (batteryType * 500)) {
-                        //assign to last valid filtered rpm reading
-                        motorRPMRaw[i] = motorRPM[i];
-                    }
-                    // do some filtering
-                    motorRPMFilter[i] += motorRPMRaw[i];
-                    motorRPM[i] = (motorRPMFilter[i] + half) >> EMAFilter; // 1st-order exponential moving average
-                    motorRPMFilter[i] -= motorRPM[i];
-
-
-                    PIDError[i] = targetRPM[i] - motorRPM[i];
-                    if ((signbit(PIDError[i]) || ((abs(PIDErrorPrior[i] - PIDError[i]) < iThreshold) && motorRPM[i] > (targetRPM[i]/2))) && !firstCrossing[i]) {
-                        firstCrossing[i] = true;
-                    }
-                    int16_t openLoopThrottle = max(min(maxThrottle, maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv), 0);
-                    if (!firstCrossing[i]){
-                        PIDIntegral[i] = 0;
-                        iTerm[i] = 0;
-                    } else {
-                        PIDIntegral[i] += PIDError[i] * loopTime_us / 1000000.0;
-                        
-                        // use iTerm to save some memory for the next
-                        iTerm[i] = (openLoopThrottle)/(motorsObj[i].m_iGain*2);
-                        PIDIntegral[i] = constrain(PIDIntegral[i], - iTerm[i], iTerm[i]);
-                    
-                        //overwrite iTerm with real value
-                        iTerm[i] = PIDIntegral[i] * motorsObj[i].m_iGain;
-                    
-                    }
-             
-
-                    dTerm[i] = motorsObj[i].m_dGain * ((PIDError[i] - PIDErrorPrior[i]) * 1000000.0 / loopTime_us);
-                    dTerm[i] = constrain(dTerm[i], -2000,2000);
-
-                    if (targetRPM[i] == 0) {
-                    PIDOutput[i] = 0;
-                    } else {
-                    PIDOutput[i] = (openLoopThrottle) + motorsObj[i].m_pGain * PIDError[i] + iTerm[i] + dTerm[i];
-                    }
-                    
-                    PIDErrorPrior[i] = PIDError[i];
-                    esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
-
+                    motorArr[i].updatePID(batteryMonitor->getVoltage_mv(), loopTime_us, maxThrottle,
+                                          activeProfile.EMAFilter, half, activeProfile.iThreshold,
+                                          activeProfile.batteryType);
                 }
-
             }
             break;
-            case TBH_CONTROL:
-                for (int i = 0; i < 4; i++)
+        case TBH_CONTROL:
+            for (int i = 0; i < 4; i++)
+            {
+                if (activeProfile.motors[i])
                 {
-                    if (motors[i])
-                    {
-                        /*
-                        so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput for our error accumulator, which we cap at 1999.
-                        Just trying to reuse variables to save runtime memory
-                        */
-                        esc[i]->getTelemetryErpm(&motorRPM[i]);
-                        motorRPM[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
-                        
-                        // reject impossible rpm readings
-                        if (motorRPM[i] * 1000 > motorsObj[i].m_motorKv * batteryVoltage_mv) {
-                            //assign to last valid filtered rpm reading
-                            motorRPM[i] = motorRPMFilter[i];
-                        }
-                        motorRPMFilter[i] = motorRPM[i];
-
-                        PIDError[i] = targetRPM[i] - motorRPM[i];
-
-                        if (signbit(PIDError[i])  && !firstCrossing[i]) {
-                            firstCrossing[i] = true;
-                        }
-                        if (firstCrossing[i]){
-                            PIDOutput[i] += motorsObj[i].m_iGain * PIDError[i]; // reset PID output
-                        }
-                       
-                        if (signbit(PIDError[i]) != signbit(PIDErrorPrior[i])) {
-                            PIDOutput[i] = PIDIntegral[i] = .5 * (PIDOutput[i] + PIDIntegral[i]);
-                            PIDErrorPrior[i] = PIDError[i];
-                        }
-                        
-                        if (PIDOutput[i] > 1999) {
-                            PIDOutput[i] = 1999; // prevent negative output and cap output
-                        } else if (PIDOutput[i] < 0) {
-                            PIDOutput[i] = 0;
-                        }
-                        // prevent output from being zero if non zero targetRPM since we don't want to hard brake if we overshoot for heat optimization
-                        if ((flywheelState == STATE_ACCELERATING || flywheelState == STATE_FULLSPEED)  && targetRPM[i] != 0 && PIDOutput[i] < 1) {
-                            PIDOutput[i] = 1;
-                        }
-                        esc[i]->sendThrottle(max(0, min(maxThrottle, static_cast<int32_t>(PIDOutput[i]))));
-        
-                    }
-
+                    motorArr[i].updateTBH(batteryMonitor->getVoltage_mv(), flywheelState,
+                                          maxThrottle);
                 }
-                break;
+            }
+            break;
         }
-    } else {
-        //we are spinning down or idling, just do open loop control
-        for (int i = 0; i < 4; i++) {
-            if (motors[i]) {
-                esc[i]->getTelemetryErpm(&motorRPM[i]);
-                motorRPM[i] /= motorsObj[i].m_motorPolesDiv2; // convert eRPM to RPM
-                int32_t openLoopTarget = maxThrottle * targetRPM[i] / batteryVoltage_mv * 1000 / motorsObj[i].m_motorKv ;
-                if (openLoopTarget < PIDOutput[i]){
-                    PIDOutput[i] = openLoopTarget;
-                }
-                PIDOutput[i] = constrain(PIDOutput[i], 0, maxThrottle);
-                esc[i]->sendThrottle(PIDOutput[i]);
+    }
+    else
+    {
+        // we are spinning down or idling, just do open loop control
+        for (int i = 0; i < 4; i++)
+        {
+            if (activeProfile.motors[i])
+            {
+                motorArr[i].updateOpenLoop(batteryMonitor->getVoltage_mv(), maxThrottle);
             }
         }
     }
-    
+
     logData();
-    
-    
 
-    #ifdef USE_RPM_LOGGING
-        // increment cache index if we still need to take data
-        if (cacheIndex < rpmLogLength)
-            cacheIndex++;
-
-        // dump cache once full
-        if (cacheIndex == rpmLogLength)
-        {
-            // print the CSV header
-            for (int j = 0; j < 4; j++)
-            {
-                if (motors[j])
-                {
-                    print("Motor ");
-                    print(j);
-                    print(",");
-                    print("TargetRPM ");
-                    print(j);
-                    print(",");
-                    print("Throttle ");
-                    print(j);
-                    print(",");
-                    print("value ");
-                    print(j);
-                    print(",");
-                }
-            }
-            println("");
-
-            // print the data
-            for (uint16_t i = 0; i < rpmLogLength; i++)
-            {
-                for (int j = 0; j < 4; j++)
-                {
-                    if (motors[j])
-                    {
-                        print(rpmCache[i][j]);
-                        print(",");
-                        print(targetRpmCache[i][j]);
-                        print(",");
-                        print(throttleCache[i][j]);
-                        print(",");
-                        print(valueCache[i][j]);
-                        print(",");
-                    }
-                }
-                println("");
-            }
-            // increment cache index to prevent re-dumping
-            cacheIndex++;
-
-            rp2040.reboot();
-        }
-
-#endif
-    //update pusher driver
+    if (rpmLogger.dumpIfReady(activeProfile.motors))
+    {
+        logger.info("RPM log dump complete, rebooting now as part of normal RPM logging - this is "
+                    "expected");
+        Serial.flush();
+        rp2040.reboot();
+    }
+    // update pusher driver
     pusher->update();
 
     loopTime_us = micros() - loopStartTimer_us; // 'us' is microseconds
     if (loopTime_us > targetLoopTime_us)
     {
-        print("loop over time, ");
-        println(loopTime_us);
+        logger.error("Loop over time, ", loopTime_us);
     }
     else
     {
         delayMicroseconds(max((long)(0), (long)(targetLoopTime_us - loopTime_us)));
-        loopTime_us = targetLoopTime_us; 
+        loopTime_us = targetLoopTime_us;
     }
 
     return true;
@@ -965,46 +1079,35 @@ bool fwControlLoop()
 
 void updateFiringMode()
 {
-    if (selectFireType == NO_SELECT_FIRE)
+    if (activeProfile.selectFireType == NO_SELECT_FIRE)
     {
         return;
     }
-    else if (selectFireType == SWITCH_SELECT_FIRE)
+    else if (activeProfile.selectFireType == SWITCH_SELECT_FIRE)
     {
-        if (pinDefined(select0Pin))
+        int8_t previousFiringMode = firingMode;
+
+        firingMode = activeProfile.defaultFiringMode;
+        for (int i = 0; i < 3; i++)
         {
-            select0.update();
-            if (select0.isPressed())
+            if (pinDefined(selectPins[i]))
             {
-                firingMode = 0;
-                return;
+                selectSwitches[i]->update();
+                if (selectSwitches[i]->isPressed())
+                {
+                    firingMode = i;
+                    break;
+                }
             }
         }
-        if (pinDefined(select1Pin))
-        {
-            select1.update();
-            if (select1.isPressed())
-            {
-                firingMode = 1;
-                return;
-            }
-        }
-        if (pinDefined(select2Pin))
-        {
-            select2.update();
-            if (select2.isPressed())
-            {
-                firingMode = 2;
-                return;
-            }
-        }
-        //if no other options, set to defaultFiring
-        firingMode = defaultFiringMode;
+
+        if (firingMode != previousFiringMode)
+            logger.info("Select switch changed, firingMode ", firingMode);
         return;
     }
-    else if (selectFireType == BUTTON_SELECT_FIRE)
+    else if (activeProfile.selectFireType == BUTTON_SELECT_FIRE)
     {
-        if (pinDefined(select0Pin))
+        if (pinDefined(deviceSettings.select0Pin))
         {
             select0.update();
             if (select0.pressed())
@@ -1014,6 +1117,7 @@ void updateFiringMode()
                 {
                     firingMode = 0;
                 }
+                logger.info("Select button pressed, firingMode ", firingMode);
                 return;
             }
         }
@@ -1023,67 +1127,40 @@ void updateFiringMode()
 // call this function to reset PID integral values, or reset I for TBH control
 void resetFWControl()
 {
-    switch (flywheelControl) {
-    case PID_CONTROL:
-        for (int i = 0; i < 4; i++) {
-            if (motors[i]) {
-                PIDOutput[i] = 0;
-                PIDIntegral[i] = 0; // stop reset PID
-                firstCrossing[i] = false;
-            }
+    for (int i = 0; i < 4; i++)
+    {
+        if (activeProfile.motors[i])
+        {
+            motorArr[i].resetControl(activeProfile.flywheelControl);
         }
-        break;
-    case TBH_CONTROL:
-        for (int i = 0; i < 4; i++) {
-            if (motors[i]) {
-                PIDIntegral[i] = 0; // reset TBH to target RPM value
-            }
-        }
-        break;
     }
-    return;
 }
 
 void selectRPMProfile()
 {
     firingMode = 0;
 
-    if (selectFireType == SWITCH_SELECT_FIRE)
+    if (activeProfile.selectFireType == SWITCH_SELECT_FIRE)
     {
-        if (pinDefined(select0Pin))
+        for (int i = 0; i < 3; i++)
         {
-            select0.update();
-            if (select0.isPressed())
+            if (pinDefined(selectPins[i]))
             {
-                firingMode = 0;
-                return;
+                selectSwitches[i]->update();
+                if (selectSwitches[i]->isPressed())
+                {
+                    firingMode = i;
+                    return;
+                }
             }
         }
-        if (pinDefined(select1Pin))
-        {
-            select1.update();
-            if (select1.isPressed())
-            {
-                firingMode = 1;
-                return;
-            }
-        }
-        if (pinDefined(select2Pin))
-        {
-            select2.update();
-            if (select2.isPressed())
-            {
-                firingMode = 2;
-                return;
-            }
-        }
-        //if no other options, set to defaultFiring
-        firingMode = defaultFiringMode;
+        // if no other options, set to defaultFiring
+        firingMode = activeProfile.defaultFiringMode;
         return;
     }
-    else if (selectFireType == BUTTON_SELECT_FIRE)
+    else if (activeProfile.selectFireType == BUTTON_SELECT_FIRE)
     {
-        if (pinDefined(select0Pin))
+        if (pinDefined(deviceSettings.select0Pin))
         {
             select0.update();
             if (select0.isPressed())
@@ -1105,131 +1182,211 @@ void selectRPMProfile()
     }
 }
 
-void setup1(){
-    if(hasDisplay){
-        while (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-            delay(100);
-        }
-        // Clear the buffer
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        if (rotateDisplay){
-            display.setRotation(2);
-        } else {
-            display.setRotation(0);
-        }
+void setup1()
+{
+    // Wait for core 0 to finish loading deviceSettings before touching displayManager.
+    while (!bootSettingsLoaded)
+    {
+        delay(1);
     }
+    displayManager.begin(deviceSettings.rotateDisplay);
 }
 
-void loop1(){
-    if (hasDisplay){
-        
-        if (doDisplayString)
-        {
-            if (clearDisplay)
-            {
-                display.clearDisplay();
-            }
-            display.setCursor(cursorX, cursorY);
-            display.println(displayString);
-            display.display();
-            doDisplayString = false;
-        }
+void loop1()
+{
+    handleSerialCommands();
 
-        if (doBootup){
-            display.clearDisplay();
-            display.drawBitmap(0, 0, splash, SCREEN_WIDTH, SCREEN_HEIGHT, 1);
-            display.display();
-            doBootup = false;
-            display.setCursor(0, 56);
-            display.setTextSize(1);
-            display.print("Trifolium v" + String(MAJOR_VERSION) + "." + String(MINOR_VERSION) + "." + String(PATCH_VERSION));
-            display.display();
-        }
+    if (deviceSettings.hasDisplay)
+    {
+        displayManager.flushMailbox();
 
         unsigned long lastUpdated = 0;
-        while (showRuntimeInfo){
-            if (millis() - lastUpdated > 100 || updateRuntimeNow){
-                //show firing mode
-                display.clearDisplay();
-                display.setCursor(0, 56);
-                display.setTextSize(1);
-                display.print(fireModeStrings[firingMode]);
-                display.drawFastHLine(0, 15, 128, 1);
-                //show motor target rpm
-                //cover the two normal cases of  esc 2/4 and 1/3, and 2 motor operation
-                u8 motorCount = 0;
-                for (int i = 0; i < 4; i++){
-                    if (motors[i]){
-                        motorCount++;
-                    }
-                }
-                if (motorCount == 2){
-                    // assume motors are set to same speed
-                    for (int i = 0; i < 4; i++){
-                        if (motors[i]){
-                            String motorRpmString = String(revRPM[i]/1000) + "K";
-                            display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
-                            display.print(motorRpmString);
-                            break;
-                        }
-                    }
-                } else  if (motorCount == 4){
-                    if (revRPM[0] == revRPM[1] && revRPM[1] == revRPM[2] && revRPM[2] == revRPM[3]){
-                        String motorRpmString = String(revRPM[0]/1000) + "K";
-                        display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
-                        display.print(motorRpmString);
-                    } else {
-                        //assume esc 2/4 and 1/3
-                        String motorRpmString = String(revRPM[0]/1000) + "K|" + String(revRPM[1]/1000) + "K";
-                        display.setCursor(128 - motorRpmString.length() * 6 - 1, 56);
-                        display.print(motorRpmString);
-                    }
-                }
-                display.drawFastHLine(0, 54, 128, 1);
-                //show shot counter
-                display.setTextSize(5);
-                String displayShotCounterString(displayShotCounter);
-                display.setCursor(128 - (displayShotCounterString.length() * 32), 18);
-                display.print(displayShotCounterString);
+        while (showRuntimeInfo)
+        {
+            handleSerialCommands();
 
-                //show battery voltage
-                if (isBatteryAdcDefined){
-                    display.setTextSize(1);
-                    String batteryVoltageString = String(batteryVoltage_mv / 1000.0, 1) + "V";
-                    display.setCursor(128 - (batteryVoltageString.length() * 6), 5);
-                    display.print(batteryVoltageString);
-                }
-                
-                //display blaster name
-                display.setTextSize(1);
-                display.setCursor(0, 5);
-                display.print(blasterName);
-                display.print("|P ");
-                display.print(fpsMode);
-                display.display();
+            if (menuButtonHeld())
+            {
+                runMenu();
+                break; // menu closed - fall through and let loop1() re-enter fresh next tick
+            }
 
+            if (millis() - lastUpdated > 100 || updateRuntimeNow)
+            {
+                // Dart count for the HOME_FIRE_MODE animation - one per shot in the burst, except
+                // Binary (one dart per trigger pull/release, shown as 2).
+                uint16_t animDartCount = (activeProfile.burstModeSet[firingMode] == BINARY)
+                                             ? 2
+                                             : activeProfile.burstLengthSet[firingMode];
+                // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
+                // last measured extend-to-extend interval, set is the raw targetDPS setting.
+                displayManager.renderTelemetry(
+                    activeProfile.fireModeStrings[firingMode].c_str(), activeProfileIndex,
+                    deviceSettings.blasterName.c_str(), motorArr, activeProfile.motors,
+                    activeProfile.motorStage, displayShotCounter, batteryMonitor->isDefined(),
+                    batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
+                    batteryWarningActive, deviceSettings.homeScreenDisplayMode, animDartCount,
+                    deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS, activeProfile.targetDPS);
                 updateRuntimeNow = false;
                 lastUpdated = millis();
             }
         }
-
-        if (doMenu){
-
-        }
     }
-    
 }
 
-void displayText(String str, int curX, int curY, bool clearScreen)
+void handleSerialCommands()
 {
-    if (hasDisplay)
+    // ESC passthrough reads raw bytes off Serial directly for the whole session - skip here so
+    // this function's line-oriented reads don't steal bytes from that binary protocol.
+    if (bootReason == BootReason::TO_ESC_PASSTHROUGH)
+        return;
+
+    if (!Serial.available())
+        return;
+
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+
+    int spaceIdx = line.indexOf(' ');
+    String command = spaceIdx == -1 ? line : line.substring(0, spaceIdx);
+
+    bool hasIndex = false;
+    int explicitIndex = -1;
+    if (spaceIdx != -1)
     {
-        displayString = str;
-        cursorX = curX;
-        cursorY = curY;
-        clearDisplay = clearScreen;
-        doDisplayString = true;
+        String indexArg = line.substring(spaceIdx + 1);
+        indexArg.trim();
+        hasIndex = indexArg.length() > 0;
+        bool allDigits = hasIndex;
+        for (size_t i = 0; i < indexArg.length(); i++)
+        {
+            if (!isDigit(indexArg[i]))
+                allDigits = false;
+        }
+        explicitIndex =
+            allDigits ? indexArg.toInt() : -1; // -1 sentinel - caught by the range check below
+    }
+
+    if (command == "DUMP_PROFILE")
+    {
+        RuntimeSettings settings;
+        if (hasIndex)
+        {
+            if (explicitIndex < 0 || explicitIndex >= ProfileStore::MAX_PROFILE_COUNT)
+            {
+                logger.error("DUMP_PROFILE: index out of range");
+                return;
+            }
+            ProfileStore::loadProfile((uint8_t)explicitIndex, settings);
+        }
+        else
+        {
+            settings = activeProfile;
+        }
+        JsonDocument doc;
+        ProfileStore::toJson(settings, doc);
+        serializeJson(doc, Serial);
+        Serial.println();
+    }
+    else if (command == "LOAD_PROFILE")
+    {
+        if (hasIndex && (explicitIndex < 0 || explicitIndex >= ProfileStore::MAX_PROFILE_COUNT))
+        {
+            logger.error("LOAD_PROFILE: index out of range");
+            return;
+        }
+        uint8_t activeIndex = ProfileStore::loadActiveProfileIndex();
+        uint8_t targetIndex = hasIndex ? (uint8_t)explicitIndex : activeIndex;
+
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, Serial);
+        if (err)
+        {
+            logger.error("LOAD_PROFILE: invalid JSON, ignoring");
+            return;
+        }
+
+        RuntimeSettings newSettings;
+        if (targetIndex == activeIndex)
+        {
+            newSettings = activeProfile; // seed from the live in-memory profile
+        }
+        else
+        {
+            ProfileStore::loadProfile(targetIndex,
+                                      newSettings); // seed from that profile's own saved state
+        }
+        ProfileStore::fromJson(doc, newSettings);
+        ProfileStore::saveProfile(targetIndex, newSettings);
+
+        if (targetIndex == activeIndex)
+        {
+            logger.info("LOAD_PROFILE: saved active profile, rebooting");
+            Serial.flush();
+            delay(100);
+            rebootReason = BootReason::MENU;
+            rp2040.reboot();
+        }
+        else
+        {
+            logger.info("LOAD_PROFILE: saved profile ", targetIndex,
+                        ", no reboot needed (not active)");
+        }
+    }
+    else if (command == "DUMP_DEVICE")
+    {
+        JsonDocument doc;
+        DeviceStore::toJson(deviceSettings, doc);
+        serializeJson(doc, Serial);
+        Serial.println();
+    }
+    else if (command == "LOAD_DEVICE")
+    {
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, Serial);
+        if (err)
+        {
+            logger.error("LOAD_DEVICE: invalid JSON, ignoring");
+            return;
+        }
+        DeviceSettings newSettings = deviceSettings;
+        DeviceStore::fromJson(doc, newSettings);
+        DeviceStore::saveDeviceSettings(newSettings);
+        logger.info("LOAD_DEVICE: saved, rebooting");
+        Serial.flush();
+        delay(100);
+        rebootReason = BootReason::MENU;
+        rp2040.reboot();
+    }
+    else if (command == "LOAD_SPLASH")
+    {
+        // Binary, not JSON - SPLASH_BYTES raw bytes immediately follow the command on the wire.
+        uint8_t buf[SplashStore::SPLASH_BYTES];
+        size_t received = Serial.readBytes(buf, SplashStore::SPLASH_BYTES);
+        if (received != SplashStore::SPLASH_BYTES)
+        {
+            logger.error("LOAD_SPLASH: expected ", (int)SplashStore::SPLASH_BYTES, " bytes, got ",
+                         (int)received, " - rejected");
+            return;
+        }
+        if (SplashStore::saveCustomSplash(buf))
+            logger.info("LOAD_SPLASH: saved custom splash screen (takes effect next boot)");
+        else
+            logger.error("LOAD_SPLASH: failed to save");
+    }
+    else if (command == "CLEAR_SPLASH")
+    {
+        SplashStore::clearCustomSplash();
+        logger.info("CLEAR_SPLASH: reverted to the default splash screen (takes effect next boot)");
+    }
+    else if (command == "DUMP_SPLASH")
+    {
+        uint8_t buf[SplashStore::SPLASH_BYTES];
+        if (!SplashStore::loadCustomSplash(buf))
+        {
+            logger.error("DUMP_SPLASH: no custom splash set");
+            return;
+        }
+        Serial.write(buf, SplashStore::SPLASH_BYTES);
     }
 }

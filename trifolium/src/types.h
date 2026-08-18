@@ -6,7 +6,9 @@
 
 #define PIN_NOT_USED 255
 
-// deriving from uint32_t etc. would result in problems with function overloading (e.g. when using the same function for i32 variables and int literals, the compiler expects a function for int and one for i32)
+// deriving from uint32_t etc. would result in problems with function overloading (e.g. when using
+// the same function for i32 variables and int literals, the compiler expects a function for int and
+// one for i32)
 typedef float f32;
 typedef double f64;
 typedef signed char i8;
@@ -18,40 +20,77 @@ typedef unsigned short u16;
 typedef unsigned int u32;
 typedef unsigned long long u64;
 
-#define CHECK_TYPE_SIZE(type, expected) static_assert((sizeof(type)) == (expected), "Size of " #type " is not as expected.")
+#define CHECK_TYPE_SIZE(type, expected)                                                            \
+    static_assert((sizeof(type)) == (expected), "Size of " #type " is not as expected.")
 
-enum flywheelState_t {
+enum flywheelState_t
+{
     STATE_IDLE,
     STATE_ACCELERATING, // ACCELERATING = wheels not yet at full speed
-    STATE_FULLSPEED, // REV = wheels at full speed
+    STATE_FULLSPEED,    // REV = wheels at full speed
 };
 
-enum selectFireType_t {
+enum selectFireType_t
+{
     NO_SELECT_FIRE,
     SWITCH_SELECT_FIRE,
     BUTTON_SELECT_FIRE
 };
 
-enum flywheelControlType_t {
-    //OPEN_LOOP_CONTROL,
-    //TWO_LEVEL_CONTROL,
+enum flywheelControlType_t
+{
+    // OPEN_LOOP_CONTROL,
+    // TWO_LEVEL_CONTROL,
     PID_CONTROL,
     TBH_CONTROL,
 };
 
-enum burstFireType_t {
+enum burstFireType_t
+{
     AUTO,
     BURST,
-    BINARY
+    BINARY,
+    SAFE // ignores trigger input entirely - a physical safety, not a firing style
 };
 
-enum pusherType_t {
+enum pusherType_t
+{
     NO_PUSHER,
     PUSHER_MOTOR_CLOSEDLOOP,
     PUSHER_SOLENOID_OPENLOOP,
 };
 
-enum pusherDriverType_t {
+// Which physical flywheel stage a motor belongs to - shared across all 3 RPM profiles.
+enum motorStage_t
+{
+    STAGE_1, // pre-accelerates the dart, typically lower RPM to allow more torque/power
+    STAGE_2, // final acceleration stage, typically higher RPM - not every blaster has one
+};
+
+enum rpmModeType_t
+{
+    RPM_CUSTOM, // each motor's RPM is set directly, as it always has been
+    RPM_RATIO,  // Stage 1 motors are derived from Stage 2's RPM x a ratio percentage instead
+};
+
+// Home screen layout - see DisplayManager::renderTelemetry().
+enum homeScreenDisplayMode_t
+{
+    HOME_COUNTER,
+    HOME_FIRE_MODE,
+    HOME_BOTH,
+};
+
+// What battery condition (if any) makes board.LED_DATA blink - see checkLowVoltageCutoff().
+enum ledWarningMode_t
+{
+    LED_WARNING_NONE,      // LED stays steady on regardless of battery voltage
+    LED_WARNING_LOW_BATT,  // blinks once the hard low-voltage cutoff trips
+    LED_WARNING_WARN_BATT, // blinks at the earlier, non-cutoff warning threshold
+};
+
+enum pusherDriverType_t
+{
     NO_DRIVER,
     FET_DRIVER,
     DRV_DRIVER,
@@ -65,13 +104,30 @@ enum dshot_mode_t
     DSHOT1200 = 1200
 };
 
-enum dshot_min_delay_t {
-    DSHOT_MIN_DELAY_300 = 1000,//167
-    DSHOT_MIN_DELAY_600 = 1000, //113 
-    DSHOT_MIN_DELAY_1200 = 1000,  //87
+enum dshot_min_delay_t
+{
+    DSHOT_MIN_DELAY_300 = 1000,  // 167
+    DSHOT_MIN_DELAY_600 = 1000,  // 113
+    DSHOT_MIN_DELAY_1200 = 1000, // 87
 };
 
-typedef struct {
+inline dshot_min_delay_t dshotMinDelayFor(dshot_mode_t mode)
+{
+    switch (mode)
+    {
+    case DSHOT600:
+        return DSHOT_MIN_DELAY_600;
+    case DSHOT1200:
+        return DSHOT_MIN_DELAY_1200;
+    case DSHOT300:
+    default:
+        return DSHOT_MIN_DELAY_300;
+    }
+}
+
+typedef struct
+{
+    const char* boardName; // display-only, About screen
     pusherDriverType_t pusherDriverType;
     uint8_t esc1;
     uint8_t esc2;
@@ -82,7 +138,7 @@ typedef struct {
     // I2C Pins
     uint8_t I2C_SCL;
     uint8_t I2C_SDA;
-    i2c_inst_t * I2C_HW_BLK;
+    i2c_inst_t* I2C_HW_BLK;
 
     // GPIO Pins
     uint8_t IO2;
@@ -95,7 +151,7 @@ typedef struct {
     uint8_t batteryADC;
     uint8_t escADC;
     uint8_t drvADC;
-    //drv communication
+    // drv communication
     uint8_t drvNSLEEP;
     uint8_t drvEN;
     uint8_t drvPH;
@@ -109,23 +165,30 @@ typedef struct {
 
 } boards_t;
 
-enum class BootReason {
-	POR, // Power-on reset
-	WATCHDOG,
-	CLEAR_EEPROM,
-	MENU,
-	TO_ESC_PASSTHROUGH,
-	FROM_ESC_PASSTHROUGH,
-	FROM_BOOT_SELECTION
+enum class BootReason
+{
+    POR, // Power-on reset
+    WATCHDOG,
+    CLEAR_EEPROM,
+    MENU,
+    TO_ESC_PASSTHROUGH,
+    FROM_ESC_PASSTHROUGH,
+    FROM_BOOT_SELECTION
 };
 
-int32_t batteryVoltageMax_mv[4] = { 12600, 16800, 21000, 25200 }; // max battery voltage for 3S, 4S, 5S, 6S
+extern int32_t batteryVoltageMax_mv[4]; // max battery voltage for 3S, 4S, 5S, 6S
 
-enum batteryType_t {
+enum batteryType_t
+{
     BATTERY_3S = 0,
     BATTERY_4S = 1,
     BATTERY_5S = 2,
     BATTERY_6S = 3
 };
+
+inline uint8_t cellCount(batteryType_t batteryType)
+{
+    return batteryType + 3;
+}
 
 #endif

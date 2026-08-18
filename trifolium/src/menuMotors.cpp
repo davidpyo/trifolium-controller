@@ -1,0 +1,222 @@
+#include "menuCore.h"
+#include "bitmaps.h" // trollface - the "Coming Soon" placeholder's image
+
+static const int32_t FLYWHEEL_TEST_THROTTLE = 400; // modest throttle (~20% of maxThrottle) - enough
+                                                   // to visibly/audibly spin without excessive draw
+static const unsigned long FLYWHEEL_TEST_DURATION_MS = 2000;
+
+static bool testOneMotor(int motorIndex)
+{
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setCursor(0, 20);
+    display.print("Motor " + String(motorIndex + 1));
+    display.setTextSize(1);
+    display.setCursor(0, 56);
+    display.print("any press = stop");
+    display.display();
+
+    DismissDetector dismiss;
+    unsigned long testStart = millis();
+    while (millis() - testStart < FLYWHEEL_TEST_DURATION_MS)
+    {
+        handleSerialCommands();
+        menuButton.update();
+        for (int j = 0; j < 4; j++)
+        {
+            if (activeProfile.motors[j])
+                motorArr[j].sendThrottle(j == motorIndex ? FLYWHEEL_TEST_THROTTLE : 0);
+        }
+        if (dismiss.poll())
+            return true;
+        delay(2);
+    }
+    return false;
+}
+
+static const char* const motorStageLabels[] = {"Stage 1", "Stage 2"};
+#define MOTOR_SUBMENU(N, LABEL)                                                                    \
+    static ToggleItem motor##N##EnabledItem("Enabled", &activeProfile.motors[N], true);            \
+    static EnumItem<motorStage_t> motor##N##StageItem("Stage", &activeProfile.motorStage[N],       \
+                                                      motorStageLabels, 2, true);                  \
+    static FloatItem motor##N##KPItem("KP", &activeProfile.KP[N], 0.0f, 5.0f, 0.01f, 2);           \
+    static FloatItem motor##N##KIItem("KI", &activeProfile.KI[N], 0.0f, 5.0f, 0.01f, 2);           \
+    static FloatItem motor##N##KDItem("KD", &activeProfile.KD[N], 0.0f, 5.0f, 0.01f, 2);           \
+    static NumericItem<int16_t> motor##N##PolesItem("Poles/2", &activeProfile.motorPolesDiv2[N],   \
+                                                    1, 20, 1);                                     \
+    static NumericItem<int32_t> motor##N##KvItem("Kv", &activeProfile.motorKv[N], 100, 5000, 50);  \
+    static void motor##N##TestFired()                                                              \
+    {                                                                                              \
+        if (!activeProfile.motors[N])                                                              \
+            return;                                                                                \
+        directMotorControlActive = true;                                                           \
+        testOneMotor(N);                                                                           \
+        for (int j = 0; j < 4; j++)                                                                \
+            if (activeProfile.motors[j])                                                           \
+                motorArr[j].sendThrottle(0);                                                       \
+        directMotorControlActive = false;                                                          \
+    }                                                                                              \
+    static ActionItem motor##N##TestItem("Test This Motor", motor##N##TestFired);                  \
+    static MenuItem* motor##N##Items[] = {                                                         \
+        &motor##N##EnabledItem, &motor##N##StageItem, &motor##N##KPItem, &motor##N##KIItem,        \
+        &motor##N##KDItem,      &motor##N##PolesItem, &motor##N##KvItem, &motor##N##TestItem};     \
+    static SubmenuItem motor##N##Submenu(LABEL, motor##N##Items, 8);
+
+MOTOR_SUBMENU(0, "Motor 1")
+MOTOR_SUBMENU(1, "Motor 2")
+MOTOR_SUBMENU(2, "Motor 3")
+MOTOR_SUBMENU(3, "Motor 4")
+#undef MOTOR_SUBMENU
+
+// The actual EMA smoothing math uses `half` (1 << (EMAFilter - 1)), not activeProfile.EMAFilter
+// directly - applyEmaFilterConstant() (runMenu()'s post-save hook) recomputes it live.
+static NumericItem<uint8_t> emaFilterItem("EMA Filter", &activeProfile.EMAFilter, 1, 8, 1);
+static NumericItem<uint8_t> iThresholdItem("I Threshold", &activeProfile.iThreshold, 0, 255, 5);
+static NumericItem<uint16_t> throttleCapItem("Throttle Cap", &activeProfile.throttleCap, 0, 2000,
+                                             10);
+
+// Placeholder pending a fresh design
+static void autoTunePidComingSoon()
+{
+    display.clearDisplay();
+    display.drawBitmap(0, 0, trollface, 128, 64, SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 56); // trollface leaves this row blank by design - see bitmaps.h
+    display.print("any press = back");
+    display.display();
+    waitForTrapdoorPress();
+}
+static ActionItem autoTunePidItem("Auto-Tune PID", autoTunePidComingSoon);
+
+static void escDashboardFired()
+{
+    escDashboardOpen = true;
+    DismissDetector dismiss;
+    while (true)
+    {
+        handleSerialCommands();
+        menuButton.update();
+
+        display.clearDisplay();
+        display.setTextWrap(false); // clip long lines rather than let them corrupt the next row
+        display.setTextSize(1);
+        display.setCursor(0, 0);
+        display.println("ESC Dashboard");
+        display.drawFastHLine(0, 10, 128, 1);
+        int16_t y = 14;
+        for (int i = 0; i < 4; i++)
+        {
+            if (!activeProfile.motors[i])
+                continue;
+            String line = "M" + String(i + 1) + " ";
+            line += motorArr[i].telemetryVoltageSeen
+                        ? String(motorArr[i].telemetryVoltageRaw / 4.0, 1) + "V "
+                        : "--V ";
+            line += motorArr[i].telemetryCurrentSeen
+                        ? String(motorArr[i].telemetryCurrentRaw) + "A "
+                        : "--A ";
+            line += motorArr[i].telemetryTempSeen ? String(motorArr[i].telemetryTempRaw) + "C "
+                                                  : "--C ";
+            line += motorArr[i].telemetryStressSeen ? String(motorArr[i].telemetryStressRaw) : "--";
+            display.setCursor(0, y);
+            display.print(line);
+            y += 10;
+        }
+        display.setCursor(0, 56);
+        display.print("any press = back");
+        display.display();
+
+        if (dismiss.poll())
+            break;
+        delay(100);
+    }
+    escDashboardOpen = false;
+}
+static ActionItem escDashboardItem("ESC Dashboard", escDashboardFired);
+
+static const unsigned long BEACON_REPEAT_MS = 1200; // how often to re-trigger the current beacon
+static const int BEACON_BURST_COUNT = 10;           // consecutive frames per trigger, not just one
+
+static void testBeepsFired()
+{
+    directMotorControlActive = true;
+
+    unsigned long settleStart = millis();
+    while (millis() - settleStart < 500)
+    {
+        for (int i = 0; i < 4; i++)
+            if (activeProfile.motors[i])
+                motorArr[i].sendThrottle(0);
+        delay(2);
+    }
+
+    uint8_t beaconIndex = 1; // 1-5
+    unsigned long lastBeaconBurst = 0;
+    bool triggerWasPressed = triggerSwitch.isPressed();
+    bool revWasPressed = revSwitch.isPressed();
+    DismissDetector dismiss;
+    while (true)
+    {
+        handleSerialCommands();
+        menuButton.update();
+
+        bool triggerIsPressed = pinDefined(triggerSwitchPin) && triggerSwitch.isPressed();
+        bool revIsPressed = pinDefined(revSwitchPin) && revSwitch.isPressed();
+        bool triggerEdge = triggerIsPressed && !triggerWasPressed;
+        bool revEdge = revIsPressed && !revWasPressed;
+        triggerWasPressed = triggerIsPressed;
+        revWasPressed = revIsPressed;
+
+        if (triggerEdge && beaconIndex > 1)
+            beaconIndex--;
+        if (revEdge && beaconIndex < 5)
+            beaconIndex++;
+
+        display.clearDisplay();
+        display.setTextSize(2);
+        display.setCursor(0, 20);
+        display.print("Beacon " + String(beaconIndex));
+        display.setTextSize(1);
+        display.setCursor(0, 56);
+        display.print("trig/rev=select  menu=back");
+        display.display();
+
+        if (millis() - lastBeaconBurst > BEACON_REPEAT_MS)
+        {
+            for (int rep = 0; rep < BEACON_BURST_COUNT; rep++)
+            {
+                for (int i = 0; i < 4; i++)
+                    if (activeProfile.motors[i])
+                        motorArr[i].sendBeacon(beaconIndex);
+                delay(2);
+            }
+            lastBeaconBurst = millis();
+        }
+        else
+        {
+            for (int i = 0; i < 4; i++)
+                if (activeProfile.motors[i])
+                    motorArr[i].sendThrottle(0);
+        }
+
+        if (dismiss.poll())
+            break;
+
+        delay(2);
+    }
+
+    for (int i = 0; i < 4; i++)
+        if (activeProfile.motors[i])
+            motorArr[i].sendThrottle(0);
+    directMotorControlActive = false;
+}
+static ActionItem testBeepsItem("Test Beeps", testBeepsFired);
+
+static MenuItem* motorsPidItems[] = {
+    &motor0Submenu,  &motor1Submenu,   &motor2Submenu,   &motor3Submenu,    &emaFilterItem,
+    &iThresholdItem, &throttleCapItem, &autoTunePidItem, &escDashboardItem,
+    // &testBeepsItem, // disabled - dev-only test, re-enable manually when needed
+};
+// Non-static: referenced by menu.cpp's Advanced submenu assembly.
+SubmenuItem motorsPidSubmenu("Motors & PID", motorsPidItems, 9);

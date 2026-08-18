@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Trifolium Serial Config</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #d4d4d4;
+    --accent: #4fc1ff;
+    --ok: #6ac96a;
+    --err: #e06c75;
+    --muted: #8a8a8a;
+    /* categorical - fixed order, one hue per motor index, never reassigned by rank */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --grid: #2c2c2a;
+    --axis-line: #383835;
+  }
+  body {
+    margin: 0;
+    padding: 1.5rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 0.25rem; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
+  .row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  legend { color: var(--accent); font-size: 0.85rem; padding: 0 0.4rem; }
+  button {
+    background: #333; color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.45rem 0.9rem; cursor: pointer; font-size: 0.9rem;
+  }
+  button:hover:not(:disabled) { background: #3c3c3c; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  input[type="number"] {
+    width: 4.5rem; background: #333; color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.4rem;
+  }
+  textarea, #log {
+    width: 100%; box-sizing: border-box; background: #111; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 0.85rem; padding: 0.6rem;
+  }
+  #jsonBox { height: 240px; resize: vertical; }
+  #log { height: 160px; overflow-y: auto; white-space: pre-wrap; }
+  #log .err { color: var(--err); }
+  #log .ok { color: var(--ok); }
+  #log .device { color: var(--accent); }
+  #status { font-size: 0.85rem; }
+  #status.connected { color: var(--ok); }
+  #status.disconnected { color: var(--muted); }
+  label { font-size: 0.85rem; color: var(--muted); }
+  .hidden-file-input { display: none; }
+  #rpmBox { height: 160px; resize: vertical; }
+  .chart-box {
+    position: relative; background: #111; border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.5rem; width: 100%; box-sizing: border-box;
+  }
+  .chart-title { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; }
+  .chart-legend { display: flex; gap: 0.75rem; font-size: 0.72rem; color: var(--muted); margin-bottom: 0.3rem; }
+  .chart-legend .swatch { display: inline-block; width: 12px; height: 0; margin-right: 4px; vertical-align: middle; border-top: 2px solid; }
+  .chart-tooltip {
+    position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.72rem; color: var(--text);
+    white-space: nowrap; display: none; z-index: 5; top: 4px;
+  }
+  .topbar { display: flex; gap: 1rem; align-items: stretch; margin-bottom: 1rem; }
+  .topbar-left { flex: 0 0 180px; display: flex; flex-direction: column; }
+  .topbar-left h1 { margin: 0 0 0.25rem; }
+  .topbar-center { flex: 1 1 auto; min-width: 0; }
+  .topbar-center #log { height: 220px; margin: 0; }
+  .topbar-right { flex: 0 0 180px; display: flex; flex-direction: column; gap: 0.5rem; }
+  .topbar-right button { width: 100%; }
+  .topbar-right #status { text-align: center; }
+  .tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 0.6rem 1rem; color: var(--muted); font-size: 0.9rem; cursor: pointer;
+  }
+  .tab-btn:hover { color: var(--text); background: none; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel[hidden] { display: none; }
+  .divider { width: 1px; height: 1.6rem; background: var(--border); margin: 0 0.25rem; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Trifolium</h1>
+    <div class="sub">
+      Web Console. Chrome/Edge only (Web Serial API) - must be served over <code>http(s)://</code>
+      or <code>localhost</code>, not opened directly from disk.
+    </div>
+  </div>
+  <div class="topbar-center">
+    <div id="log"></div>
+  </div>
+  <div class="topbar-right">
+    <button id="connectBtn" class="primary">Connect</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+    <button id="clearLogBtn">Clear log</button>
+    <button id="downloadLogBtn">Download log</button>
+    <span id="status" class="disconnected">not connected</span>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="config">Configuration</button>
+  <button class="tab-btn" data-tab="splash">Splash Screen</button>
+  <button class="tab-btn" data-tab="rpm">RPM Log &amp; Chart</button>
+</div>
+
+<div class="tab-panel" id="tab-config">
+  <div class="row">
+    <label for="profileIndex">Profile index (blank = active)</label>
+    <input type="number" id="profileIndex" min="0" max="3" placeholder="active" />
+    <button id="dumpProfileBtn" disabled>Dump Profile</button>
+    <button id="loadProfileBtn" disabled>Load Profile</button>
+    <span class="divider"></span>
+    <button id="dumpDeviceBtn" disabled>Dump Device</button>
+    <button id="loadDeviceBtn" disabled>Load Device</button>
+  </div>
+
+  <fieldset>
+    <legend>JSON body (dump target / load source)</legend>
+    <div class="row">
+      <button id="openFileBtn">Open file...</button>
+      <button id="saveFileBtn">Save as...</button>
+      <button id="clearBtn">Clear</button>
+      <input type="file" id="fileInput" class="hidden-file-input" accept=".json,.cfg,.txt" />
+    </div>
+    <textarea id="jsonBox" spellcheck="false" placeholder="Dump into here, edit, then Load the same box back."></textarea>
+  </fieldset>
+</div>
+
+<div class="tab-panel" id="tab-splash" hidden>
+  <fieldset>
+    <legend>Custom Boot Splash (strict: must be exactly 128x64 pixels)</legend>
+    <div class="sub" style="margin-bottom: 0.75rem;">
+      Converts a PNG to a 1-bit image and uploads it to the device - it replaces the built-in
+      splash on the next boot. The source image must be exactly 128x64 pixels; anything else is
+      rejected rather than resized, so the preview below is pixel-for-pixel what the device will
+      show. Dark source pixels become lit ("on") pixels on the OLED by default - check Invert if
+      your source image has it backwards (e.g. a light logo on a dark background).
+    </div>
+    <div class="row">
+      <button id="openSplashFileBtn">Choose PNG...</button>
+      <input type="file" id="splashFileInput" class="hidden-file-input" accept="image/png" />
+      <button id="uploadSplashBtn" class="primary" disabled>Upload to Device</button>
+      <button id="clearSplashBtn" disabled>Clear (revert to default)</button>
+      <label style="display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; color: var(--muted); font-size: 0.85rem;">
+        <input type="checkbox" id="invertSplashCheckbox" disabled />
+        Invert (light source pixels &rarr; lit)
+      </label>
+    </div>
+    <div class="row">
+      <canvas id="splashPreview" width="128" height="64"
+        style="background:#000; image-rendering: pixelated; width: 256px; height: 128px; border: 1px solid var(--border); border-radius: 4px;"></canvas>
+    </div>
+    <div class="sub" id="splashStatus"></div>
+  </fieldset>
+</div>
+
+<div class="tab-panel" id="tab-rpm" hidden>
+  <fieldset>
+    <legend>RPM Log (requires DUMP_DEVICE's <code>useRpmLogging</code> set true)</legend>
+    <div class="sub" style="margin-bottom: 0.75rem;">
+      Set <code>useRpmLogging</code> (and optionally <code>rpmLogLength</code>, capped at
+      2000) via the Config tab's <code>DUMP_DEVICE</code>/<code>LOAD_DEVICE</code> - no on-device
+      menu item, Serial/web-console-only, same as DSHOT Mode and Verbose Serial. Capture starts
+      automatically on the next trigger/rev pull after that reboot, dumps as CSV over Serial, then
+      reboots again. Capture it straight from the Log console above, or open a saved file (a clean
+      CSV or a noisy log dump - either is auto-extracted), then Chart it. Not tied to the live
+      connection.
+    </div>
+    <div class="row">
+      <button id="captureLogBtn">Capture from Log</button>
+      <button id="openRpmFileBtn">Open file...</button>
+      <button id="saveRpmFileBtn">Save as...</button>
+      <button id="clearRpmBtn">Clear</button>
+      <button id="chartRpmBtn" class="primary">Chart it</button>
+      <input type="file" id="rpmFileInput" class="hidden-file-input" accept=".csv,.log,.txt" />
+    </div>
+    <textarea id="rpmBox" spellcheck="false" placeholder="Click Capture from Log, or open a saved file, then Chart it."></textarea>
+    <div id="rpmCharts"></div>
+  </fieldset>
+</div>
+
+<script>
+const READ_TIMEOUT_MS = 3000;
+
+let port = null;
+let writer = null;
+let lineReader = null;
+let readableClosed = null; // resolves once port.readable's pipe to the text decoder tears down
+let disconnecting = false; // reentrancy guard - readLoop() and the Disconnect button can race
+let lineListeners = [];    // {predicate, resolve} entries waiting on a specific upcoming line
+
+const el = (id) => document.getElementById(id);
+const logBox = el("log");
+const jsonBox = el("jsonBox");
+const rpmBox = el("rpmBox");
+const statusEl = el("status");
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  // must be attached to the document for .click() to reliably trigger a download instead of
+  // navigating the page away (which, for the JSON box, tears down port/reader/writer - looks
+  // like a disconnect)
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function log(msg, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function setConnected(connected) {
+  statusEl.textContent = connected ? "connected" : "not connected";
+  statusEl.className = connected ? "connected" : "disconnected";
+  el("connectBtn").disabled = connected;
+  el("disconnectBtn").disabled = !connected;
+  for (const id of ["dumpProfileBtn", "loadProfileBtn", "dumpDeviceBtn", "loadDeviceBtn", "clearSplashBtn"]) {
+    el(id).disabled = !connected;
+  }
+  updateSplashButtons();
+}
+
+// Standard Web Serial line-buffering transform (splits the decoded text stream on '\n').
+class LineBreakTransformer {
+  constructor() { this.chunk = ""; }
+  transform(text, controller) {
+    this.chunk += text;
+    const lines = this.chunk.split("\n");
+    this.chunk = lines.pop();
+    lines.forEach((line) => controller.enqueue(line));
+  }
+  flush(controller) { if (this.chunk) controller.enqueue(this.chunk); }
+}
+
+async function connect() {
+  if (!("serial" in navigator)) {
+    log("Web Serial API not available - use Chrome or Edge, served over http(s)/localhost.", "err");
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+
+    const textDecoder = new TextDecoderStream();
+    readableClosed = port.readable.pipeTo(textDecoder.writable).catch(() => {});
+    lineReader = textDecoder.readable
+      .pipeThrough(new TransformStream(new LineBreakTransformer()))
+      .getReader();
+
+    writer = port.writable.getWriter();
+
+    setConnected(true);
+    log("Connected.", "ok");
+    readLoop(); // fire-and-forget - runs until the reader errors out or is cancelled
+  } catch (e) {
+    log(`Connect failed: ${e.message}`, "err");
+  }
+}
+
+async function disconnect(reason) {
+  if (disconnecting) return; // readLoop()'s own cleanup and a manual Disconnect click can race
+  disconnecting = true;
+  try {
+    const waiting = lineListeners;
+    lineListeners = [];
+    waiting.forEach(({ resolve }) => resolve(null)); // don't leave callers waiting forever
+
+    try { if (lineReader) await lineReader.cancel(); } catch {}
+    try { if (readableClosed) await readableClosed; } catch {} // wait for the pipe to unlock port.readable
+    try {
+      if (writer) await writer.close();
+    } catch {
+      try { if (writer) writer.releaseLock(); } catch {}
+    }
+    try { if (port) await port.close(); } catch {}
+    lineReader = null;
+    writer = null;
+    port = null;
+    readableClosed = null;
+    setConnected(false);
+    log(reason || "Disconnected.", "err");
+  } finally {
+    disconnecting = false;
+  }
+}
+
+async function sendLine(text) {
+  await writer.write(new TextEncoder().encode(text + "\n"));
+}
+
+async function sendRaw(text) {
+  await writer.write(new TextEncoder().encode(text));
+}
+
+// The single consumer of lineReader for the life of a connection - runs continuously so
+// device chatter shows up in the log as it happens, not just when a button click happens to
+// be reading. Commands that need a specific line (the JSON dump) register via waitForLine()
+// instead of reading directly, so there's never more than one place pulling from the reader.
+async function readLoop() {
+  try {
+    while (true) {
+      const { value, done } = await lineReader.read();
+      if (done) break;
+      const line = (value || "").trim();
+      if (!line) continue;
+      if (!line.startsWith("{")) log(`  (device) ${line}`, "device"); // JSON payloads land in jsonBox, not the log
+      lineListeners = lineListeners.filter(({ predicate, resolve }) => {
+        if (!predicate(line)) return true;
+        resolve(line);
+        return false;
+      });
+    }
+  } catch (e) {
+    // expected: disconnect() cancelling the reader, or the device rebooting mid-session
+  }
+  if (port) await disconnect("Connection lost (device rebooted or port closed).");
+}
+
+// Resolves with the next line matching predicate, or null if none arrives within timeoutMs.
+function waitForLine(predicate, timeoutMs) {
+  return new Promise((resolve) => {
+    const entry = { predicate, resolve: null };
+    const timer = setTimeout(() => {
+      lineListeners = lineListeners.filter((e) => e !== entry);
+      resolve(null);
+    }, timeoutMs);
+    entry.resolve = (line) => {
+      clearTimeout(timer);
+      resolve(line);
+    };
+    lineListeners.push(entry);
+  });
+}
+
+async function dump(kind) {
+  let command = `DUMP_${kind}`;
+  if (kind === "PROFILE") {
+    const idx = el("profileIndex").value.trim();
+    if (idx !== "") command += ` ${idx}`;
+  }
+  log(`> ${command}`);
+  try {
+    await sendLine(command);
+    const json = await waitForLine((line) => line.startsWith("{"), READ_TIMEOUT_MS);
+    if (!json) {
+      log("No JSON response received within timeout.", "err");
+      return;
+    }
+    jsonBox.value = JSON.stringify(JSON.parse(json), null, 2);
+    log("OK.", "ok");
+  } catch (e) {
+    await disconnect(`Dump failed: ${e.message}`);
+  }
+}
+
+async function loadFromBox(kind) {
+  const body = jsonBox.value.trim();
+  if (!body) {
+    log("JSON box is empty - nothing to load.", "err");
+    return;
+  }
+  try {
+    JSON.parse(body); // validate before sending, so a typo doesn't get sent half-formed
+  } catch (e) {
+    log(`JSON box doesn't parse: ${e.message}`, "err");
+    return;
+  }
+
+  let command = `LOAD_${kind}`;
+  if (kind === "PROFILE") {
+    const idx = el("profileIndex").value.trim();
+    if (idx !== "") command += ` ${idx}`;
+  }
+  log(`> ${command}  (${body.length} bytes)`);
+  try {
+    await sendLine(command);
+    await sendRaw(body);
+    // no fixed response shape to wait on - readLoop() already streams whatever comes back
+    // (log lines, or a reboot/disconnect) into the log live; just give it a moment to land
+    await new Promise((resolve) => setTimeout(resolve, READ_TIMEOUT_MS));
+  } catch (e) {
+    await disconnect(`Load failed (or device rebooted): ${e.message}`);
+  }
+}
+
+// --- Splash screen upload ---
+// Strict by design (see splashStore.h): source PNG must be exactly 128x64, converted to 1bpp via
+// a luminance threshold, no resizing/cropping - what's in the preview canvas is exactly what gets
+// packed and sent. Reading the splash back (DUMP_SPLASH) isn't wired into this UI - the read path
+// above (readLoop/LineBreakTransformer) is text/line-oriented and can't safely carry arbitrary
+// binary bytes back, so verification is upload-then-reboot-and-look, not a round-trip preview.
+// The Invert checkbox just flips which side of the threshold counts as "on" - purely a client-side
+// display choice for source images with light-on-dark artwork, no effect on the device/protocol.
+
+let splashBytes = null; // Uint8Array(1024), set once a valid 128x64 PNG is loaded
+let splashImageData = null; // flattened source pixels (pre-threshold) - kept around so toggling
+                             // Invert can re-run the conversion without re-picking the file
+
+function updateSplashButtons() {
+  el("uploadSplashBtn").disabled = !splashBytes || !port;
+}
+
+// Re-runs the luminance threshold over the currently-loaded source image and repaints the
+// preview - called on file load and whenever the Invert checkbox changes, so switching it is
+// instant instead of requiring the PNG to be re-picked.
+function convertSplashImage() {
+  if (!splashImageData) return;
+  const invert = el("invertSplashCheckbox").checked;
+  const bytes = new Uint8Array(1024);
+  const previewCtx = el("splashPreview").getContext("2d");
+  const previewData = previewCtx.createImageData(128, 64);
+  for (let y = 0; y < 64; y++) {
+    for (let byteX = 0; byteX < 16; byteX++) {
+      let packed = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const x = byteX * 8 + bit;
+        const idx = (y * 128 + x) * 4;
+        const lum = 0.299 * splashImageData.data[idx] + 0.587 * splashImageData.data[idx + 1] + 0.114 * splashImageData.data[idx + 2];
+        let on = lum < 128 ? 1 : 0; // dark source pixel -> lit ("on") pixel on the OLED
+        if (invert) on = on ? 0 : 1;
+        packed = (packed << 1) | on;
+        const v = on ? 255 : 0;
+        previewData.data[idx] = v;
+        previewData.data[idx + 1] = v;
+        previewData.data[idx + 2] = v;
+        previewData.data[idx + 3] = 255;
+      }
+      bytes[y * 16 + byteX] = packed;
+    }
+  }
+  previewCtx.putImageData(previewData, 0, 0);
+  splashBytes = bytes;
+  el("splashStatus").textContent = "Converted - review the preview, then Upload to Device.";
+  updateSplashButtons();
+}
+
+el("openSplashFileBtn").addEventListener("click", () => el("splashFileInput").click());
+el("splashFileInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) {
+    el("splashStatus").textContent = "Couldn't decode that file as an image.";
+    splashBytes = null;
+    splashImageData = null;
+    el("invertSplashCheckbox").disabled = true;
+    updateSplashButtons();
+    return;
+  }
+  if (bitmap.width !== 128 || bitmap.height !== 64) {
+    el("splashStatus").textContent =
+      `Rejected: image is ${bitmap.width}x${bitmap.height}, must be exactly 128x64. Resize it and try again.`;
+    splashBytes = null;
+    splashImageData = null;
+    el("invertSplashCheckbox").disabled = true;
+    updateSplashButtons();
+    return;
+  }
+
+  const work = document.createElement("canvas");
+  work.width = 128;
+  work.height = 64;
+  const workCtx = work.getContext("2d");
+  workCtx.fillStyle = "#fff"; // flatten transparency onto white before thresholding
+  workCtx.fillRect(0, 0, 128, 64);
+  workCtx.drawImage(bitmap, 0, 0);
+  splashImageData = workCtx.getImageData(0, 0, 128, 64);
+  el("invertSplashCheckbox").disabled = false;
+  convertSplashImage();
+});
+
+el("invertSplashCheckbox").addEventListener("change", convertSplashImage);
+
+el("uploadSplashBtn").addEventListener("click", async () => {
+  if (!splashBytes) return;
+  log(`> LOAD_SPLASH  (${splashBytes.length} bytes)`);
+  try {
+    await sendLine("LOAD_SPLASH");
+    await writer.write(splashBytes);
+    log("Sent - takes effect on next boot.", "ok");
+  } catch (e) {
+    await disconnect(`Splash upload failed: ${e.message}`);
+  }
+});
+
+el("clearSplashBtn").addEventListener("click", async () => {
+  log("> CLEAR_SPLASH");
+  try {
+    await sendLine("CLEAR_SPLASH");
+    log("Sent - default splash restored on next boot.", "ok");
+  } catch (e) {
+    await disconnect(`Clear failed: ${e.message}`);
+  }
+});
+
+// Pulls just the RPM CSV block out of noisy input - the Log panel's own text (each device
+// line prefixed with "  (device) " by readLoop()'s log() call), a downloaded console-log-*.txt,
+// or a raw `pio device monitor` log file (banner lines at the top, no prefix). Finds the header
+// row RpmLogger::dumpIfReady() writes, then takes contiguous numeric rows after it; stops at the
+// first line that isn't a plain numeric row (reboot/log chatter after the dump ends the block).
+function extractRpmCsv(rawText) {
+  const lines = rawText.split(/\r?\n/).map((l) => l.replace(/^\s*\(device\)\s*/, "").trim());
+
+  const headerRe = /^(?:Motor \d+,TargetRPM \d+,Throttle \d+,value \d+,?)+$/;
+  const dataRowRe = /^[\d.\-,]+$/;
+
+  const headerIdx = lines.findIndex((l) => headerRe.test(l));
+  if (headerIdx === -1) return null;
+
+  const csvLines = [lines[headerIdx]];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    if (!dataRowRe.test(lines[i])) break;
+    csvLines.push(lines[i]);
+  }
+  return csvLines.length > 1 ? csvLines.join("\n") : null; // header with no data rows isn't useful
+}
+
+// Parses the CSV shape RpmLogger::dumpIfReady() writes (rpmLogger.h): a header row of
+// "Motor N,TargetRPM N,Throttle N,value N," repeated per enabled motor, then one data row per
+// captured control-loop tick in the same column order. The "value" column (PIDIntegral) is
+// read but not charted - only RPM/target/throttle were asked for.
+function parseRpmCsv(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+
+  const headerCells = lines[0].split(",").map((c) => c.trim()).filter(Boolean);
+  const motors = [];
+  for (let i = 0; i < headerCells.length; i += 4) {
+    const m = headerCells[i].match(/Motor (\d+)/);
+    if (!m) continue;
+    motors.push({ index: Number(m[1]), rpm: [], targetRpm: [], throttle: [] });
+  }
+  if (!motors.length) return [];
+
+  for (let r = 1; r < lines.length; r++) {
+    const cells = lines[r].split(",");
+    motors.forEach((motor, i) => {
+      const col = i * 4;
+      const rpm = Number(cells[col]);
+      const target = Number(cells[col + 1]);
+      const throttle = Number(cells[col + 2]);
+      if (Number.isFinite(rpm)) motor.rpm.push(rpm);
+      if (Number.isFinite(target)) motor.targetRpm.push(target);
+      if (Number.isFinite(throttle)) motor.throttle.push(throttle);
+    });
+  }
+  return motors;
+}
+
+// One combined line chart: `series` is [{name, color, dashed, dotted, values}]. Single shared
+// y-axis for everything passed in - if series mix RPM (tens of thousands) with throttle (a
+// couple thousand at most), the smaller one will look flat next to the larger one; that's a
+// real readability cost of sharing one axis, not a rendering bug. Hover still gives exact
+// values regardless of how small the line looks.
+function renderChart(title, series, opts = {}) {
+  const width = opts.width || 320;
+  const height = opts.height || 140;
+  const padding = { top: 10, right: 10, bottom: 8, left: 42 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const allValues = series.flatMap((s) => s.values).filter(Number.isFinite);
+  const n = Math.max(1, ...series.map((s) => s.values.length));
+  const minV = Math.min(0, ...(allValues.length ? allValues : [0]));
+  const maxV = Math.max(1, ...(allValues.length ? allValues : [1]));
+  const range = maxV - minV || 1;
+  const yScale = (v) => padding.top + plotH - ((v - minV) / range) * plotH;
+  const xScale = (i) => padding.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+
+  const box = document.createElement("div");
+  box.className = "chart-box";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "chart-title";
+  titleEl.textContent = title;
+  box.appendChild(titleEl);
+
+  if (series.length > 1) {
+    const legend = document.createElement("div");
+    legend.className = "chart-legend";
+    series.forEach((s) => {
+      const item = document.createElement("span");
+      const sw = document.createElement("span");
+      sw.className = "swatch";
+      sw.style.borderTopColor = s.color;
+      sw.style.borderTopStyle = s.dashed ? "dashed" : s.dotted ? "dotted" : "solid";
+      item.appendChild(sw);
+      item.appendChild(document.createTextNode(s.name));
+      legend.appendChild(item);
+    });
+    box.appendChild(legend);
+  }
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", "100%");
+  svg.style.display = "block";
+
+  for (let g = 0; g <= 2; g++) {
+    const v = minV + (range * g) / 2;
+    const y = yScale(v);
+    const gridLine = document.createElementNS(svgNS, "line");
+    gridLine.setAttribute("x1", padding.left);
+    gridLine.setAttribute("x2", width - padding.right);
+    gridLine.setAttribute("y1", y);
+    gridLine.setAttribute("y2", y);
+    gridLine.setAttribute("stroke", "var(--grid)");
+    svg.appendChild(gridLine);
+
+    const label = document.createElementNS(svgNS, "text");
+    label.setAttribute("x", padding.left - 6);
+    label.setAttribute("y", y + 3);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("font-size", "9");
+    label.setAttribute("fill", "var(--muted)");
+    label.textContent = Math.round(v);
+    svg.appendChild(label);
+  }
+
+  series.forEach((s) => {
+    if (!s.values.length) return;
+    const d = s.values
+      .map((v, i) => `${i === 0 ? "M" : "L"} ${xScale(i).toFixed(1)} ${yScale(v).toFixed(1)}`)
+      .join(" ");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", s.color);
+    path.setAttribute("stroke-width", opts.strokeWidth || "2");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    if (s.dashed) path.setAttribute("stroke-dasharray", "6,4");
+    else if (s.dotted) path.setAttribute("stroke-dasharray", "1.5,3");
+    svg.appendChild(path);
+  });
+
+  const crosshair = document.createElementNS(svgNS, "line");
+  crosshair.setAttribute("y1", padding.top);
+  crosshair.setAttribute("y2", padding.top + plotH);
+  crosshair.setAttribute("stroke", "var(--muted)");
+  crosshair.setAttribute("stroke-dasharray", "2,2");
+  crosshair.style.display = "none";
+  svg.appendChild(crosshair);
+
+  const overlay = document.createElementNS(svgNS, "rect");
+  overlay.setAttribute("x", padding.left);
+  overlay.setAttribute("y", padding.top);
+  overlay.setAttribute("width", plotW);
+  overlay.setAttribute("height", plotH);
+  overlay.setAttribute("fill", "transparent");
+  svg.appendChild(overlay);
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "chart-tooltip";
+  box.appendChild(tooltip);
+
+  overlay.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * width;
+    const i = Math.max(0, Math.min(n - 1, Math.round(((relX - padding.left) / plotW) * (n - 1))));
+    crosshair.setAttribute("x1", xScale(i));
+    crosshair.setAttribute("x2", xScale(i));
+    crosshair.style.display = "block";
+    tooltip.innerHTML = `#${i}<br>${series.map((s) => `${s.name}: ${s.values[i] ?? "-"}`).join("<br>")}`;
+    tooltip.style.display = "block";
+    tooltip.style.left = `${Math.min(70, Math.max(0, (relX / width) * 100))}%`;
+  });
+  overlay.addEventListener("mouseleave", () => {
+    crosshair.style.display = "none";
+    tooltip.style.display = "none";
+  });
+
+  box.appendChild(svg);
+  return box;
+}
+
+// Finds the earliest index after which `values` holds essentially flat - a window of
+// windowSize consecutive samples whose range (max-min) is within jitterPct of the window's
+// mean. Returns values.length (no cut) if the series never settles for that long. Used to trim
+// the long idle/hold tail RpmLogger's fixed-length capture carries after the interesting
+// transient (accel ramp, firing) is over, so that part isn't squashed by a boring flat tail.
+function findFlatlineCutoff(values, windowSize, jitterPct) {
+  if (values.length <= windowSize) return values.length;
+  for (let i = 0; i <= values.length - windowSize; i++) {
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    for (let j = i; j < i + windowSize; j++) {
+      const v = values[j];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const ref = Math.abs(sum / windowSize) || 1;
+    if ((max - min) / ref <= jitterPct) return i + windowSize;
+  }
+  return values.length;
+}
+
+function chartRpmLog() {
+  const text = rpmBox.value.trim();
+  if (!text) {
+    log("RPM box is empty - nothing to chart.", "err");
+    return;
+  }
+  const motors = parseRpmCsv(text);
+  if (!motors.length) {
+    log("Couldn't find any 'Motor N' header columns in the RPM box - check the CSV format.", "err");
+    return;
+  }
+
+  // trim the trailing flatline: once every motor's actual RPM has held within 3% jitter for
+  // 200 consecutive rows, cut there - require ALL motors settled (the later of their individual
+  // cutoffs), not just one, so an active motor's tail is never chopped off
+  const originalLength = motors[0].rpm.length;
+  const cutoff = Math.max(...motors.map((m) => findFlatlineCutoff(m.rpm, 200, 0.03)));
+  if (cutoff < originalLength) {
+    motors.forEach((m) => {
+      m.rpm = m.rpm.slice(0, cutoff);
+      m.targetRpm = m.targetRpm.slice(0, cutoff);
+      m.throttle = m.throttle.slice(0, cutoff);
+    });
+  }
+
+  // color by motor (entity), line style by measure - keeps hue count down to however many
+  // motors are actually enabled instead of one hue per CSV column
+  const colors = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)"];
+  const series = [];
+  motors.forEach((motor, i) => {
+    const color = colors[i % colors.length];
+    series.push({ name: `Motor ${motor.index} RPM`, color, values: motor.rpm });
+    series.push({ name: `Motor ${motor.index} Target`, color, dashed: true, values: motor.targetRpm });
+    series.push({ name: `Motor ${motor.index} Throttle`, color, dotted: true, values: motor.throttle });
+  });
+
+  const chartsEl = el("rpmCharts");
+  chartsEl.innerHTML = "";
+  chartsEl.appendChild(
+    renderChart("RPM & throttle - solid = actual RPM, dashed = target RPM, dotted = throttle", series, {
+      width: 1400,
+      height: 460,
+      strokeWidth: "1.25",
+    })
+  );
+  const trimNote = cutoff < originalLength
+    ? ` Trimmed the flat tail: ${originalLength - cutoff} of ${originalLength} rows dropped after RPM held within 3% for 200 rows.`
+    : "";
+  log(
+    `Charted ${motors.length} motor(s) in one view, ${motors[0].rpm.length} samples each.${trimNote} ` +
+      "Throttle shares the RPM axis, so it'll look small next to RPM - hover for exact values.",
+    "ok"
+  );
+}
+
+el("connectBtn").addEventListener("click", connect);
+el("disconnectBtn").addEventListener("click", () => disconnect("Disconnected."));
+el("dumpProfileBtn").addEventListener("click", () => dump("PROFILE"));
+el("loadProfileBtn").addEventListener("click", () => loadFromBox("PROFILE"));
+el("dumpDeviceBtn").addEventListener("click", () => dump("DEVICE"));
+el("loadDeviceBtn").addEventListener("click", () => loadFromBox("DEVICE"));
+
+el("clearBtn").addEventListener("click", () => { jsonBox.value = ""; });
+el("clearLogBtn").addEventListener("click", () => { logBox.innerHTML = ""; });
+
+el("openFileBtn").addEventListener("click", () => el("fileInput").click());
+el("fileInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  jsonBox.value = await file.text();
+  e.target.value = "";
+});
+
+el("saveFileBtn").addEventListener("click", () => downloadBlob(jsonBox.value, "config.json", "application/json"));
+
+el("captureLogBtn").addEventListener("click", () => {
+  const text = Array.from(logBox.children).map((c) => c.textContent).join("\n");
+  const cleaned = extractRpmCsv(text);
+  if (!cleaned) {
+    log("Couldn't find an RPM CSV block in the current Log panel.", "err");
+    return;
+  }
+  rpmBox.value = cleaned;
+  log(`Captured RPM CSV from the Log panel (${cleaned.split("\n").length - 1} data rows).`, "ok");
+});
+
+el("openRpmFileBtn").addEventListener("click", () => el("rpmFileInput").click());
+el("rpmFileInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const cleaned = extractRpmCsv(text);
+  if (cleaned) {
+    rpmBox.value = cleaned;
+    log(`Extracted RPM CSV from ${file.name} (${cleaned.split("\n").length - 1} data rows).`, "ok");
+  } else {
+    rpmBox.value = text.trim();
+    log(`Couldn't find an RPM CSV block in ${file.name} - loaded the raw file as-is; you may need to trim it manually.`, "err");
+  }
+  e.target.value = "";
+});
+el("saveRpmFileBtn").addEventListener("click", () => downloadBlob(rpmBox.value, "rpm_log.csv", "text/csv"));
+el("clearRpmBtn").addEventListener("click", () => { rpmBox.value = ""; el("rpmCharts").innerHTML = ""; });
+el("chartRpmBtn").addEventListener("click", () => chartRpmLog());
+
+el("downloadLogBtn").addEventListener("click", () => {
+  const text = Array.from(logBox.children).map((c) => c.textContent).join("\n");
+  downloadBlob(text, `console-log-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`, "text/plain");
+});
+
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach((p) => { p.hidden = true; });
+    btn.classList.add("active");
+    el(`tab-${btn.dataset.tab}`).hidden = false;
+  });
+});
+
+if (!("serial" in navigator)) {
+  log("Web Serial API not available in this browser - use Chrome or Edge.", "err");
+}
+</script>
+</body>
+</html>
