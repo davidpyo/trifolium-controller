@@ -24,6 +24,15 @@ class DefaultModeItem : public MenuItem
             next = 2;
         *value_ = (uint8_t)next;
     }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        int next = (int)*value_ + direction;
+        if (next < 0)
+            next = 2;
+        if (next > 2)
+            next = 0;
+        *value_ = (uint8_t)next;
+    }
     void cancelEdit() override { *value_ = entryValue_; }
 
     uint8_t optionCount() const override { return 3; }

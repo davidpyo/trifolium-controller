@@ -36,6 +36,8 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["menuButtonNormallyClosed"] = settings.menuButtonNormallyClosed;
     doc["pusherReverseDirection"] = settings.pusherReverseDirection;
 
+    doc["dualStageTrigger"] = settings.dualStageTrigger;
+
     doc["pusherType"] = (int)settings.pusherType;
 
     doc["debounceTime_ms"] = settings.debounceTime_ms;
@@ -85,6 +87,8 @@ void fromJson(JsonDocument& doc, DeviceSettings& out)
     out.idleSwitchNormallyClosed = doc["idleSwitchNormallyClosed"] | out.idleSwitchNormallyClosed;
     out.menuButtonNormallyClosed = doc["menuButtonNormallyClosed"] | out.menuButtonNormallyClosed;
     out.pusherReverseDirection = doc["pusherReverseDirection"] | out.pusherReverseDirection;
+
+    out.dualStageTrigger = doc["dualStageTrigger"] | out.dualStageTrigger;
 
     out.pusherType = (pusherType_t)(doc["pusherType"] | (int)out.pusherType);
 

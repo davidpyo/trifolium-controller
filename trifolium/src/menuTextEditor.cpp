@@ -63,22 +63,35 @@ bool runTextEditor(const char* title, String& value)
 
         // Reading only .isPressed() avoids racing core 0's own .update() calls for the same edge.
         bool triggerIsPressed = pinDefined(triggerSwitchPin) && triggerSwitch.isPressed();
-        bool revIsPressed = pinDefined(revSwitchPin) && revSwitch.isPressed();
+        bool revIsPressed = revNavPressed();
         bool triggerFire = triggerRepeat.poll(triggerIsPressed);
         bool revFire = revRepeat.poll(revIsPressed);
 
         if (!inSaveCancel)
         {
             int8_t idx = textEditCharIndex(buf[cursor]);
-            if (triggerFire && idx < (int8_t)(textEditCharsetLen - 1))
-                buf[cursor] = textEditCharset[idx + 1];
+            if (triggerFire)
+            {
+                if (revUsableForNav())
+                {
+                    if (idx < (int8_t)(textEditCharsetLen - 1))
+                        buf[cursor] = textEditCharset[idx + 1];
+                }
+                else
+                {
+                    buf[cursor] = textEditCharset[(idx + 1) % textEditCharsetLen];
+                }
+            }
             if (revFire && idx > 0)
                 buf[cursor] = textEditCharset[idx - 1];
         }
         else
         {
             if (triggerFire)
-                saveCancelSelection = (saveCancelSelection + 2) % 3; // -1 mod 3 (up)
+            {
+                uint8_t triggerStep = soloTriggerListDir() < 0 ? 2 : 1;
+                saveCancelSelection = (saveCancelSelection + triggerStep) % 3;
+            }
             if (revFire)
                 saveCancelSelection = (saveCancelSelection + 1) % 3; // down
         }

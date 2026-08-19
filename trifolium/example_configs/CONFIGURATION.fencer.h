@@ -108,6 +108,8 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .menuButtonNormallyClosed = false,
     .pusherReverseDirection = false,
 
+    .dualStageTrigger = true,
+
     .pusherType = PUSHER_SOLENOID_OPENLOOP,
 
     .debounceTime_ms = 100,

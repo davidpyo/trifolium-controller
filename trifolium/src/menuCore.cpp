@@ -279,7 +279,7 @@ void runMenu()
     bool rebootPending = false;
 
     bool triggerWasPressed = triggerSwitch.isPressed();
-    bool revWasPressed = revSwitch.isPressed();
+    bool revWasPressed = revNavPressed();
     HeldRepeat triggerRepeat;
     HeldRepeat revRepeat;
 
@@ -294,7 +294,7 @@ void runMenu()
         menuButton.update();
 
         bool triggerIsPressed = pinDefined(triggerSwitchPin) && triggerSwitch.isPressed();
-        bool revIsPressed = pinDefined(revSwitchPin) && revSwitch.isPressed();
+        bool revIsPressed = revNavPressed();
         bool triggerEdge = triggerIsPressed && !triggerWasPressed;
         bool revEdge = revIsPressed && !revWasPressed;
         triggerWasPressed = triggerIsPressed;
@@ -315,7 +315,17 @@ void runMenu()
             int8_t triggerDir = isOptionsList ? -1 : +1;
             int8_t revDir = isOptionsList ? +1 : -1;
             if (triggerRepeat.poll(triggerIsPressed))
-                editingItem->adjustValue(triggerDir);
+            {
+                if (revUsableForNav())
+                {
+                    editingItem->adjustValue(triggerDir);
+                }
+                else
+                {
+                    int8_t soloDir = isOptionsList ? +1 : triggerDir;
+                    editingItem->adjustValueWrapping(soloDir);
+                }
+            }
             if (revRepeat.poll(revIsPressed))
                 editingItem->adjustValue(revDir);
 
@@ -335,9 +345,8 @@ void runMenu()
         {
             MenuLevel& level = menuStack[menuDepth - 1];
 
-            // rev moves down the list, trigger moves up
             if (triggerEdge)
-                moveSelection(level, -1);
+                moveSelection(level, soloTriggerListDir());
             if (revEdge)
                 moveSelection(level, +1);
 

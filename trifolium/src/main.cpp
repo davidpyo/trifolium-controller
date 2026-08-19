@@ -353,8 +353,11 @@ void setup()
             return digitalRead(pin) == pressedLevel;
         };
 
+        bool revBootHold =
+            !deviceSettings.dualStageTrigger &&
+            heldAtBoot(deviceSettings.revSwitchPin, deviceSettings.revSwitchNormallyClosed);
         if (heldAtBoot(deviceSettings.menuButtonPin, deviceSettings.menuButtonNormallyClosed) ||
-            heldAtBoot(deviceSettings.revSwitchPin, deviceSettings.revSwitchNormallyClosed))
+            revBootHold)
         {
             rp2040.rebootToBootloader();
         }

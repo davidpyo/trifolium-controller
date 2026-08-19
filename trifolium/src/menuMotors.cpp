@@ -154,7 +154,7 @@ static void testBeepsFired()
     uint8_t beaconIndex = 1; // 1-5
     unsigned long lastBeaconBurst = 0;
     bool triggerWasPressed = triggerSwitch.isPressed();
-    bool revWasPressed = revSwitch.isPressed();
+    bool revWasPressed = revNavPressed();
     DismissDetector dismiss;
     while (true)
     {
@@ -162,14 +162,19 @@ static void testBeepsFired()
         menuButton.update();
 
         bool triggerIsPressed = pinDefined(triggerSwitchPin) && triggerSwitch.isPressed();
-        bool revIsPressed = pinDefined(revSwitchPin) && revSwitch.isPressed();
+        bool revIsPressed = revNavPressed();
         bool triggerEdge = triggerIsPressed && !triggerWasPressed;
         bool revEdge = revIsPressed && !revWasPressed;
         triggerWasPressed = triggerIsPressed;
         revWasPressed = revIsPressed;
 
-        if (triggerEdge && beaconIndex > 1)
-            beaconIndex--;
+        if (triggerEdge)
+        {
+            if (soloTriggerListDir() < 0 && beaconIndex > 1)
+                beaconIndex--;
+            else if (soloTriggerListDir() > 0 && beaconIndex < 5)
+                beaconIndex++;
+        }
         if (revEdge && beaconIndex < 5)
             beaconIndex++;
 

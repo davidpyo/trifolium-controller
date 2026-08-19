@@ -49,6 +49,21 @@ static const uint8_t ROW_HEIGHT = 10;
 // The single Menu button every blocking action handler across every domain file polls.
 extern Bounce2::Button menuButton;
 
+inline bool revUsableForNav()
+{
+    return pinDefined(revSwitchPin) && !deviceSettings.dualStageTrigger;
+}
+
+inline bool revNavPressed()
+{
+    return revUsableForNav() && revSwitch.isPressed();
+}
+
+inline int8_t soloTriggerListDir()
+{
+    return revUsableForNav() ? -1 : +1;
+}
+
 // Detects a dismiss gesture on menuButton (short press-and-release, or a long press-and-hold past
 // deviceSettings.menuButtonHoldTime_ms), pollable instead of blocking. A short press only reports
 // true once the release has actually happened, not on press-down - otherwise runMenu()'s outer
@@ -147,6 +162,10 @@ class ShortcutItem : public MenuItem
     uint8_t childCount() const override { return resolver_()->childCount(); }
     void beginEdit() override { resolver_()->beginEdit(); }
     void adjustValue(int8_t direction) override { resolver_()->adjustValue(direction); }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        resolver_()->adjustValueWrapping(direction);
+    }
     void cancelEdit() override { resolver_()->cancelEdit(); }
     uint8_t optionCount() const override { return resolver_()->optionCount(); }
     String optionLabel(uint8_t index) const override { return resolver_()->optionLabel(index); }
@@ -176,6 +195,7 @@ class ConditionalLockItem : public MenuItem
     MenuActivation activate() override { return target_->activate(); }
     void beginEdit() override { target_->beginEdit(); }
     void adjustValue(int8_t direction) override { target_->adjustValue(direction); }
+    void adjustValueWrapping(int8_t direction) override { target_->adjustValueWrapping(direction); }
     void cancelEdit() override { target_->cancelEdit(); }
     uint8_t optionCount() const override { return target_->optionCount(); }
     String optionLabel(uint8_t index) const override { return target_->optionLabel(index); }
@@ -209,6 +229,15 @@ class RpmTargetItem : public MenuItem
             next = (int64_t)deviceSettings.maxRpmCap;
         if (next < 0)
             next = 0;
+        *value_ = (int32_t)next;
+    }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
+        if (next > (int64_t)deviceSettings.maxRpmCap)
+            next = 0;
+        if (next < 0)
+            next = (int64_t)deviceSettings.maxRpmCap;
         *value_ = (int32_t)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }
@@ -257,6 +286,16 @@ class TargetDpsItem : public MenuItem
             next = 1.0f;
         float hardwareMax = floorf(achievedDPS());
         if (next > hardwareMax)
+            next = hardwareMax;
+        activeProfile.targetDPS = next;
+    }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        float hardwareMax = floorf(achievedDPS());
+        float next = roundf(activeProfile.targetDPS) + direction * 1.0f;
+        if (next > hardwareMax)
+            next = 1.0f;
+        if (next < 1.0f)
             next = hardwareMax;
         activeProfile.targetDPS = next;
     }

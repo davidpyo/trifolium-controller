@@ -146,6 +146,16 @@ class BrightnessItem : public MenuItem
         *value_ = (uint8_t)next;
         setDisplayContrast(*value_);
     }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        int next = (int)*value_ + direction * 5;
+        if (next > 255)
+            next = 5;
+        if (next < 5)
+            next = 255;
+        *value_ = (uint8_t)next;
+        setDisplayContrast(*value_);
+    }
     void cancelEdit() override
     {
         *value_ = entryValue_;
@@ -214,6 +224,8 @@ static SubmenuItem pusherSubmenu("Pusher", pusherMenuItems, 3);
 
 static NumericItem<uint16_t> debounceTimeItem("Switch Debounce (ms)",
                                               &deviceSettings.debounceTime_ms, 1, 200, 1);
+
+static ToggleItem dualStageTriggerItem("Dual Stage Trigger", &deviceSettings.dualStageTrigger);
 static NumericItem<uint32_t>
     menuHoldTimeItem("Menu Hold Time (ms)", &deviceSettings.menuButtonHoldTime_ms, 200, 5000, 100);
 static NumericItem<int> voltageAvgWindowItem("Volt Avg Window",
@@ -241,11 +253,11 @@ static MenuItem* resetDeviceItems[] = {&resetDeviceConfirmItem};
 static SubmenuItem resetDeviceSubmenu("Factory Reset Device", resetDeviceItems, 1);
 
 static MenuItem* deviceItems[] = {
-    &rebootSubmenu,        &displaySubmenu,     &pusherSubmenu,
-    &blasterNameItem,      &debounceTimeItem,   &menuHoldTimeItem,
-    &voltageAvgWindowItem, &rpmShotCounterItem, &goodRpmReadsItem,
-    &rpmDropThresholdItem, &maxRpmCapItem,      &ledWarningModeLockItem,
-    &resetDeviceSubmenu,   &aboutItem,
+    &rebootSubmenu,          &displaySubmenu,       &pusherSubmenu,
+    &blasterNameItem,        &debounceTimeItem,     &dualStageTriggerItem,
+    &menuHoldTimeItem,       &voltageAvgWindowItem, &rpmShotCounterItem,
+    &goodRpmReadsItem,       &rpmDropThresholdItem, &maxRpmCapItem,
+    &ledWarningModeLockItem, &resetDeviceSubmenu,   &aboutItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem deviceSubmenu("Device", deviceItems, 14);
+SubmenuItem deviceSubmenu("Device", deviceItems, 15);

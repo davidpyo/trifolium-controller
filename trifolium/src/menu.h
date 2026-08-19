@@ -52,7 +52,10 @@ class MenuItem
     // Edit-mode lifecycle, only meaningful for items that return EnterEdit above.
     virtual void beginEdit() {}                   // snapshot for cancel-revert
     virtual void adjustValue(int8_t direction) {} // trigger/rev while editing
-    virtual void cancelEdit() {}                  // long-press: revert to snapshot
+
+    virtual void adjustValueWrapping(int8_t direction) { adjustValue(direction); }
+
+    virtual void cancelEdit() {} // long-press: revert to snapshot
 
     // Text size for the big centered value on the edit screen - smaller than the default 3 for
     // items whose valueText() can grow a suffix (e.g. TargetDpsItem's "(max)").
@@ -161,6 +164,15 @@ template <typename T> class NumericItem : public MenuItem
             next = (int64_t)min_;
         *value_ = (T)next;
     }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
+        if (next > (int64_t)max_)
+            next = (int64_t)min_;
+        if (next < (int64_t)min_)
+            next = (int64_t)max_;
+        *value_ = (T)next;
+    }
     void cancelEdit() override { *value_ = entryValue_; }
 
   private:
@@ -194,6 +206,15 @@ class FloatItem : public MenuItem
             next = min_;
         *value_ = next;
     }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        float next = *value_ + direction * step_;
+        if (next > max_)
+            next = min_;
+        if (next < min_)
+            next = max_;
+        *value_ = next;
+    }
     void cancelEdit() override { *value_ = entryValue_; }
 
   private:
@@ -225,6 +246,15 @@ template <typename E> class EnumItem : public MenuItem
             next = 0;
         if (next >= (int)count_)
             next = (int)count_ - 1;
+        *value_ = (E)next;
+    }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        int next = (int)*value_ + direction;
+        if (next < 0)
+            next = (int)count_ - 1;
+        if (next >= (int)count_)
+            next = 0;
         *value_ = (E)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }

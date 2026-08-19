@@ -24,6 +24,8 @@ struct DeviceSettings
     bool menuButtonNormallyClosed;
     bool pusherReverseDirection;
 
+    bool dualStageTrigger;
+
     pusherType_t pusherType;
 
     uint16_t debounceTime_ms;
