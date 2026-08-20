@@ -11,7 +11,6 @@ void applyEmaFilterConstant();
 void applyFiringRpmThresholds();
 void applySolenoidTimingCurve();
 void applyDebounceInterval();
-void applyStageRatios(); // not reboot-elimination like the others - see its call site below
 void applyPrintTelemetry();
 
 Bounce2::Button menuButton = Bounce2::Button();
@@ -426,8 +425,6 @@ void runMenu()
 
         delay(10);
     }
-
-    applyStageRatios(); // recompute Ratio-mode profiles' derived RPMs before saving
 
     // Simpler to save unconditionally on every menu close than track a dirty flag.
     ProfileStore::saveProfile(activeProfileIndex, activeProfile);

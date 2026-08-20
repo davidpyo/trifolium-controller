@@ -94,11 +94,7 @@ void toJson(const RuntimeSettings& settings, JsonDocument& doc)
     JsonArray motorStage = doc["motorStage"].to<JsonArray>();
     for (int i = 0; i < 4; i++)
         motorStage.add((int)settings.motorStage[i]);
-    JsonArray rpmMode = doc["rpmMode"].to<JsonArray>();
-    for (int mode = 0; mode < 3; mode++)
-        rpmMode.add((int)settings.rpmMode[mode]);
-    writeArray(doc, "stageRatioPercent", settings.stageRatioPercent, 3);
-    writeArray(doc, "stage2Rpm", settings.stage2Rpm, 3);
+    doc["rpmMode"] = (int)settings.rpmMode;
 
     doc["flywheelControl"] = (int)settings.flywheelControl;
     doc["firingRPMTolerance"] = settings.firingRPMTolerance;
@@ -169,14 +165,7 @@ void fromJson(JsonDocument& doc, RuntimeSettings& out)
         for (int i = 0; i < 4 && i < (int)motorStage.size(); i++)
             out.motorStage[i] = (motorStage_t)(motorStage[i] | (int)out.motorStage[i]);
     }
-    JsonArrayConst rpmMode = doc["rpmMode"];
-    if (!rpmMode.isNull())
-    {
-        for (int mode = 0; mode < 3 && mode < (int)rpmMode.size(); mode++)
-            out.rpmMode[mode] = (rpmModeType_t)(rpmMode[mode] | (int)out.rpmMode[mode]);
-    }
-    readArray(doc, "stageRatioPercent", out.stageRatioPercent, 3);
-    readArray(doc, "stage2Rpm", out.stage2Rpm, 3);
+    out.rpmMode = (rpmModeType_t)(doc["rpmMode"] | (int)out.rpmMode);
 
     out.flywheelControl =
         (flywheelControlType_t)(doc["flywheelControl"] | (int)out.flywheelControl);

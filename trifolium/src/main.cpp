@@ -169,7 +169,6 @@ void applyEmaFilterConstant();
 void applyFiringRpmThresholds();
 void applySolenoidTimingCurve();
 void applyDebounceInterval();
-void applyStageRatios();
 void applyPrintTelemetry();
 uint32_t computePusherDwellPadding_ms();
 
@@ -294,28 +293,6 @@ void applyDebounceInterval()
 void applyPrintTelemetry()
 {
     printTelemetry = deviceSettings.printTelemetry;
-}
-
-// For any RPM profile in Ratio mode, sets every Stage 2 motor's revRPMset entry to stage2Rpm, and
-// every Stage 1 motor's entry to stage2Rpm x stageRatioPercent / 100. Custom-mode profiles
-// untouched.
-void applyStageRatios()
-{
-    for (int p = 0; p < 3; p++)
-    {
-        if (activeProfile.rpmMode[p] != RPM_RATIO)
-            continue;
-
-        int32_t stage2Rpm = activeProfile.stage2Rpm[p];
-        int32_t stage1Rpm = (stage2Rpm * activeProfile.stageRatioPercent[p]) / 100;
-        for (int i = 0; i < 4; i++)
-        {
-            if (!activeProfile.motors[i])
-                continue;
-            activeProfile.revRPMset[p][i] =
-                (activeProfile.motorStage[i] == STAGE_2) ? stage2Rpm : stage1Rpm;
-        }
-    }
 }
 
 void setup()
@@ -551,7 +528,6 @@ void setup()
     fpsMode = firingMode;
     firingMode = 0;
     logger.info("fpsMode: ", fpsMode);
-    applyStageRatios(); // enforce Ratio-mode profiles' derived RPMs before reading revRPMset below
     for (int i = 0; i < 4; i++)
     {
         if (activeProfile.motors[i])

@@ -12,15 +12,16 @@ struct RuntimeSettings
     uint32_t dwellTimeSet_ms[3];
     uint32_t idleTimeSet_ms[3];
     uint32_t spindownSpeed;
-    int32_t idleRPM[4];
+    int32_t idleRPM[4];           // one per motor - shared across all 3 RPM profiles
     uint32_t revSafetyTimeout_ms; // max time held revved with no shot fired before auto-idling; 0
                                   // disables
 
     // Which flywheel stage each motor belongs to - shared across all 3 RPM profiles.
     motorStage_t motorStage[4];
-    rpmModeType_t rpmMode[3];
-    uint16_t stageRatioPercent[3];
-    int32_t stage2Rpm[3];
+
+    // Gates whether Idle RPM / RPM profiles are edited per-motor or per-stage in the menu -
+    // storage (idleRPM/revRPMset) is identical either way, this only picks which editor is shown.
+    rpmModeType_t rpmMode;
 
     // Closed loop
     flywheelControlType_t flywheelControl;

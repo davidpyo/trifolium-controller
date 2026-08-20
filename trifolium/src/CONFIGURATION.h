@@ -46,9 +46,7 @@ inline const RuntimeSettings kDefaultProfile = {
     .revSafetyTimeout_ms = 300000, // 5 minutes
 
     .motorStage = {STAGE_1, STAGE_1, STAGE_1, STAGE_1},
-    .rpmMode = {RPM_CUSTOM, RPM_CUSTOM, RPM_CUSTOM},
-    .stageRatioPercent = {100, 100, 100},
-    .stage2Rpm = {35000, 35000, 35000},
+    .rpmMode = RPM_STAGE,
 
     .flywheelControl = PID_CONTROL,
     .firingRPMTolerance = 500,

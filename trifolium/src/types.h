@@ -67,10 +67,12 @@ enum motorStage_t
     STAGE_2, // final acceleration stage, typically higher RPM - not every blaster has one
 };
 
+// Whether RPM (Idle + all 3 RPM profiles) is edited per-motor or per-stage in the menu - a UI
+// convenience gate only; storage is always the same per-motor arrays either way.
 enum rpmModeType_t
 {
-    RPM_CUSTOM, // each motor's RPM is set directly, as it always has been
-    RPM_RATIO,  // Stage 1 motors are derived from Stage 2's RPM x a ratio percentage instead
+    RPM_CUSTOM,
+    RPM_STAGE,
 };
 
 // Home screen layout - see DisplayManager::renderTelemetry().
