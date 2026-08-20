@@ -13,11 +13,6 @@ void FlywheelMotor::sendThrottle(int32_t value)
     esc->sendThrottle(value);
 }
 
-void FlywheelMotor::sendBeacon(uint8_t beaconIndex)
-{
-    esc->sendRaw11Bit(DSHOT_CMD_BEACON1 + (beaconIndex - 1));
-}
-
 void FlywheelMotor::resetControl(flywheelControlType_t mode)
 {
     switch (mode)

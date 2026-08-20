@@ -135,93 +135,9 @@ static void escDashboardFired()
 }
 static ActionItem escDashboardItem("ESC Dashboard", escDashboardFired);
 
-static const unsigned long BEACON_REPEAT_MS = 1200; // how often to re-trigger the current beacon
-static const int BEACON_BURST_COUNT = 10;           // consecutive frames per trigger, not just one
-
-static void testBeepsFired()
-{
-    directMotorControlActive = true;
-
-    unsigned long settleStart = millis();
-    while (millis() - settleStart < 500)
-    {
-        for (int i = 0; i < 4; i++)
-            if (activeProfile.motors[i])
-                motorArr[i].sendThrottle(0);
-        delay(2);
-    }
-
-    uint8_t beaconIndex = 1; // 1-5
-    unsigned long lastBeaconBurst = 0;
-    bool triggerWasPressed = triggerSwitch.isPressed();
-    bool revWasPressed = revNavPressed();
-    DismissDetector dismiss;
-    while (true)
-    {
-        handleSerialCommands();
-        menuButton.update();
-
-        bool triggerIsPressed = pinDefined(triggerSwitchPin) && triggerSwitch.isPressed();
-        bool revIsPressed = revNavPressed();
-        bool triggerEdge = triggerIsPressed && !triggerWasPressed;
-        bool revEdge = revIsPressed && !revWasPressed;
-        triggerWasPressed = triggerIsPressed;
-        revWasPressed = revIsPressed;
-
-        if (triggerEdge)
-        {
-            if (soloTriggerListDir() < 0 && beaconIndex > 1)
-                beaconIndex--;
-            else if (soloTriggerListDir() > 0 && beaconIndex < 5)
-                beaconIndex++;
-        }
-        if (revEdge && beaconIndex < 5)
-            beaconIndex++;
-
-        display.clearDisplay();
-        display.setTextSize(2);
-        display.setCursor(0, 20);
-        display.print("Beacon " + String(beaconIndex));
-        display.setTextSize(1);
-        display.setCursor(0, 56);
-        display.print("trig/rev=select  menu=back");
-        display.display();
-
-        if (millis() - lastBeaconBurst > BEACON_REPEAT_MS)
-        {
-            for (int rep = 0; rep < BEACON_BURST_COUNT; rep++)
-            {
-                for (int i = 0; i < 4; i++)
-                    if (activeProfile.motors[i])
-                        motorArr[i].sendBeacon(beaconIndex);
-                delay(2);
-            }
-            lastBeaconBurst = millis();
-        }
-        else
-        {
-            for (int i = 0; i < 4; i++)
-                if (activeProfile.motors[i])
-                    motorArr[i].sendThrottle(0);
-        }
-
-        if (dismiss.poll())
-            break;
-
-        delay(2);
-    }
-
-    for (int i = 0; i < 4; i++)
-        if (activeProfile.motors[i])
-            motorArr[i].sendThrottle(0);
-    directMotorControlActive = false;
-}
-static ActionItem testBeepsItem("Test Beeps", testBeepsFired);
-
 static MenuItem* motorsPidItems[] = {
     &motor0Submenu,  &motor1Submenu,   &motor2Submenu,   &motor3Submenu,    &emaFilterItem,
     &iThresholdItem, &throttleCapItem, &autoTunePidItem, &escDashboardItem,
-    // &testBeepsItem, // disabled - dev-only test, re-enable manually when needed
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
 SubmenuItem motorsPidSubmenu("Motors & PID", motorsPidItems, 9);

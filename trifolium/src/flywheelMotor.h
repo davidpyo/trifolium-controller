@@ -46,7 +46,6 @@ class FlywheelMotor
     void updateOpenLoop(int32_t batteryVoltage_mv, int32_t maxThrottle);
     void resetControl(flywheelControlType_t mode);
     void sendThrottle(int32_t value);
-    void sendBeacon(uint8_t beaconIndex); // 1-5, maps to DSHOT_CMD_BEACON1-5
 
     // EMA-filters current RPM into motorRPM without touching PIDOutput/throttle - extracted from
     // updatePID() so other code can poll live RPM while driving throttle directly.
