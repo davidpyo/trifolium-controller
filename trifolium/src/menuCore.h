@@ -3,8 +3,8 @@
 #include "types.h"
 #include "../lib/Bounce2/src/Bounce2.h"
 #include <Adafruit_SSD1306.h>
-#include <cmath> // floorf()/roundf() - TargetDpsItem's integer-only display/step
-#include "runtimeSettings.h"
+#include <cmath>
+#include "shotProfile.h"
 #include "deviceSettings.h"
 #include "batteryMonitor.h"
 #include "displayManager.h"
@@ -24,10 +24,9 @@ extern Adafruit_SSD1306 display;
 extern Bounce2::Button triggerSwitch;
 extern Bounce2::Button revSwitch;
 
-extern RuntimeSettings activeProfile;
+extern ShotProfile activeProfile;
 extern DeviceSettings deviceSettings;
-extern uint8_t activeProfileIndex;           // which slot activeProfile came from
-extern int8_t fpsMode;                       // which RPM Profile (1-3) was locked in at boot
+extern uint8_t activeProfileIndex;           // which of the 3 named profiles activeProfile came from
 extern int8_t firingMode;                    // which Firing Mode (1-3) is live-selected right now
 extern float solenoidVoltageTimeSlope;       // applySolenoidTimingCurve()'s output
 extern int16_t solenoidVoltageTimeIntercept; // ditto
@@ -248,22 +247,15 @@ class RpmTargetItem : public MenuItem
     int32_t entryValue_ = 0;
 };
 
-// Target DPS / Auto Timing: an alternative front-end onto the same voltage-compensated
-// extend/retract cycle the 5 manual solenoid fields drive - editable while Auto Timing is on,
-// read-only computed display while it's off. Defined here (not menuSolenoid.cpp) because the
-// root-level Target DPS shortcut (menu.cpp) needs the concrete type to take its address.
 class TargetDpsItem : public MenuItem
 {
   public:
-    explicit TargetDpsItem(const char* label) : MenuItem(label) {}
+    TargetDpsItem(const char* label, float* value) : MenuItem(label), value_(value) {}
 
-    // Whole numbers only - a fractional dart rate isn't meaningful to dial in by hand.
     String valueText() const override
     {
-        if (!activeProfile.autoTiming)
-            return String(achievedDPS(), 1); // achieved-DPS display, not a user-set target
         int hardwareMaxInt = (int)floorf(achievedDPS());
-        int value = (int)roundf(activeProfile.targetDPS);
+        int value = (int)roundf(*value_);
         String text = String(value);
         if (value >= hardwareMaxInt)
             text += " (max)";
@@ -272,47 +264,44 @@ class TargetDpsItem : public MenuItem
     // "(max)" pushes this value's rendered width past what size-3 fits at any 2-digit value.
     uint8_t editValueTextSize() const override { return 2; }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
-    bool isEditable() const override { return activeProfile.autoTiming; }
-    String lockedMessage() const override
-    {
-        return "Computed from manual\nsolenoid timing - see\nAdvanced > Solenoid /\nPusher > Auto "
-               "Timing.";
-    }
-    void beginEdit() override { entryValue_ = activeProfile.targetDPS; }
+    void beginEdit() override { entryValue_ = *value_; }
     void adjustValue(int8_t direction) override
     {
-        float next = roundf(activeProfile.targetDPS) + direction * 1.0f;
+        float next = roundf(*value_) + direction * 1.0f;
         if (next < 1.0f)
             next = 1.0f;
         float hardwareMax = floorf(achievedDPS());
         if (next > hardwareMax)
             next = hardwareMax;
-        activeProfile.targetDPS = next;
+        *value_ = next;
     }
     void adjustValueWrapping(int8_t direction) override
     {
         float hardwareMax = floorf(achievedDPS());
-        float next = roundf(activeProfile.targetDPS) + direction * 1.0f;
+        float next = roundf(*value_) + direction * 1.0f;
         if (next > hardwareMax)
             next = 1.0f;
         if (next < 1.0f)
             next = hardwareMax;
-        activeProfile.targetDPS = next;
+        *value_ = next;
     }
-    void cancelEdit() override { activeProfile.targetDPS = entryValue_; }
+    void cancelEdit() override { *value_ = entryValue_; }
 
   private:
     static float achievedDPS()
     {
         float extendAtVoltage_ms = batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope +
                                    solenoidVoltageTimeIntercept;
-        float cycle_ms = extendAtVoltage_ms + activeProfile.solenoidRetractTime_ms;
+        float cycle_ms = extendAtVoltage_ms + deviceSettings.solenoidRetractTime_ms;
         return cycle_ms > 0 ? 1000.0f / cycle_ms : 0;
     }
+    float* value_;
     float entryValue_ = 0;
 };
 
-extern TargetDpsItem targetDpsItem;
+extern TargetDpsItem firingMode0TargetDpsItem;
+extern TargetDpsItem firingMode1TargetDpsItem;
+extern TargetDpsItem firingMode2TargetDpsItem;
 
 // The root menu's item list (menu.cpp) and its element count.
 extern MenuItem* rootItems[];

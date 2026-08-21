@@ -283,9 +283,7 @@ template <typename E> class EnumItem : public MenuItem
 
 // menuFlywheel.cpp
 extern SubmenuItem flywheelRpmSubmenu;
-extern SubmenuItem rpmProfile0Submenu;
-extern SubmenuItem rpmProfile1Submenu;
-extern SubmenuItem rpmProfile2Submenu;
+extern SubmenuItem profileRpmSubmenu;
 
 // menuMotors.cpp
 extern SubmenuItem motorsPidSubmenu;
@@ -304,11 +302,10 @@ extern SubmenuItem batterySubmenu;
 
 // menuSolenoid.cpp
 extern SubmenuItem solenoidSubmenu;
-// targetDpsItem itself is declared in menuCore.h.
 
 // menuProfile.cpp
-extern SubmenuItem profileSubmenu;
-extern SubmenuItem switchProfileSubmenu;
+extern SubmenuItem profileSwitchSubmenu;
+extern SubmenuItem profileAdvancedSubmenu;
 
 // menuDevice.cpp
 extern SubmenuItem deviceSubmenu;

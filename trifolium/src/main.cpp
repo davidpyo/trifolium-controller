@@ -13,7 +13,7 @@
 #include "logging.h"
 #include "flywheelMotor.h"
 #include "menu.h"
-#include "runtimeSettings.h"
+#include "shotProfile.h"
 #include "profileStore.h"
 #include "deviceSettings.h"
 #include "deviceStore.h"
@@ -40,8 +40,8 @@
 
 int32_t batteryVoltageMax_mv[4] = {12600, 16800, 21000, 25200}; // 3S, 4S, 5S, 6S
 
-RuntimeSettings activeProfile;
-uint8_t activeProfileIndex; // which slot activeProfile came from
+ShotProfile activeProfile;
+uint8_t activeProfileIndex; // which of the 3 named profiles activeProfile came from
 
 DeviceSettings deviceSettings;
 
@@ -89,7 +89,6 @@ uint32_t currentSpindownSpeed = 0;
 uint16_t burstLength;
 burstFireType_t burstMode;
 int8_t firingMode = 0;
-int8_t fpsMode = 0;
 bool fromIdle;
 int32_t dshotValue = 0;
 int16_t shotsToFire = 0;
@@ -105,7 +104,7 @@ int32_t pusherCurrent_ma = 0;
 int32_t pusherCurrentSmoothed_ma = 0;
 const int32_t maxThrottle = 1999;
 uint32_t half =
-    0; // 1 << (activeProfile.EMAFilter - 1); computed in setup(), once activeProfile is loaded
+    0; // 1 << (deviceSettings.EMAFilter - 1); computed in setup(), once activeProfile is loaded
 Driver* pusher;
 uint16_t solenoidExtendTime_ms = 0;
 float solenoidVoltageTimeSlope =
@@ -148,8 +147,11 @@ Bounce2::Button select2 = Bounce2::Button();
 Bounce2::Button* selectSwitches[3] = {&select0, &select1, &select2};
 uint8_t selectPins[3]; // populated in setup() from deviceSettings.select0/1/2Pin
 
-Motor motorsObj[4] = {Motor(0, 0, 0, 0, 0), Motor(0, 0, 0, 0, 0), Motor(0, 0, 0, 0, 0),
-                      Motor(0, 0, 0, 0, 0)};
+Motor motorsObj[4] = {Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0),
+                      Motor(0, 0, 0, 0)};
+
+bool motorsEnabled[4];
+motorStage_t motorStages[4];
 
 // per-motor runtime state - one instance per motors[]/motorsObj[] slot
 FlywheelMotor motorArr[4] = {FlywheelMotor(&motorsObj[0]), FlywheelMotor(&motorsObj[1]),
@@ -158,7 +160,7 @@ FlywheelMotor motorArr[4] = {FlywheelMotor(&motorsObj[0]), FlywheelMotor(&motors
 RpmLogger rpmLogger;
 
 void updateFiringMode();
-void selectRPMProfile();
+uint8_t selectShotProfileAtBoot();
 bool fwControlLoop();
 void mainFiringLogic();
 void resetFWControl();
@@ -181,7 +183,7 @@ void logData()
 {
     // record() is a no-op unless a capture is currently armed (startCapture() succeeded and
     // hasn't been dumped yet) - no separate deviceSettings.useRpmLogging check needed here.
-    rpmLogger.record(motorArr, activeProfile.motors);
+    rpmLogger.record(motorArr, motorsEnabled);
 }
 
 // call this whenever a shot is detected/fired, regardless of which detection method triggered it
@@ -201,20 +203,21 @@ void applyMotorConfig()
 {
     for (int i = 0; i < 4; i++)
     {
-        motorsObj[i] = Motor(activeProfile.KP[i], activeProfile.KI[i], activeProfile.KD[i],
-                             activeProfile.motorKv[i], activeProfile.motorPolesDiv2[i]);
+        motorsObj[i] = Motor(deviceSettings.motorConfig[i].kp, deviceSettings.motorConfig[i].ki,
+                             deviceSettings.motorConfig[i].motorKv,
+                             deviceSettings.motorConfig[i].motorPolesDiv2);
     }
 }
 
 // Recomputes `half`, the EMA filter shift constant. EMAFilter must be >= 1.
 void applyEmaFilterConstant()
 {
-    if (activeProfile.EMAFilter == 0)
+    if (deviceSettings.EMAFilter == 0)
     {
         logger.error("Profile EMAFilter is 0, clamping to 1");
-        activeProfile.EMAFilter = 1;
+        deviceSettings.EMAFilter = 1;
     }
-    half = uint32_t{1} << (activeProfile.EMAFilter - 1);
+    half = uint32_t{1} << (deviceSettings.EMAFilter - 1);
 }
 
 // Recomputes each enabled motor's firingRPM ("at speed" threshold) from revRPM plus
@@ -223,10 +226,10 @@ void applyFiringRpmThresholds()
 {
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (motorsEnabled[i])
         {
-            motorArr[i].firingRPM = max(motorArr[i].revRPM - activeProfile.firingRPMTolerance,
-                                        activeProfile.minFiringRPM);
+            motorArr[i].firingRPM = max(motorArr[i].revRPM - deviceSettings.firingRPMTolerance,
+                                        deviceSettings.minFiringRPM);
         }
     }
 }
@@ -237,22 +240,22 @@ void applySolenoidTimingCurve()
     if (deviceSettings.pusherType != PUSHER_SOLENOID_OPENLOOP)
         return;
 
-    if (activeProfile.solenoidExtendTimeLow_ms == activeProfile.solenoidExtendTimeHigh_ms ||
-        activeProfile.solenoidExtendTimeLowVoltage_mv >
-            activeProfile.solenoidExtendTimeHighVoltage_mv)
+    if (deviceSettings.solenoidExtendTimeLow_ms == deviceSettings.solenoidExtendTimeHigh_ms ||
+        deviceSettings.solenoidExtendTimeLowVoltage_mv >
+            deviceSettings.solenoidExtendTimeHighVoltage_mv)
     { // if times are equal, don't do this calc
         solenoidVoltageTimeSlope = 0;
-        solenoidVoltageTimeIntercept = activeProfile.solenoidExtendTimeHigh_ms;
+        solenoidVoltageTimeIntercept = deviceSettings.solenoidExtendTimeHigh_ms;
     }
     else
     {
         solenoidVoltageTimeSlope =
-            (activeProfile.solenoidExtendTimeHigh_ms - activeProfile.solenoidExtendTimeLow_ms) /
-            ((float)(activeProfile.solenoidExtendTimeHighVoltage_mv -
-                     activeProfile.solenoidExtendTimeLowVoltage_mv));
+            (deviceSettings.solenoidExtendTimeHigh_ms - deviceSettings.solenoidExtendTimeLow_ms) /
+            ((float)(deviceSettings.solenoidExtendTimeHighVoltage_mv -
+                     deviceSettings.solenoidExtendTimeLowVoltage_mv));
         solenoidVoltageTimeIntercept =
-            activeProfile.solenoidExtendTimeHigh_ms -
-            (solenoidVoltageTimeSlope * activeProfile.solenoidExtendTimeHighVoltage_mv) + 1;
+            deviceSettings.solenoidExtendTimeHigh_ms -
+            (solenoidVoltageTimeSlope * deviceSettings.solenoidExtendTimeHighVoltage_mv) + 1;
         logger.info("solenoidVoltageTimeSlope: ", solenoidVoltageTimeSlope);
         logger.info("solenoidVoltageTimeIntercept: ", solenoidVoltageTimeIntercept);
     }
@@ -261,13 +264,13 @@ void applySolenoidTimingCurve()
 // Auto Timing's additive dwell on top of the existing voltage-compensated extend/retract cycle.
 uint32_t computePusherDwellPadding_ms()
 {
-    if (!activeProfile.autoTiming || activeProfile.targetDPS <= 0)
+    if (activeProfile.fireModes[firingMode].targetDPS <= 0)
         return 0;
 
     float extendAtVoltage_ms =
         batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept;
-    float cycleTarget_ms = 1000.0f / activeProfile.targetDPS;
-    float padding_ms = cycleTarget_ms - extendAtVoltage_ms - activeProfile.solenoidRetractTime_ms;
+    float cycleTarget_ms = 1000.0f / activeProfile.fireModes[firingMode].targetDPS;
+    float padding_ms = cycleTarget_ms - extendAtVoltage_ms - deviceSettings.solenoidRetractTime_ms;
     if (padding_ms < 0) // requested DPS isn't reachable - fire as fast as the hardware allows
         padding_ms = 0;
     return (uint32_t)padding_ms;
@@ -306,14 +309,17 @@ void setup()
     Serial.begin(115200);
     Serial.ignoreFlowControl(true);
 
-    // load the active runtime settings profile and device-wide settings before anything below
-    // reads a field
     ProfileStore::begin();
     activeProfileIndex = ProfileStore::loadActiveProfileIndex();
-    ProfileStore::loadProfile(activeProfileIndex, activeProfile);
     DeviceStore::loadDeviceSettings(deviceSettings);
     applyPrintTelemetry(); // as early as possible so logging behaves correctly for the rest of boot
     targetLoopTime_us = dshotMinDelayFor(deviceSettings.dshotMode); // before attachEsc() calls
+
+    for (int i = 0; i < 4; i++)
+    {
+        motorsEnabled[i] = deviceSettings.motorConfig[i].enabled;
+        motorStages[i] = deviceSettings.motorConfig[i].stage;
+    }
 
     // Headless BOOTSEL entry: hold Menu or Rev at power-on to jump into the USB bootloader
     if (bootReason == BootReason::POR)
@@ -362,7 +368,7 @@ void setup()
     // need to do some checking for valid motor/esc driver pins here
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (motorsEnabled[i])
         {
             if (board.pusherDriverType == ESC_DRIVER && board.drvEN == escPins[i])
             {
@@ -389,7 +395,7 @@ void setup()
         u8 numPassthrough = 0;
         for (int i = 0; i < 4; i++)
         {
-            if (activeProfile.motors[i])
+            if (motorsEnabled[i])
             {
                 numPassthrough++;
             }
@@ -402,7 +408,7 @@ void setup()
         u8 currentPin = 0;
         for (int i = 0; i < 4; i++)
         {
-            if (activeProfile.motors[i])
+            if (motorsEnabled[i])
             {
                 pins[currentPin] = escPins[i];
                 currentPin++;
@@ -440,9 +446,9 @@ void setup()
     // delay to allow gpio to stabilize
     delay(1000);
 
-    batteryMonitor = new BatteryMonitor(board.batteryADC, activeProfile.voltageCalibrationFactor,
+    batteryMonitor = new BatteryMonitor(board.batteryADC, deviceSettings.voltageCalibrationFactor,
                                         deviceSettings.voltageAveragingWindow,
-                                        cellCount(activeProfile.batteryType));
+                                        cellCount(deviceSettings.batteryType));
     batteryMonitor->begin();
 
     if (pinDefined(revSwitchPin))
@@ -467,7 +473,7 @@ void setup()
         idleSwitch.setPressedState(deviceSettings.idleSwitchNormallyClosed);
     }
     setupMenuButton();
-    if (activeProfile.selectFireType != NO_SELECT_FIRE)
+    if (deviceSettings.selectFireType != NO_SELECT_FIRE)
     {
         for (int i = 0; i < 3; i++)
         {
@@ -519,26 +525,24 @@ void setup()
 
     applySolenoidTimingCurve();
 
-    // change FPS using select fire switch position at boot time
-    if (activeProfile.variableFPS)
+    if (deviceSettings.variableFPS)
     {
-        selectRPMProfile();
+        activeProfileIndex = selectShotProfileAtBoot();
     }
+    ProfileStore::loadProfile(activeProfileIndex, activeProfile);
+    logger.info("activeProfileIndex: ", activeProfileIndex);
 
-    fpsMode = firingMode;
-    firingMode = 0;
-    logger.info("fpsMode: ", fpsMode);
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (motorsEnabled[i])
         {
-            motorArr[i].revRPM = activeProfile.revRPMset[fpsMode][i];
+            motorArr[i].revRPM = activeProfile.revRPM[i];
             motorArr[i].attachEsc(new BidirDShotX1(escPins[i], deviceSettings.dshotMode));
         }
     }
     applyFiringRpmThresholds();
-    dwellTime_ms = activeProfile.dwellTimeSet_ms[fpsMode];
-    idleTime_ms = activeProfile.idleTimeSet_ms[fpsMode];
+    dwellTime_ms = activeProfile.dwellTime_ms;
+    idleTime_ms = activeProfile.idleTime_ms;
 
     // make sure to send neutral throttle to arm esc's
     for (int j = 0; j < 15000; j++)
@@ -551,7 +555,7 @@ void setup()
         // do neutral throttle for all motors
         for (int i = 0; i < 4; i++)
         {
-            if (activeProfile.motors[i])
+            if (motorsEnabled[i])
             {
                 motorArr[i].sendThrottle(0);
             }
@@ -562,7 +566,7 @@ void setup()
     // Request Extended DShot Telemetry from ESCs that support it
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (motorsEnabled[i])
         {
             for (int rep = 0; rep < 10; rep++)
             {
@@ -629,8 +633,8 @@ void mainFiringLogic()
     }
     updateFiringMode();
     // changes burst options
-    burstLength = activeProfile.burstLengthSet[firingMode];
-    burstMode = activeProfile.burstModeSet[firingMode];
+    burstLength = activeProfile.fireModes[firingMode].burstLength;
+    burstMode = activeProfile.fireModes[firingMode].burstMode;
 
     if (menuIsOpen() || burstMode == SAFE)
     {
@@ -677,9 +681,9 @@ void checkLowVoltageCutoff()
 {
     if (batteryMonitor->isDefined() && time_ms > 2000)
     {
-        uint8_t cells = cellCount(activeProfile.batteryType);
+        uint8_t cells = cellCount(deviceSettings.batteryType);
         bool belowCutoff =
-            batteryMonitor->getVoltage_mv() < activeProfile.lowVoltageCutoffPerCell_mv * cells;
+            batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageCutoffPerCell_mv * cells;
         if (belowCutoff)
         {
             digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
@@ -688,7 +692,7 @@ void checkLowVoltageCutoff()
         // Non-cutoff early warning - lowVoltageWarningPerCell_mv is above the cutoff, so this
         // trips first as the battery depletes.
         batteryWarningActive =
-            batteryMonitor->getVoltage_mv() < activeProfile.lowVoltageWarningPerCell_mv * cells;
+            batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageWarningPerCell_mv * cells;
 
         if (pinDefined(board.LED_DATA))
         {
@@ -718,7 +722,7 @@ void checkRpmDropShotDetection()
     }
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (motorsEnabled[i])
         {
             if ((motorArr[i].targetRPM > motorArr[i].motorRPM) &&
                 (motorArr[i].targetRPM - motorArr[i].motorRPM > deviceSettings.rpmDropThreshold))
@@ -777,18 +781,18 @@ bool fwControlLoop()
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
             resetFWControl();
-            if (activeProfile.flywheelControl == TBH_CONTROL)
+            if (deviceSettings.flywheelControl == TBH_CONTROL)
             {
                 for (int i = 0; i < 4; i++)
                 {
-                    if (activeProfile.motors[i])
+                    if (motorsEnabled[i])
                     {
                         // for optimal rev let's set throttle to max until first crossing
                         motorArr[i].PIDOutput =
                             max(min(maxThrottle, (maxThrottle * motorArr[i].targetRPM /
                                                   batteryMonitor->getVoltage_mv() * 1000 /
                                                   motorArr[i].m_config->m_motorKv) +
-                                                     activeProfile.throttleCap),
+                                                     deviceSettings.throttleCap),
                                 0);
                         // premptly setup TBH variable to reduce overshoot
                         motorArr[i].PIDIntegral =
@@ -810,7 +814,7 @@ bool fwControlLoop()
                  allowShotDetection)
         { // dwell flywheels
             if (allowShotDetection &&
-                time_ms > pusherTimer_ms + activeProfile.solenoidRetractTime_ms)
+                time_ms > pusherTimer_ms + deviceSettings.solenoidRetractTime_ms)
             {
                 allowShotDetection = false;
                 for (int j = 0; j < 4; j++)
@@ -833,7 +837,7 @@ bool fwControlLoop()
             currentSpindownSpeed = 0;
             for (int i = 0; i < 4; i++)
             {
-                if (activeProfile.motors[i])
+                if (motorsEnabled[i])
                 {
                     motorArr[i].targetRPM = activeProfile.idleRPM[i];
                     motorArr[i].PIDOutput = maxThrottle * motorArr[i].targetRPM /
@@ -853,7 +857,7 @@ bool fwControlLoop()
             }
             for (int i = 0; i < 4; i++)
             {
-                if (activeProfile.motors[i])
+                if (motorsEnabled[i])
                 {
                     int32_t rpmDrop =
                         (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
@@ -875,7 +879,7 @@ bool fwControlLoop()
             }
             for (int i = 0; i < 4; i++)
             {
-                if (activeProfile.motors[i] && motorArr[i].targetRPM != 0)
+                if (motorsEnabled[i] && motorArr[i].targetRPM != 0)
                 {
                     int32_t rpmDrop =
                         (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
@@ -893,20 +897,20 @@ bool fwControlLoop()
         // clang-format off
 
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
-        if ((!activeProfile.motors[0] || motorArr[0].motorRPM > motorArr[0].firingRPM) &&
-            (!activeProfile.motors[1] || motorArr[1].motorRPM > motorArr[1].firingRPM) &&
-            (!activeProfile.motors[2] || motorArr[2].motorRPM > motorArr[2].firingRPM) &&
-            (!activeProfile.motors[3] || motorArr[3].motorRPM > motorArr[3].firingRPM)
+        if ((!motorsEnabled[0] || motorArr[0].motorRPM > motorArr[0].firingRPM) &&
+            (!motorsEnabled[1] || motorArr[1].motorRPM > motorArr[1].firingRPM) &&
+            (!motorsEnabled[2] || motorArr[2].motorRPM > motorArr[2].firingRPM) &&
+            (!motorsEnabled[3] || motorArr[3].motorRPM > motorArr[3].firingRPM)
         ) {
             flywheelState = STATE_FULLSPEED;
             fromIdle =  true;
             logger.info("STATE_FULLSPEED transition 1");
-        } else if (loopStartTimer_us - revStartTime_us > activeProfile.rampupTimeout_ms * 1000UL) {
+        } else if (loopStartTimer_us - revStartTime_us > deviceSettings.rampupTimeout_ms * 1000UL) {
             flywheelState = STATE_IDLE;
             resetFWControl();
             shotsToFire = 0;
             for (int i = 0; i < 4; i++) {
-                if (activeProfile.motors[i] && motorArr[i].motorRPM <= motorArr[i].firingRPM) {
+                if (motorsEnabled[i] && motorArr[i].motorRPM <= motorArr[i].firingRPM) {
                     logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", motorArr[i].firingRPM);
                 }
             }
@@ -935,7 +939,7 @@ bool fwControlLoop()
             lastRevTime_ms = time_ms;
 
             if (shotsToFire > 0 && !firing &&
-                time_ms > pusherTimer_ms + activeProfile.solenoidRetractTime_ms +
+                time_ms > pusherTimer_ms + deviceSettings.solenoidRetractTime_ms +
                               computePusherDwellPadding_ms())
             { // extend solenoid
                 if (!deviceSettings.useRpmBaseShotCounter)
@@ -969,8 +973,7 @@ bool fwControlLoop()
                     lastMeasuredDPS = interval_ms > 0 ? 1000.0f / interval_ms : 0;
                     logger.info("Solenoid extending, interval_ms=", interval_ms,
                                 " achievedDPS=", lastMeasuredDPS,
-                                activeProfile.autoTiming ? " targetDPS=" : "",
-                                activeProfile.autoTiming ? activeProfile.targetDPS : 0);
+                                " targetDPS=", activeProfile.fireModes[firingMode].targetDPS);
                 }
                 else
                 {
@@ -993,23 +996,23 @@ bool fwControlLoop()
 
     if (enableFwControl)
     {
-        switch (activeProfile.flywheelControl)
+        switch (deviceSettings.flywheelControl)
         {
         case PID_CONTROL:
             for (int i = 0; i < 4; i++)
             {
-                if (activeProfile.motors[i])
+                if (motorsEnabled[i])
                 {
                     motorArr[i].updatePID(batteryMonitor->getVoltage_mv(), loopTime_us, maxThrottle,
-                                          activeProfile.EMAFilter, half, activeProfile.iThreshold,
-                                          activeProfile.batteryType);
+                                          deviceSettings.EMAFilter, half, deviceSettings.iThreshold,
+                                          deviceSettings.batteryType);
                 }
             }
             break;
         case TBH_CONTROL:
             for (int i = 0; i < 4; i++)
             {
-                if (activeProfile.motors[i])
+                if (motorsEnabled[i])
                 {
                     motorArr[i].updateTBH(batteryMonitor->getVoltage_mv(), flywheelState,
                                           maxThrottle);
@@ -1023,7 +1026,7 @@ bool fwControlLoop()
         // we are spinning down or idling, just do open loop control
         for (int i = 0; i < 4; i++)
         {
-            if (activeProfile.motors[i])
+            if (motorsEnabled[i])
             {
                 motorArr[i].updateOpenLoop(batteryMonitor->getVoltage_mv(), maxThrottle);
             }
@@ -1032,7 +1035,7 @@ bool fwControlLoop()
 
     logData();
 
-    if (rpmLogger.dumpIfReady(activeProfile.motors))
+    if (rpmLogger.dumpIfReady(motorsEnabled))
     {
         logger.info("RPM log dump complete, rebooting now as part of normal RPM logging - this is "
                     "expected");
@@ -1058,11 +1061,11 @@ bool fwControlLoop()
 
 void updateFiringMode()
 {
-    if (activeProfile.selectFireType == NO_SELECT_FIRE)
+    if (deviceSettings.selectFireType == NO_SELECT_FIRE)
     {
         return;
     }
-    else if (activeProfile.selectFireType == SWITCH_SELECT_FIRE)
+    else if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE)
     {
         int8_t previousFiringMode = firingMode;
 
@@ -1084,7 +1087,7 @@ void updateFiringMode()
             logger.info("Select switch changed, firingMode ", firingMode);
         return;
     }
-    else if (activeProfile.selectFireType == BUTTON_SELECT_FIRE)
+    else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
         if (pinDefined(deviceSettings.select0Pin))
         {
@@ -1108,18 +1111,16 @@ void resetFWControl()
 {
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (motorsEnabled[i])
         {
-            motorArr[i].resetControl(activeProfile.flywheelControl);
+            motorArr[i].resetControl(deviceSettings.flywheelControl);
         }
     }
 }
 
-void selectRPMProfile()
+uint8_t selectShotProfileAtBoot()
 {
-    firingMode = 0;
-
-    if (activeProfile.selectFireType == SWITCH_SELECT_FIRE)
+    if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE)
     {
         for (int i = 0; i < 3; i++)
         {
@@ -1128,24 +1129,20 @@ void selectRPMProfile()
                 selectSwitches[i]->update();
                 if (selectSwitches[i]->isPressed())
                 {
-                    firingMode = i;
-                    return;
+                    return i;
                 }
             }
         }
-        // if no other options, set to defaultFiring
-        firingMode = activeProfile.defaultFiringMode;
-        return;
+        return deviceSettings.defaultProfileIndex;
     }
-    else if (activeProfile.selectFireType == BUTTON_SELECT_FIRE)
+    else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
         if (pinDefined(deviceSettings.select0Pin))
         {
             select0.update();
             if (select0.isPressed())
             {
-                firingMode = 1;
-                return;
+                return 1;
             }
         }
 
@@ -1154,11 +1151,11 @@ void selectRPMProfile()
             revSwitch.update();
             if (revSwitch.isPressed())
             {
-                firingMode = 2;
-                return;
+                return 2;
             }
         }
     }
+    return activeProfileIndex;
 }
 
 void setup1()
@@ -1194,18 +1191,19 @@ void loop1()
             {
                 // Dart count for the HOME_FIRE_MODE animation - one per shot in the burst, except
                 // Binary (one dart per trigger pull/release, shown as 2).
-                uint16_t animDartCount = (activeProfile.burstModeSet[firingMode] == BINARY)
+                uint16_t animDartCount = (activeProfile.fireModes[firingMode].burstMode == BINARY)
                                              ? 2
-                                             : activeProfile.burstLengthSet[firingMode];
+                                             : activeProfile.fireModes[firingMode].burstLength;
                 // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
                 // last measured extend-to-extend interval, set is the raw targetDPS setting.
                 displayManager.renderTelemetry(
-                    activeProfile.fireModeStrings[firingMode].c_str(), activeProfileIndex,
-                    deviceSettings.blasterName.c_str(), motorArr, activeProfile.motors,
-                    activeProfile.motorStage, displayShotCounter, batteryMonitor->isDefined(),
+                    activeProfile.fireModes[firingMode].name.c_str(), activeProfile.name.c_str(),
+                    deviceSettings.blasterName.c_str(), motorArr, motorsEnabled,
+                    motorStages, displayShotCounter, batteryMonitor->isDefined(),
                     batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
                     batteryWarningActive, deviceSettings.homeScreenDisplayMode, animDartCount,
-                    deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS, activeProfile.targetDPS);
+                    deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS,
+                    activeProfile.fireModes[firingMode].targetDPS);
                 updateRuntimeNow = false;
                 lastUpdated = millis();
             }
@@ -1248,7 +1246,7 @@ void handleSerialCommands()
 
     if (command == "DUMP_PROFILE")
     {
-        RuntimeSettings settings;
+        ShotProfile settings;
         if (hasIndex)
         {
             if (explicitIndex < 0 || explicitIndex >= ProfileStore::MAX_PROFILE_COUNT)
@@ -1285,7 +1283,7 @@ void handleSerialCommands()
             return;
         }
 
-        RuntimeSettings newSettings;
+        ShotProfile newSettings;
         if (targetIndex == activeIndex)
         {
             newSettings = activeProfile; // seed from the live in-memory profile

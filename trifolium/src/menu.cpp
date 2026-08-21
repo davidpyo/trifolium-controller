@@ -29,32 +29,32 @@ static MenuItem* activeBurstLengthTarget()
         return &firingMode0BurstLengthItem;
     }
 }
-static MenuItem* activeWheelRpmTarget()
+static MenuItem* activeTargetDpsTarget()
 {
-    switch (fpsMode)
+    switch (firingMode)
     {
     case 1:
-        return &rpmProfile1Submenu;
+        return &firingMode1TargetDpsItem;
     case 2:
-        return &rpmProfile2Submenu;
+        return &firingMode2TargetDpsItem;
     default:
-        return &rpmProfile0Submenu;
+        return &firingMode0TargetDpsItem;
     }
 }
 static ShortcutItem firingModeShortcut("Firing Mode", activeBurstModeTarget);
 static ShortcutItem burstLengthShortcut("Burst Length", activeBurstLengthTarget);
-static ShortcutItem wheelRpmShortcut("Wheel RPM", activeWheelRpmTarget);
+static ShortcutItem targetDpsShortcut("Target DPS", activeTargetDpsTarget);
 
 // Reboot and Switch Profile are also reachable the long way (Device > Reboot, Profile > Switch
 // Profile) - same instances either way.
 static MenuItem* advancedItems[] = {
-    &flywheelRpmSubmenu, &motorsPidSubmenu, &selectFireSubmenu, &batterySubmenu,
-    &solenoidSubmenu,    &profileSubmenu,   &deviceSubmenu,
+    &flywheelRpmSubmenu, &selectFireSubmenu,      &profileAdvancedSubmenu, &motorsPidSubmenu,
+    &solenoidSubmenu,    &batterySubmenu,         &deviceSubmenu,
 };
 static SubmenuItem advancedSubmenu("Advanced", advancedItems, 7);
 
 MenuItem* rootItems[] = {
-    &firingModeShortcut, &burstLengthShortcut,  &wheelRpmShortcut, &targetDpsItem,
-    &rebootSubmenu,      &switchProfileSubmenu, &advancedSubmenu,
+    &firingModeShortcut, &burstLengthShortcut,   &targetDpsShortcut, &profileRpmSubmenu,
+    &profileSwitchSubmenu, &rebootSubmenu,       &advancedSubmenu,
 };
 const uint8_t rootItemsCount = sizeof(rootItems) / sizeof(rootItems[0]);

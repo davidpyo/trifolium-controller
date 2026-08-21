@@ -2,6 +2,16 @@
 #include <Arduino.h>
 #include "types.h"
 
+struct MotorConfig
+{
+    bool enabled;
+    motorStage_t stage;
+    float kp;
+    float ki;
+    int32_t motorKv;
+    int16_t motorPolesDiv2;
+};
+
 struct DeviceSettings
 {
     bool hasDisplay;
@@ -52,4 +62,32 @@ struct DeviceSettings
 
     bool useRpmLogging;
     uint32_t rpmLogLength; // clamped to MAX_RPM_LOG_LENGTH on load
+
+    MotorConfig motorConfig[4];
+
+    flywheelControlType_t flywheelControl;
+    int32_t firingRPMTolerance;
+    int32_t minFiringRPM;
+    uint32_t rampupTimeout_ms;
+    uint8_t EMAFilter;
+    uint8_t iThreshold;
+    uint16_t throttleCap;
+
+    // Solenoid timing
+    uint16_t solenoidExtendTimeHigh_ms;
+    uint32_t solenoidExtendTimeHighVoltage_mv;
+    uint16_t solenoidExtendTimeLow_ms;
+    uint32_t solenoidExtendTimeLowVoltage_mv;
+    uint16_t solenoidRetractTime_ms;
+
+    // Battery
+    batteryType_t batteryType;
+    uint32_t lowVoltageCutoffPerCell_mv;
+    uint32_t lowVoltageWarningPerCell_mv;
+    float voltageCalibrationFactor;
+
+    // Select-fire hardware wiring + physical-switch feature toggle
+    selectFireType_t selectFireType;
+    bool variableFPS;
+    uint8_t defaultProfileIndex; // used at boot when no select-switch position is active
 };

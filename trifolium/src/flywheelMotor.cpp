@@ -107,16 +107,13 @@ void FlywheelMotor::updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, in
         iTerm = PIDIntegral * m_config->m_iGain;
     }
 
-    dTerm = m_config->m_dGain * ((PIDError - PIDErrorPrior) * 1000000.0 / loopTime_us);
-    dTerm = constrain(dTerm, -2000, 2000);
-
     if (targetRPM == 0)
     {
         PIDOutput = 0;
     }
     else
     {
-        PIDOutput = (openLoopThrottle) + m_config->m_pGain * PIDError + iTerm + dTerm;
+        PIDOutput = (openLoopThrottle) + m_config->m_pGain * PIDError + iTerm;
     }
 
     PIDErrorPrior = PIDError;

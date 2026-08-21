@@ -134,7 +134,7 @@ bool DisplayManager::drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_
 }
 
 void DisplayManager::renderTelemetry(
-    const char* fireModeString, uint8_t activeProfileIndex, const char* blasterName,
+    const char* fireModeString, const char* profileName, const char* blasterName,
     FlywheelMotor motorArr[4], const bool motors[4], const motorStage_t motorStage[4],
     uint32_t displayShotCounter, bool isBatteryAdcDefined, int32_t batteryVoltage_mv,
     bool showCurrentRpm, bool batteryWarningActive, homeScreenDisplayMode_t homeScreenDisplayMode,
@@ -149,8 +149,8 @@ void DisplayManager::renderTelemetry(
     // display blaster name / profile slot - top-left, every mode
     display_.setCursor(0, 5);
     display_.print(blasterName);
-    display_.print("|P ");
-    display_.print(activeProfileIndex + 1); // 1-indexed for display, matches the menu's "Slot 1-4"
+    display_.print("|");
+    display_.print(profileName);
 
     // show battery voltage - blinks "LOW BATT" in the same spot instead when the non-cutoff
     // warning threshold has tripped

@@ -1,7 +1,7 @@
 #pragma once
 #include "motor.h"
 #include "boards_config.h" // board pinouts are in this file
-#include "runtimeSettings.h"
+#include "shotProfile.h"
 #include "deviceSettings.h"
 
 // config to check config and code versions match
@@ -34,55 +34,24 @@ inline bool printTelemetry = false; // output printing - mirrors deviceSettings.
 inline const uint32_t MAX_RPM_LOG_LENGTH = 2000;
 
 // Factory defaults - ProfileStore/DeviceStore fall back to these on a missing/corrupt file.
-inline const RuntimeSettings kDefaultProfile = {
-    .motors = {false, true, false, true},
+inline const ShotProfile kDefaultProfile = {
+    .name = "",
 
-    .variableFPS = true,
-    .revRPMset = {{0, 35000, 0, 35000}, {0, 35000, 0, 35000}, {0, 35000, 0, 35000}},
-    .dwellTimeSet_ms = {500, 500, 500},
-    .idleTimeSet_ms = {240000, 240000, 240000},
-    .spindownSpeed = 100,
+    .revRPM = {0, 35000, 0, 35000},
+    .dwellTime_ms = 500,
+    .idleTime_ms = 240000,
     .idleRPM = {1000, 1000, 1000, 1000},
+    .spindownSpeed = 100,
     .revSafetyTimeout_ms = 300000, // 5 minutes
-
-    .motorStage = {STAGE_1, STAGE_1, STAGE_1, STAGE_1},
     .rpmMode = RPM_STAGE,
 
-    .flywheelControl = PID_CONTROL,
-    .firingRPMTolerance = 500,
-    .minFiringRPM = 10000,
-    .rampupTimeout_ms = 500,
-
-    .EMAFilter = 2,
-    .iThreshold = 50,
-    .throttleCap = 300,
-
-    .KP = {0.2f, 0.2f, 0.2f, 0.2f},
-    .KI = {0.5f, 0.5f, 0.5f, 0.5f},
-    .KD = {0, 0, 0, 0},
-    .motorPolesDiv2 = {7, 7, 7, 7},
-    .motorKv = {3200, 3200, 3200, 3200},
-
-    .burstLengthSet = {100, 1, 1},
-    .burstModeSet = {AUTO, BINARY, BURST},
-    .fireModeStrings = {"AUTO", "BINARY", "SEMI"},
+    .fireModes = {
+        {.name = "AUTO", .burstLength = 100, .burstMode = AUTO, .targetDPS = 15.0f},
+        {.name = "BINARY", .burstLength = 1, .burstMode = BINARY, .targetDPS = 15.0f},
+        {.name = "SEMI", .burstLength = 1, .burstMode = BURST, .targetDPS = 15.0f},
+    },
     .binaryTriggerTimeout_ms = 2000,
-    .selectFireType = SWITCH_SELECT_FIRE,
     .defaultFiringMode = 1,
-
-    .batteryType = BATTERY_4S,
-    .lowVoltageCutoffPerCell_mv = 2500,
-    .lowVoltageWarningPerCell_mv = 2800,
-    .voltageCalibrationFactor = 1.0f,
-
-    .solenoidExtendTimeHigh_ms = 25,
-    .solenoidExtendTimeHighVoltage_mv = 16800,
-    .solenoidExtendTimeLow_ms = 40,
-    .solenoidExtendTimeLowVoltage_mv = 11800,
-    .solenoidRetractTime_ms = 35,
-
-    .targetDPS = 15.0f,
-    .autoTiming = false,
 };
 
 inline const DeviceSettings kDefaultDeviceSettings = {
@@ -132,4 +101,34 @@ inline const DeviceSettings kDefaultDeviceSettings = {
 
     .useRpmLogging = false,
     .rpmLogLength = MAX_RPM_LOG_LENGTH,
+
+    .motorConfig = {
+        {.enabled = false, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
+        {.enabled = true, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
+        {.enabled = false, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
+        {.enabled = true, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
+    },
+
+    .flywheelControl = PID_CONTROL,
+    .firingRPMTolerance = 500,
+    .minFiringRPM = 10000,
+    .rampupTimeout_ms = 500,
+    .EMAFilter = 2,
+    .iThreshold = 50,
+    .throttleCap = 300,
+
+    .solenoidExtendTimeHigh_ms = 25,
+    .solenoidExtendTimeHighVoltage_mv = 16800,
+    .solenoidExtendTimeLow_ms = 40,
+    .solenoidExtendTimeLowVoltage_mv = 11800,
+    .solenoidRetractTime_ms = 35,
+
+    .batteryType = BATTERY_4S,
+    .lowVoltageCutoffPerCell_mv = 2500,
+    .lowVoltageWarningPerCell_mv = 2800,
+    .voltageCalibrationFactor = 1.0f,
+
+    .selectFireType = SWITCH_SELECT_FIRE,
+    .variableFPS = true,
+    .defaultProfileIndex = 1, // Medium - used when no select-switch position is active
 };

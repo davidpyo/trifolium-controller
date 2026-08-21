@@ -25,7 +25,7 @@ class DisplayManager
     void flushMailbox();
 
     // Runtime telemetry screen - core 1 only.
-    void renderTelemetry(const char* fireModeString, uint8_t activeProfileIndex,
+    void renderTelemetry(const char* fireModeString, const char* profileName,
                          const char* blasterName, FlywheelMotor motorArr[4], const bool motors[4],
                          const motorStage_t motorStage[4], uint32_t displayShotCounter,
                          bool isBatteryAdcDefined, int32_t batteryVoltage_mv, bool showCurrentRpm,

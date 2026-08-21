@@ -1,18 +1,19 @@
 #include "menuCore.h"
 
 static const char* const batteryTypeLabels[] = {"3S", "4S", "5S", "6S"};
-static EnumItem<batteryType_t> batteryTypeItem("Battery Type", &activeProfile.batteryType,
+static EnumItem<batteryType_t> batteryTypeItem("Battery Type", &deviceSettings.batteryType,
                                                batteryTypeLabels, 4);
 static NumericItem<uint32_t> lowVoltageCutoffItem("Low V Cutoff (mV/cell)",
-                                                  &activeProfile.lowVoltageCutoffPerCell_mv, 2000,
+                                                  &deviceSettings.lowVoltageCutoffPerCell_mv, 2000,
                                                   3700, 50);
 // Earlier, non-cutoff warning threshold - expected above the cutoff so it trips first.
 static NumericItem<uint32_t> lowVoltageWarningItem("Low V Warning (mV/cell)",
-                                                   &activeProfile.lowVoltageWarningPerCell_mv, 2000,
+                                                   &deviceSettings.lowVoltageWarningPerCell_mv, 2000,
                                                    4200, 50);
 // Applies live via BatteryMonitor::updateCalibration(), called from runMenu()'s post-save hook.
-static FloatItem voltageCalibrationItem("Volt Calibration", &activeProfile.voltageCalibrationFactor,
-                                        0.5f, 1.5f, 0.001f, 3);
+static FloatItem voltageCalibrationItem("Volt Calibration",
+                                        &deviceSettings.voltageCalibrationFactor, 0.5f, 1.5f,
+                                        0.001f, 3);
 
 // Spins all enabled motors at a low fixed throttle to bleed the pack down to a target per-cell
 // storage voltage, then stops and alerts. Blocks for the duration; any button press aborts early.
@@ -28,7 +29,7 @@ static void storageDischargeFired()
         return;
     }
 
-    uint32_t targetVoltage_mv = STORAGE_VOLTAGE_PER_CELL_MV * cellCount(activeProfile.batteryType);
+    uint32_t targetVoltage_mv = STORAGE_VOLTAGE_PER_CELL_MV * cellCount(deviceSettings.batteryType);
     directMotorControlActive = true;
     unsigned long lastUpdate = 0;
     bool stoppedByUser = false;
@@ -39,7 +40,7 @@ static void storageDischargeFired()
         menuButton.update();
         for (int i = 0; i < 4; i++)
         {
-            if (activeProfile.motors[i])
+            if (deviceSettings.motorConfig[i].enabled)
                 motorArr[i].sendThrottle(STORAGE_DISCHARGE_THROTTLE);
         }
         if (millis() - lastUpdate > 200)
@@ -67,7 +68,7 @@ static void storageDischargeFired()
     }
     for (int i = 0; i < 4; i++)
     {
-        if (activeProfile.motors[i])
+        if (deviceSettings.motorConfig[i].enabled)
             motorArr[i].sendThrottle(0);
     }
     directMotorControlActive = false;

@@ -62,6 +62,41 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
 
     doc["useRpmLogging"] = settings.useRpmLogging;
     doc["rpmLogLength"] = settings.rpmLogLength;
+
+    JsonArray motorConfig = doc["motorConfig"].to<JsonArray>();
+    for (int i = 0; i < 4; i++)
+    {
+        JsonObject cfg = motorConfig.add<JsonObject>();
+        cfg["enabled"] = settings.motorConfig[i].enabled;
+        cfg["stage"] = (int)settings.motorConfig[i].stage;
+        cfg["kp"] = settings.motorConfig[i].kp;
+        cfg["ki"] = settings.motorConfig[i].ki;
+        cfg["motorKv"] = settings.motorConfig[i].motorKv;
+        cfg["motorPolesDiv2"] = settings.motorConfig[i].motorPolesDiv2;
+    }
+
+    doc["flywheelControl"] = (int)settings.flywheelControl;
+    doc["firingRPMTolerance"] = settings.firingRPMTolerance;
+    doc["minFiringRPM"] = settings.minFiringRPM;
+    doc["rampupTimeout_ms"] = settings.rampupTimeout_ms;
+    doc["EMAFilter"] = settings.EMAFilter;
+    doc["iThreshold"] = settings.iThreshold;
+    doc["throttleCap"] = settings.throttleCap;
+
+    doc["solenoidExtendTimeHigh_ms"] = settings.solenoidExtendTimeHigh_ms;
+    doc["solenoidExtendTimeHighVoltage_mv"] = settings.solenoidExtendTimeHighVoltage_mv;
+    doc["solenoidExtendTimeLow_ms"] = settings.solenoidExtendTimeLow_ms;
+    doc["solenoidExtendTimeLowVoltage_mv"] = settings.solenoidExtendTimeLowVoltage_mv;
+    doc["solenoidRetractTime_ms"] = settings.solenoidRetractTime_ms;
+
+    doc["batteryType"] = (int)settings.batteryType;
+    doc["lowVoltageCutoffPerCell_mv"] = settings.lowVoltageCutoffPerCell_mv;
+    doc["lowVoltageWarningPerCell_mv"] = settings.lowVoltageWarningPerCell_mv;
+    doc["voltageCalibrationFactor"] = settings.voltageCalibrationFactor;
+
+    doc["selectFireType"] = (int)settings.selectFireType;
+    doc["variableFPS"] = settings.variableFPS;
+    doc["defaultProfileIndex"] = settings.defaultProfileIndex;
 }
 
 void fromJson(JsonDocument& doc, DeviceSettings& out)
@@ -117,6 +152,54 @@ void fromJson(JsonDocument& doc, DeviceSettings& out)
     out.useRpmLogging = doc["useRpmLogging"] | out.useRpmLogging;
     uint32_t requestedLength = doc["rpmLogLength"] | out.rpmLogLength;
     out.rpmLogLength = min(requestedLength, MAX_RPM_LOG_LENGTH);
+
+    JsonArrayConst motorConfig = doc["motorConfig"];
+    if (!motorConfig.isNull())
+    {
+        for (int i = 0; i < 4 && i < (int)motorConfig.size(); i++)
+        {
+            JsonObjectConst cfg = motorConfig[i];
+            if (cfg.isNull())
+                continue;
+            out.motorConfig[i].enabled = cfg["enabled"] | out.motorConfig[i].enabled;
+            out.motorConfig[i].stage =
+                (motorStage_t)(cfg["stage"] | (int)out.motorConfig[i].stage);
+            out.motorConfig[i].kp = cfg["kp"] | out.motorConfig[i].kp;
+            out.motorConfig[i].ki = cfg["ki"] | out.motorConfig[i].ki;
+            out.motorConfig[i].motorKv = cfg["motorKv"] | out.motorConfig[i].motorKv;
+            out.motorConfig[i].motorPolesDiv2 =
+                cfg["motorPolesDiv2"] | out.motorConfig[i].motorPolesDiv2;
+        }
+    }
+
+    out.flywheelControl =
+        (flywheelControlType_t)(doc["flywheelControl"] | (int)out.flywheelControl);
+    out.firingRPMTolerance = doc["firingRPMTolerance"] | out.firingRPMTolerance;
+    out.minFiringRPM = doc["minFiringRPM"] | out.minFiringRPM;
+    out.rampupTimeout_ms = doc["rampupTimeout_ms"] | out.rampupTimeout_ms;
+    out.EMAFilter = doc["EMAFilter"] | out.EMAFilter;
+    out.iThreshold = doc["iThreshold"] | out.iThreshold;
+    out.throttleCap = doc["throttleCap"] | out.throttleCap;
+
+    out.solenoidExtendTimeHigh_ms =
+        doc["solenoidExtendTimeHigh_ms"] | out.solenoidExtendTimeHigh_ms;
+    out.solenoidExtendTimeHighVoltage_mv =
+        doc["solenoidExtendTimeHighVoltage_mv"] | out.solenoidExtendTimeHighVoltage_mv;
+    out.solenoidExtendTimeLow_ms = doc["solenoidExtendTimeLow_ms"] | out.solenoidExtendTimeLow_ms;
+    out.solenoidExtendTimeLowVoltage_mv =
+        doc["solenoidExtendTimeLowVoltage_mv"] | out.solenoidExtendTimeLowVoltage_mv;
+    out.solenoidRetractTime_ms = doc["solenoidRetractTime_ms"] | out.solenoidRetractTime_ms;
+
+    out.batteryType = (batteryType_t)(doc["batteryType"] | (int)out.batteryType);
+    out.lowVoltageCutoffPerCell_mv =
+        doc["lowVoltageCutoffPerCell_mv"] | out.lowVoltageCutoffPerCell_mv;
+    out.lowVoltageWarningPerCell_mv =
+        doc["lowVoltageWarningPerCell_mv"] | out.lowVoltageWarningPerCell_mv;
+    out.voltageCalibrationFactor = doc["voltageCalibrationFactor"] | out.voltageCalibrationFactor;
+
+    out.selectFireType = (selectFireType_t)(doc["selectFireType"] | (int)out.selectFireType);
+    out.variableFPS = doc["variableFPS"] | out.variableFPS;
+    out.defaultProfileIndex = doc["defaultProfileIndex"] | out.defaultProfileIndex;
 }
 
 bool loadDeviceSettings(DeviceSettings& out)

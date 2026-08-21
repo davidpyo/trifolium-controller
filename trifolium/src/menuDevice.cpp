@@ -11,9 +11,8 @@ static const unsigned long HW_DIAG_HOLD_MS = 1500;
 static void aboutFired()
 {
     String message = deviceSettings.blasterName + "\n" +
-                     "Profile Slot: " + String(activeProfileIndex + 1) + "\n" +
-                     "RPM Profile: " + String(fpsMode + 1) + "\n" + "v" + String(MAJOR_VERSION) +
-                     "." + String(MINOR_VERSION) + "." + String(PATCH_VERSION) + "\n" +
+                     "Profile: " + activeProfile.name + "\n" + "v" + String(MAJOR_VERSION) + "." +
+                     String(MINOR_VERSION) + "." + String(PATCH_VERSION) + "\n" +
                      board.boardName + "\n" + "any press = back";
     display.clearDisplay();
     display.setTextSize(1);
@@ -67,7 +66,7 @@ static ActionItem rebootItem("Reboot", rebootNow);
 
 static void resetEverythingConfirmed()
 {
-    ProfileStore::saveProfile(activeProfileIndex, ProfileStore::defaultProfile());
+    ProfileStore::resetProfile(activeProfileIndex);
     DeviceStore::saveDeviceSettings(DeviceStore::defaultDeviceSettings());
     rebootReason = BootReason::MENU;
     delay(100);
@@ -194,8 +193,8 @@ static EnumItem<homeScreenDisplayMode_t>
 // Show Current RPM (that toggle only gates the per-motor RPM rows above it in the same column).
 static ToggleItem showDpsItem("Show DPS", &deviceSettings.showDpsOnHomeScreen);
 
-static MenuItem* displayMenuItems[] = {&brightnessItem, &rotateDisplayItem, &showCurrentRpmItem,
-                                       &homeScreenDisplayModeItem, &showDpsItem};
+static MenuItem* displayMenuItems[] = {&homeScreenDisplayModeItem, &showCurrentRpmItem,
+                                       &showDpsItem, &brightnessItem, &rotateDisplayItem};
 static SubmenuItem displaySubmenu("Display", displayMenuItems, 5);
 
 static const char* const ledWarningModeLabels[] = {"No Warning", "Low Batt", "Warning Batt"};
@@ -208,19 +207,6 @@ static bool noLedWired()
 static const char* const NO_LED_LOCKED_MSG = "This board has no\nstatus LED wired.";
 static ConditionalLockItem ledWarningModeLockItem(&ledWarningModeItem, noLedWired,
                                                   NO_LED_LOCKED_MSG);
-
-static const char* const pusherTypeLabels[] = {"None", "Motor", "Solenoid"};
-static EnumItem<pusherType_t> pusherTypeItem("Pusher Type", &deviceSettings.pusherType,
-                                             pusherTypeLabels, 3, true /* needsReboot */);
-static ToggleItem pusherReverseItem("Reverse Direction", &deviceSettings.pusherReverseDirection);
-// cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms) is only called once, at attach time
-// in main.cpp's setup().
-static NumericItem<uint16_t> pusherDebounceItem("Debounce (ms)",
-                                                &deviceSettings.pusherDebounceTime_ms, 0, 200, 1,
-                                                true /* needsReboot */);
-
-static MenuItem* pusherMenuItems[] = {&pusherTypeItem, &pusherReverseItem, &pusherDebounceItem};
-static SubmenuItem pusherSubmenu("Pusher", pusherMenuItems, 3);
 
 static NumericItem<uint16_t> debounceTimeItem("Switch Debounce (ms)",
                                               &deviceSettings.debounceTime_ms, 1, 200, 1);
@@ -253,11 +239,11 @@ static MenuItem* resetDeviceItems[] = {&resetDeviceConfirmItem};
 static SubmenuItem resetDeviceSubmenu("Factory Reset Device", resetDeviceItems, 1);
 
 static MenuItem* deviceItems[] = {
-    &rebootSubmenu,          &displaySubmenu,       &pusherSubmenu,
-    &blasterNameItem,        &debounceTimeItem,     &dualStageTriggerItem,
+    &rebootSubmenu,          &displaySubmenu,       &blasterNameItem,
+    &ledWarningModeLockItem, &dualStageTriggerItem, &debounceTimeItem,
     &menuHoldTimeItem,       &voltageAvgWindowItem, &rpmShotCounterItem,
     &goodRpmReadsItem,       &rpmDropThresholdItem, &maxRpmCapItem,
-    &ledWarningModeLockItem, &resetDeviceSubmenu,   &aboutItem,
+    &resetDeviceSubmenu,     &aboutItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem deviceSubmenu("Device", deviceItems, 15);
+SubmenuItem deviceSubmenu("Device", deviceItems, 13);

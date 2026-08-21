@@ -439,7 +439,7 @@ void runMenu()
     menuButton.interval(debounceTime_ms); // owned here, not main.cpp - applyDebounceInterval()
                                           // above keeps the shim itself in sync
     applyPrintTelemetry();
-    batteryMonitor->updateCalibration(activeProfile.voltageCalibrationFactor,
+    batteryMonitor->updateCalibration(deviceSettings.voltageCalibrationFactor,
                                       deviceSettings.voltageAveragingWindow);
     displayManager.setRotation(deviceSettings.rotateDisplay);
 

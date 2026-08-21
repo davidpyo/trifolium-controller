@@ -21,7 +21,6 @@ class FlywheelMotor
     int32_t PIDOutput = 0;
     float PIDIntegral = 0;
     float iTerm = 0;
-    float dTerm = 0;
     bool firstCrossing = false;
     uint16_t shotsUnderThreshold = 0;
 

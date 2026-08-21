@@ -2,27 +2,23 @@
 
 static const char* const flywheelControlLabels[] = {"PID", "TBH"};
 static EnumItem<flywheelControlType_t>
-    flywheelControlItem("Control Type", &activeProfile.flywheelControl, flywheelControlLabels, 2);
-static ToggleItem variableFPSItem("Variable FPS", &activeProfile.variableFPS);
+    flywheelControlItem("Control Type", &deviceSettings.flywheelControl, flywheelControlLabels, 2);
 static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", &activeProfile.spindownSpeed, 1,
                                                2000, 10);
 // firingRPM = max(revRPM - firingRPMTolerance, minFiringRPM) - see applyFiringRpmThresholds().
 static NumericItem<int32_t> firingRpmToleranceItem("Firing RPM Tol",
-                                                   &activeProfile.firingRPMTolerance, 0, 5000, 50);
-static RpmTargetItem minFiringRpmItem("Min Firing RPM", &activeProfile.minFiringRPM, 500);
+                                                   &deviceSettings.firingRPMTolerance, 0, 5000, 50);
+static RpmTargetItem minFiringRpmItem("Min Firing RPM", &deviceSettings.minFiringRPM, 500);
 // Parameterizes the existing STATE_ACCELERATING abort-to-idle timeout in fwControlLoop() - doesn't
 // change the transition's shape, just how long it waits before giving up. Checked live, no reboot.
 static NumericItem<uint32_t> rampupTimeoutItem("Rampup Timeout (ms)",
-                                               &activeProfile.rampupTimeout_ms, 100, 5000, 50);
+                                               &deviceSettings.rampupTimeout_ms, 100, 5000, 50);
+static ToggleItem variableFPSItem("Variable FPS", &deviceSettings.variableFPS, true);
 
-// One global setting, applies to Idle RPM and all 3 RPM profiles: whether the menu exposes a
-// per-motor editor or a per-stage editor. Storage is always the same per-motor arrays
-// (idleRPM[4] / revRPMset[N][4]) either way - this only picks which submenu is unlocked.
+
 static const char* const rpmModeLabels[] = {"Custom", "Stage"};
 static EnumItem<rpmModeType_t> rpmModeItem("RPM Mode", &activeProfile.rpmMode, rpmModeLabels, 2);
 
-// Locks a submenu based on the global RPM Mode, so the per-motor and per-stage editors for a
-// given section (Idle RPM or one RPM profile) are mutually exclusive at the point you'd navigate
 // into one.
 class ModeLockedSubmenuItem : public SubmenuItem
 {
@@ -47,7 +43,7 @@ class ModeLockedSubmenuItem : public SubmenuItem
 };
 
 // Writes the same RPM to every motor whose motorStage matches - a "edit by stage instead of by
-// motor" convenience over the real per-motor storage (revRPMset[N] or idleRPM), not separate
+// motor" convenience over the real per-motor storage (revRPM or idleRPM), not separate
 // stored data of its own. Shows the first matching motor's current value; if motors in the same
 // stage have diverged (e.g. edited individually via Custom), editing here overwrites all of them
 // to match.
@@ -79,14 +75,14 @@ class StageRpmItem : public MenuItem
     int32_t currentValue() const
     {
         for (int i = 0; i < 4; i++)
-            if (activeProfile.motors[i] && activeProfile.motorStage[i] == stage_)
+            if (deviceSettings.motorConfig[i].enabled && deviceSettings.motorConfig[i].stage == stage_)
                 return values_[i];
         return 0;
     }
     void setAll(int32_t value)
     {
         for (int i = 0; i < 4; i++)
-            if (activeProfile.motors[i] && activeProfile.motorStage[i] == stage_)
+            if (deviceSettings.motorConfig[i].enabled && deviceSettings.motorConfig[i].stage == stage_)
                 values_[i] = value;
     }
 
@@ -112,44 +108,27 @@ static ModeLockedSubmenuItem idleRpmStageSubmenu("Stage", idleRpmStageItems, 2, 
 static MenuItem* idleRpmItems[] = {&idleRpmCustomSubmenu, &idleRpmStageSubmenu};
 static SubmenuItem idleRpmSubmenu("Idle RPM", idleRpmItems, 2);
 
-// RPM Profile N (boot-locked, matches fpsMode's indexing). Every item here needs a reboot -
-// main.cpp's setup() reads these fields once and caches the result into motorArr[i]. Which of
-// Custom FPS / Stage RPM is unlocked is gated by the single global RPM Mode above.
-#define RPM_PROFILE_SUBMENU(N, LABEL)                                                              \
-    static RpmTargetItem rpmProfile##N##Motor0Item("Motor 1 RPM", &activeProfile.revRPMset[N][0],  \
-                                                   500, true);                                     \
-    static RpmTargetItem rpmProfile##N##Motor1Item("Motor 2 RPM", &activeProfile.revRPMset[N][1],  \
-                                                   500, true);                                     \
-    static RpmTargetItem rpmProfile##N##Motor2Item("Motor 3 RPM", &activeProfile.revRPMset[N][2],  \
-                                                   500, true);                                     \
-    static RpmTargetItem rpmProfile##N##Motor3Item("Motor 4 RPM", &activeProfile.revRPMset[N][3],  \
-                                                   500, true);                                     \
-    static MenuItem* rpmProfile##N##CustomItems[] = {                                              \
-        &rpmProfile##N##Motor0Item, &rpmProfile##N##Motor1Item, &rpmProfile##N##Motor2Item,        \
-        &rpmProfile##N##Motor3Item};                                                               \
-    static ModeLockedSubmenuItem rpmProfile##N##CustomSubmenu(                                     \
-        "Custom FPS", rpmProfile##N##CustomItems, 4, RPM_CUSTOM);                                  \
-    static StageRpmItem rpmProfile##N##Stage1Item("1st Stage RPM", activeProfile.revRPMset[N],     \
-                                                  STAGE_1, 500, true);                             \
-    static StageRpmItem rpmProfile##N##Stage2Item("2nd Stage RPM", activeProfile.revRPMset[N],     \
-                                                  STAGE_2, 500, true);                             \
-    static MenuItem* rpmProfile##N##StageItems[] = {&rpmProfile##N##Stage1Item,                    \
-                                                    &rpmProfile##N##Stage2Item};                   \
-    static ModeLockedSubmenuItem rpmProfile##N##StageSubmenu(                                      \
-        "Stage RPM", rpmProfile##N##StageItems, 2, RPM_STAGE);                                     \
-    static NumericItem<uint32_t> rpmProfile##N##DwellItem(                                         \
-        "Dwell Time (ms)", &activeProfile.dwellTimeSet_ms[N], 0, 5000, 50, true);                  \
-    static NumericItem<uint32_t> rpmProfile##N##IdleItem(                                          \
-        "Idle Time (ms)", &activeProfile.idleTimeSet_ms[N], 0, 300000, 1000, true);                \
-    static MenuItem* rpmProfile##N##Items[] = {                                                    \
-        &rpmProfile##N##CustomSubmenu, &rpmProfile##N##StageSubmenu, &rpmProfile##N##DwellItem,    \
-        &rpmProfile##N##IdleItem};                                                                 \
-    SubmenuItem rpmProfile##N##Submenu(LABEL, rpmProfile##N##Items, 4);
-
-RPM_PROFILE_SUBMENU(0, "RPM Profile 1")
-RPM_PROFILE_SUBMENU(1, "RPM Profile 2")
-RPM_PROFILE_SUBMENU(2, "RPM Profile 3")
-#undef RPM_PROFILE_SUBMENU
+static RpmTargetItem profileRpmMotor0Item("Motor 1 RPM", &activeProfile.revRPM[0], 500, true);
+static RpmTargetItem profileRpmMotor1Item("Motor 2 RPM", &activeProfile.revRPM[1], 500, true);
+static RpmTargetItem profileRpmMotor2Item("Motor 3 RPM", &activeProfile.revRPM[2], 500, true);
+static RpmTargetItem profileRpmMotor3Item("Motor 4 RPM", &activeProfile.revRPM[3], 500, true);
+static MenuItem* profileRpmCustomItems[] = {&profileRpmMotor0Item, &profileRpmMotor1Item,
+                                            &profileRpmMotor2Item, &profileRpmMotor3Item};
+static ModeLockedSubmenuItem profileRpmCustomSubmenu("Per Motor RPM", profileRpmCustomItems, 4,
+                                                     RPM_CUSTOM);
+static StageRpmItem profileRpmStage1Item("1st Stage RPM", activeProfile.revRPM, STAGE_1, 500, true);
+static StageRpmItem profileRpmStage2Item("2nd Stage RPM", activeProfile.revRPM, STAGE_2, 500, true);
+static MenuItem* profileRpmStageItems[] = {&profileRpmStage1Item, &profileRpmStage2Item};
+static ModeLockedSubmenuItem profileRpmStageSubmenu("Per Stage RPM", profileRpmStageItems, 2,
+                                                    RPM_STAGE);
+static NumericItem<uint32_t> profileDwellItem("Dwell Time (ms)", &activeProfile.dwellTime_ms, 0,
+                                              5000, 50, true);
+static NumericItem<uint32_t> profileIdleItem("Idle Time (ms)", &activeProfile.idleTime_ms, 0,
+                                             300000, 1000, true);
+static MenuItem* profileRpmItems[] = {&profileRpmStageSubmenu, &profileRpmCustomSubmenu,
+                                      &profileDwellItem, &profileIdleItem};
+// Non-static: referenced by menu.cpp's Advanced submenu assembly.
+SubmenuItem profileRpmSubmenu("RPM / Timing", profileRpmItems, 4);
 
 // Additive to the exit condition already checked in fwControlLoop()'s STATE_FULLSPEED - 0
 // disables. Checked live, no reboot needed.
@@ -157,9 +136,9 @@ static NumericItem<uint32_t>
     revSafetyTimeoutItem("Rev Safety TO (ms)", &activeProfile.revSafetyTimeout_ms, 0, 600000, 5000);
 
 static MenuItem* flywheelRpmItems[] = {
-    &rpmModeItem,         &variableFPSItem,        &rpmProfile0Submenu,   &rpmProfile1Submenu,
-    &rpmProfile2Submenu,  &spindownSpeedItem,      &revSafetyTimeoutItem, &idleRpmSubmenu,
-    &flywheelControlItem, &firingRpmToleranceItem, &minFiringRpmItem,     &rampupTimeoutItem,
+    &rpmModeItem,         &profileRpmSubmenu,      &spindownSpeedItem,    &idleRpmSubmenu,
+    &revSafetyTimeoutItem, &flywheelControlItem,    &firingRpmToleranceItem, &minFiringRpmItem,
+    &rampupTimeoutItem,   &variableFPSItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem flywheelRpmSubmenu("Flywheel / RPM", flywheelRpmItems, 12);
+SubmenuItem flywheelRpmSubmenu("Flywheel / RPM", flywheelRpmItems, 10);

@@ -2,7 +2,8 @@
 
 static const char* const selectFireTypeLabels[] = {"Off", "Switch", "Button"};
 static EnumItem<selectFireType_t>
-    selectFireTypeItem("Select-Fire Type", &activeProfile.selectFireType, selectFireTypeLabels, 3);
+    selectFireTypeItem("Select-Fire Type", &deviceSettings.selectFireType, selectFireTypeLabels, 3,
+                       true);
 
 class DefaultModeItem : public MenuItem
 {
@@ -11,7 +12,7 @@ class DefaultModeItem : public MenuItem
 
     String valueText() const override
     {
-        return activeProfile.fireModeStrings[currentOptionIndex()];
+        return activeProfile.fireModes[currentOptionIndex()].name;
     }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
@@ -38,7 +39,7 @@ class DefaultModeItem : public MenuItem
     uint8_t optionCount() const override { return 3; }
     String optionLabel(uint8_t index) const override
     {
-        return index < 3 ? activeProfile.fireModeStrings[index] : String();
+        return index < 3 ? activeProfile.fireModes[index].name : String();
     }
     uint8_t currentOptionIndex() const override { return *value_ > 2 ? 2 : *value_; }
 
@@ -54,17 +55,20 @@ static NumericItem<uint32_t> binaryTriggerTimeoutItem("Binary Timeout (ms)",
 
 static const char* const burstModeLabels[] = {"AUTO", "BURST", "BINARY", "SAFE"};
 
+
 #define FIRING_MODE_SUBMENU(N, LABEL)                                                              \
     EnumItem<burstFireType_t> firingMode##N##BurstModeItem(                                        \
-        "Burst Mode", &activeProfile.burstModeSet[N], burstModeLabels, 4);                         \
+        "Burst Mode", &activeProfile.fireModes[N].burstMode, burstModeLabels, 4);                  \
     NumericItem<uint32_t> firingMode##N##BurstLengthItem(                                          \
-        "Burst Length", &activeProfile.burstLengthSet[N], 1, 500, 1);                              \
+        "Burst Length", &activeProfile.fireModes[N].burstLength, 1, 500, 1);                       \
+    TargetDpsItem firingMode##N##TargetDpsItem("Target DPS",                                       \
+                                                &activeProfile.fireModes[N].targetDPS);             \
     static TextEditItem firingMode##N##DisplayNameItem("Display Name",                             \
-                                                       &activeProfile.fireModeStrings[N]);         \
-    static MenuItem* firingMode##N##Items[] = {&firingMode##N##BurstModeItem,                      \
-                                               &firingMode##N##BurstLengthItem,                    \
-                                               &firingMode##N##DisplayNameItem};                   \
-    static SubmenuItem firingMode##N##Submenu(LABEL, firingMode##N##Items, 3);
+                                                       &activeProfile.fireModes[N].name);           \
+    static MenuItem* firingMode##N##Items[] = {                                                    \
+        &firingMode##N##BurstModeItem, &firingMode##N##BurstLengthItem,                            \
+        &firingMode##N##TargetDpsItem, &firingMode##N##DisplayNameItem};                           \
+    static SubmenuItem firingMode##N##Submenu(LABEL, firingMode##N##Items, 4);
 
 FIRING_MODE_SUBMENU(0, "Mode 1")
 FIRING_MODE_SUBMENU(1, "Mode 2")
@@ -72,8 +76,8 @@ FIRING_MODE_SUBMENU(2, "Mode 3")
 #undef FIRING_MODE_SUBMENU
 
 static MenuItem* selectFireItems[] = {
-    &selectFireTypeItem, &defaultModeItem,    &binaryTriggerTimeoutItem,
     &firingMode0Submenu, &firingMode1Submenu, &firingMode2Submenu,
+    &defaultModeItem,    &selectFireTypeItem, &binaryTriggerTimeoutItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
 SubmenuItem selectFireSubmenu("Select-Fire", selectFireItems, 6);
