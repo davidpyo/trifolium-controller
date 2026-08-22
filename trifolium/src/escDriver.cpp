@@ -3,7 +3,7 @@
 EscDriver::EscDriver(uint8_t escPin)
 {
     m_pin = escPin;
-    isForward = true; 
+    isForward = true;
     esc = new BidirDShotX1(escPin, 300);
     throttleValue = DSHOT_CMD_MOTOR_STOP;
 }
@@ -11,10 +11,13 @@ EscDriver::EscDriver(uint8_t escPin)
 // both parameters are ignored
 void EscDriver::drive(float dutyCycle, bool reverseDirection)
 {
-    if(isForward == true){
+    if (isForward == true)
+    {
         throttleValue = 2000;
         isForward = false;
-    } else {
+    }
+    else
+    {
         throttleValue = 1000;
         isForward = true;
     }
