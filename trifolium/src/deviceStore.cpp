@@ -1,6 +1,7 @@
 #include "deviceStore.h"
 #include <LittleFS.h>
 #include "factoryDefaults.h"
+#include "logging.h"
 
 namespace
 {
@@ -16,6 +17,8 @@ DeviceSettings defaultDeviceSettings()
 
 void toJson(const DeviceSettings& settings, JsonDocument& doc)
 {
+    doc["schemaVersion"] = CURRENT_SCHEMA_VERSION;
+
     doc["hasDisplay"] = settings.hasDisplay;
     doc["rotateDisplay"] = settings.rotateDisplay;
     doc["blasterName"] = settings.blasterName;
@@ -101,6 +104,15 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
 
 void fromJson(JsonDocument& doc, DeviceSettings& out)
 {
+    uint16_t loadedVersion = doc["schemaVersion"] | (uint16_t)0; // 0 = predates versioning
+    if (loadedVersion != CURRENT_SCHEMA_VERSION)
+    {
+        logger.error("Device schema version ", loadedVersion, " != ", CURRENT_SCHEMA_VERSION,
+                     " - resetting to defaults");
+        out = kDefaultDeviceSettings;
+        return;
+    }
+
     out.hasDisplay = doc["hasDisplay"] | out.hasDisplay;
     out.rotateDisplay = doc["rotateDisplay"] | out.rotateDisplay;
     out.blasterName = doc["blasterName"] | out.blasterName;

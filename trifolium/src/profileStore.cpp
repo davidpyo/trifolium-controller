@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include "global.h" // extern BootReason rebootReason - set before the profile-switch reboot
 #include "factoryDefaults.h"
+#include "logging.h"
 
 namespace
 {
@@ -93,6 +94,8 @@ bool saveActiveProfileIndex(uint8_t index)
 
 void toJson(const ShotProfile& settings, JsonDocument& doc)
 {
+    doc["schemaVersion"] = CURRENT_SCHEMA_VERSION;
+
     doc["name"] = settings.name;
 
     writeArray(doc, "revRPM", settings.revRPM, 4);
@@ -118,6 +121,15 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
 
 void fromJson(JsonDocument& doc, ShotProfile& out)
 {
+    uint16_t loadedVersion = doc["schemaVersion"] | (uint16_t)0; // 0 = predates versioning
+    if (loadedVersion != CURRENT_SCHEMA_VERSION)
+    {
+        logger.error("Profile schema version ", loadedVersion, " != ", CURRENT_SCHEMA_VERSION,
+                     " - resetting to defaults");
+        out = kDefaultProfile;
+        return;
+    }
+
     out.name = doc["name"] | out.name;
 
     readArray(doc, "revRPM", out.revRPM, 4);

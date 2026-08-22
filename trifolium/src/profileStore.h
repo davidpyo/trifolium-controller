@@ -7,6 +7,12 @@ namespace ProfileStore
 {
 constexpr uint8_t MAX_PROFILE_COUNT = 3;
 
+// Bump whenever a breaking change is made to ShotProfile's on-disk shape (field moved/removed,
+// enum reordered/repurposed, etc). fromJson() resets to defaults on a mismatch instead of
+// silently overlaying fields that may no longer mean what they used to. Independent from
+// DeviceStore::CURRENT_SCHEMA_VERSION - the two structs evolve separately.
+constexpr uint16_t CURRENT_SCHEMA_VERSION = 1;
+
 // Mounts LittleFS, formatting on first boot / mount failure. Call once from setup().
 bool begin();
 

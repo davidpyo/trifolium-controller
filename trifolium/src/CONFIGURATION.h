@@ -4,7 +4,10 @@
 #include "shotProfile.h"
 #include "deviceSettings.h"
 
-// config to check config and code versions match
+// Build-time check that THIS literal config file matches what main.cpp expects (see the
+// #if/#error in main.cpp comparing against global.h's MAJOR_VERSION/MINOR_VERSION/PATCH_VERSION).
+// Unrelated to ProfileStore::CURRENT_SCHEMA_VERSION/DeviceStore::CURRENT_SCHEMA_VERSION, which
+// version the persisted flash JSON at runtime, not this source file at compile time.
 #define CONFIG_VERSION_MAJOR 2
 #define CONFIG_VERSION_MINOR 0
 #define CONFIG_VERSION_PATCH 0
