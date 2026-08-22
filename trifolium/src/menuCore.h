@@ -171,45 +171,12 @@ class ShortcutItem : public MenuItem
     uint8_t currentOptionIndex() const override { return resolver_()->currentOptionIndex(); }
     bool isEditable() const override { return resolver_()->isEditable(); }
     String lockedMessage() const override { return resolver_()->lockedMessage(); }
+    bool isVisible() const override { return resolver_()->isVisible(); }
 
   private:
     Resolver resolver_;
 };
 
-// Gates a leaf item's editability on a runtime condition, without a dedicated subclass per field.
-// Used by the 5 manual solenoid timing fields, which go read-only while Auto Timing is on.
-class ConditionalLockItem : public MenuItem
-{
-  public:
-    using Predicate = bool (*)();
-    ConditionalLockItem(MenuItem* target, Predicate lockedWhen, const char* lockedMessage)
-        : MenuItem(target->label()), target_(target), lockedWhen_(lockedWhen),
-          lockedMessage_(lockedMessage)
-    {
-    }
-
-    const char* label() const override { return target_->label(); }
-    String valueText() const override { return target_->valueText(); }
-    bool showsArrow() const override { return target_->showsArrow(); }
-    MenuActivation activate() override { return target_->activate(); }
-    void beginEdit() override { target_->beginEdit(); }
-    void adjustValue(int8_t direction) override { target_->adjustValue(direction); }
-    void adjustValueWrapping(int8_t direction) override { target_->adjustValueWrapping(direction); }
-    void cancelEdit() override { target_->cancelEdit(); }
-    uint8_t optionCount() const override { return target_->optionCount(); }
-    String optionLabel(uint8_t index) const override { return target_->optionLabel(index); }
-    uint8_t currentOptionIndex() const override { return target_->currentOptionIndex(); }
-    bool isEditable() const override { return !lockedWhen_() && target_->isEditable(); }
-    String lockedMessage() const override
-    {
-        return lockedWhen_() ? String(lockedMessage_) : target_->lockedMessage();
-    }
-
-  private:
-    MenuItem* target_;
-    Predicate lockedWhen_;
-    const char* lockedMessage_;
-};
 class RpmTargetItem : public MenuItem
 {
   public:

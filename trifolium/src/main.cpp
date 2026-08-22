@@ -633,7 +633,7 @@ void mainFiringLogic()
     }
     updateFiringMode();
     // changes burst options
-    burstLength = activeProfile.fireModes[firingMode].burstLength;
+    burstLength = activeProfile.fireModes[firingMode].effectiveBurstLength();
     burstMode = activeProfile.fireModes[firingMode].burstMode;
 
     if (menuIsOpen() || burstMode == SAFE)
@@ -1061,6 +1061,11 @@ bool fwControlLoop()
 
 void updateFiringMode()
 {
+    if (menuIsOpen())
+    {
+        return;
+    }
+
     if (deviceSettings.selectFireType == NO_SELECT_FIRE)
     {
         return;
@@ -1190,20 +1195,33 @@ void loop1()
             if (millis() - lastUpdated > 100 || updateRuntimeNow)
             {
                 // Dart count for the HOME_FIRE_MODE animation - one per shot in the burst, except
-                // Binary (one dart per trigger pull/release, shown as 2).
-                uint16_t animDartCount = (activeProfile.fireModes[firingMode].burstMode == BINARY)
-                                             ? 2
-                                             : activeProfile.fireModes[firingMode].burstLength;
+
+                const FireModeConfig& liveFireMode = activeProfile.fireModes[firingMode];
+                uint16_t animDartCount;
+                uint16_t animGroupBreakAt = 0;
+                if (liveFireMode.burstMode == SAFE)
+                {
+                    animDartCount = 0;
+                }
+                else if (liveFireMode.burstMode == BINARY)
+                {
+                    animDartCount = 2 * liveFireMode.effectiveBurstLength();
+                    animGroupBreakAt = liveFireMode.effectiveBurstLength();
+                }
+                else
+                {
+                    animDartCount = liveFireMode.effectiveBurstLength();
+                }
                 // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
                 // last measured extend-to-extend interval, set is the raw targetDPS setting.
                 displayManager.renderTelemetry(
-                    activeProfile.fireModes[firingMode].name.c_str(), activeProfile.name.c_str(),
+                    liveFireMode.effectiveName().c_str(), activeProfile.name.c_str(),
                     deviceSettings.blasterName.c_str(), motorArr, motorsEnabled,
                     motorStages, displayShotCounter, batteryMonitor->isDefined(),
                     batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
                     batteryWarningActive, deviceSettings.homeScreenDisplayMode, animDartCount,
-                    deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS,
-                    activeProfile.fireModes[firingMode].targetDPS);
+                    animGroupBreakAt, deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS,
+                    liveFireMode.targetDPS);
                 updateRuntimeNow = false;
                 lastUpdated = millis();
             }

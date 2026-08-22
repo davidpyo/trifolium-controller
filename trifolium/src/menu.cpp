@@ -44,17 +44,19 @@ static MenuItem* activeTargetDpsTarget()
 static ShortcutItem firingModeShortcut("Firing Mode", activeBurstModeTarget);
 static ShortcutItem burstLengthShortcut("Burst Length", activeBurstLengthTarget);
 static ShortcutItem targetDpsShortcut("Target DPS", activeTargetDpsTarget);
+static ShortcutItem rpmTimingShortcut("RPM / Timing", activeProfileRpmTarget);
+static ShortcutItem switchFireModeShortcut("Switch Fire Mode", screenFireModeTarget);
 
 // Reboot and Switch Profile are also reachable the long way (Device > Reboot, Profile > Switch
 // Profile) - same instances either way.
 static MenuItem* advancedItems[] = {
-    &flywheelRpmSubmenu, &selectFireSubmenu,      &profileAdvancedSubmenu, &motorsPidSubmenu,
-    &solenoidSubmenu,    &batterySubmenu,         &deviceSubmenu,
+    &flywheelRpmSubmenu, &selectFireSubmenu, &profileAdvancedSubmenu, &motorsPidSubmenu,
+    &solenoidSubmenu,    &batterySubmenu,    &deviceSubmenu,
 };
 static SubmenuItem advancedSubmenu("Advanced", advancedItems, 7);
 
 MenuItem* rootItems[] = {
-    &firingModeShortcut, &burstLengthShortcut,   &targetDpsShortcut, &profileRpmSubmenu,
-    &profileSwitchSubmenu, &rebootSubmenu,       &advancedSubmenu,
+    &firingModeShortcut,     &burstLengthShortcut,  &targetDpsShortcut, &rpmTimingShortcut,
+    &switchFireModeShortcut, &profileSwitchSubmenu, &rebootSubmenu,     &advancedSubmenu,
 };
 const uint8_t rootItemsCount = sizeof(rootItems) / sizeof(rootItems[0]);

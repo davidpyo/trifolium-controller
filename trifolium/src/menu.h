@@ -75,12 +75,24 @@ class MenuItem
         return "This setting can't be\nedited right now.\nany press = back";
     }
 
+    // False to skip this row entirely - not counted, not rendered, not selectable. Unlike
+    // isEditable() (which still shows the row and blocks entry with lockedMessage()), a hidden
+    // item behaves as if it weren't in the list at all. Checked by the engine's
+    // visibleCount()/visibleItemAt() helpers (menuCore.cpp), not by raw array indexing.
+    virtual bool isVisible() const { return !visibleWhen_ || visibleWhen_(); }
+
+    using VisibilityPredicate = bool (*)();
+    void setVisibleWhen(VisibilityPredicate pred) { visibleWhen_ = pred; }
+
     // True for settings that only take effect after a reboot.
     bool needsReboot() const { return needsReboot_; }
 
   protected:
     const char* label_;
     bool needsReboot_ = false;
+
+  private:
+    VisibilityPredicate visibleWhen_ = nullptr;
 };
 
 class SubmenuItem : public MenuItem
@@ -283,13 +295,14 @@ template <typename E> class EnumItem : public MenuItem
 
 // menuFlywheel.cpp
 extern SubmenuItem flywheelRpmSubmenu;
-extern SubmenuItem profileRpmSubmenu;
+MenuItem* activeProfileRpmTarget();
 
 // menuMotors.cpp
 extern SubmenuItem motorsPidSubmenu;
 
 // menuSelectFire.cpp
 extern SubmenuItem selectFireSubmenu;
+MenuItem* screenFireModeTarget();
 extern EnumItem<burstFireType_t> firingMode0BurstModeItem;
 extern EnumItem<burstFireType_t> firingMode1BurstModeItem;
 extern EnumItem<burstFireType_t> firingMode2BurstModeItem;

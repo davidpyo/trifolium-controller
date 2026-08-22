@@ -4,10 +4,17 @@
 
 struct FireModeConfig
 {
-    String name;
+    String name; // empty = no override, show effectiveName() instead
     uint32_t burstLength;
     burstFireType_t burstMode;
     float targetDPS; // <= 0 means "no auto dwell padding"
+
+    String effectiveName() const
+    {
+        return name.length() ? name : String(defaultBurstModeName(burstMode));
+    }
+
+    uint32_t effectiveBurstLength() const { return burstMode == SEMI ? 1 : burstLength; }
 };
 
 struct ShotProfile

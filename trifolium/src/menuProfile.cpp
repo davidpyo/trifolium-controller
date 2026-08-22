@@ -2,19 +2,21 @@
 #include "global.h" // BootReason/rebootReason - set before the reboot-warning's reboot
 #include "profileStore.h"
 
+static String profileNameAtIndex(uint8_t index)
+{
+    if (index == activeProfileIndex)
+        return activeProfile.name;
+    ShotProfile other;
+    ProfileStore::loadProfile(index, other);
+    return other.name;
+}
+
 class ProfileRowItem : public MenuItem
 {
   public:
     ProfileRowItem(const char* label, uint8_t index) : MenuItem(label), index_(index) {}
 
-    String valueText() const override
-    {
-        if (index_ == activeProfileIndex)
-            return activeProfile.name;
-        ShotProfile other;
-        ProfileStore::loadProfile(index_, other);
-        return other.name;
-    }
+    String valueText() const override { return profileNameAtIndex(index_); }
 
   protected:
     uint8_t index_;
@@ -95,8 +97,49 @@ static ActionItem resetProfileConfirmItem("Yes, Reset", resetProfileConfirmed);
 static MenuItem* resetProfileItems[] = {&resetProfileConfirmItem};
 static SubmenuItem resetProfileSubmenu("Factory Reset Profile", resetProfileItems, 1);
 
-static NumericItem<uint8_t> defaultProfileIndexItem("Default Profile",
-                                                    &deviceSettings.defaultProfileIndex, 0, 2, 1);
+class DefaultProfileItem : public MenuItem
+{
+  public:
+    DefaultProfileItem(const char* label, uint8_t* value) : MenuItem(label), value_(value) {}
+
+    String valueText() const override { return profileNameAtIndex(currentOptionIndex()); }
+    MenuActivation activate() override { return MenuActivation::EnterEdit; }
+    void beginEdit() override { entryValue_ = *value_; }
+    void adjustValue(int8_t direction) override
+    {
+        int next = (int)*value_ + direction;
+        if (next < 0)
+            next = 0;
+        if (next > 2)
+            next = 2;
+        *value_ = (uint8_t)next;
+    }
+    void adjustValueWrapping(int8_t direction) override
+    {
+        int next = (int)*value_ + direction;
+        if (next < 0)
+            next = 2;
+        if (next > 2)
+            next = 0;
+        *value_ = (uint8_t)next;
+    }
+    void cancelEdit() override { *value_ = entryValue_; }
+
+    uint8_t optionCount() const override { return 3; }
+    String optionLabel(uint8_t index) const override { return profileNameAtIndex(index); }
+    uint8_t currentOptionIndex() const override { return *value_ > 2 ? 2 : *value_; }
+
+    bool isVisible() const override
+    {
+        return deviceSettings.variableFPS && deviceSettings.selectFireType == SWITCH_SELECT_FIRE;
+    }
+
+  private:
+    uint8_t* value_;
+    uint8_t entryValue_ = 0;
+};
+static DefaultProfileItem defaultProfileIndexItem("Default Profile",
+                                                  &deviceSettings.defaultProfileIndex);
 
 static MenuItem* profileAdvancedItems[] = {
     &profileSwitchSubmenu,

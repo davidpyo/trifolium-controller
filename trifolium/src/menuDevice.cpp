@@ -200,18 +200,20 @@ static SubmenuItem displaySubmenu("Display", displayMenuItems, 5);
 static const char* const ledWarningModeLabels[] = {"No Warning", "Low Batt", "Warning Batt"};
 static EnumItem<ledWarningMode_t> ledWarningModeItem("LED Warning", &deviceSettings.ledWarningMode,
                                                      ledWarningModeLabels, 3);
-static bool noLedWired()
+static bool ledIsWired()
 {
-    return !pinDefined(board.LED_DATA);
+    return pinDefined(board.LED_DATA);
 }
-static const char* const NO_LED_LOCKED_MSG = "This board has no\nstatus LED wired.";
-static ConditionalLockItem ledWarningModeLockItem(&ledWarningModeItem, noLedWired,
-                                                  NO_LED_LOCKED_MSG);
 
 static NumericItem<uint16_t> debounceTimeItem("Switch Debounce (ms)",
                                               &deviceSettings.debounceTime_ms, 1, 200, 1);
 
 static ToggleItem dualStageTriggerItem("Dual Stage Trigger", &deviceSettings.dualStageTrigger);
+// Only meaningful when a rev pin is wired at all
+static bool revPinWired()
+{
+    return pinDefined(revSwitchPin);
+}
 static NumericItem<uint32_t>
     menuHoldTimeItem("Menu Hold Time (ms)", &deviceSettings.menuButtonHoldTime_ms, 200, 5000, 100);
 static NumericItem<int> voltageAvgWindowItem("Volt Avg Window",
@@ -223,6 +225,20 @@ static NumericItem<uint16_t> rpmDropThresholdItem("RPM Drop Thresh",
                                                   &deviceSettings.rpmDropThreshold, 0, 2000, 10);
 static NumericItem<uint32_t> maxRpmCapItem("Max RPM Cap", &deviceSettings.maxRpmCap, 5000, 100000,
                                            1000);
+static bool usesRpmShotCounter()
+{
+    return deviceSettings.useRpmBaseShotCounter;
+}
+struct DeviceItemsInit
+{
+    DeviceItemsInit()
+    {
+        ledWarningModeItem.setVisibleWhen(ledIsWired);
+        dualStageTriggerItem.setVisibleWhen(revPinWired);
+        goodRpmReadsItem.setVisibleWhen(usesRpmShotCounter);
+        rpmDropThresholdItem.setVisibleWhen(usesRpmShotCounter);
+    }
+} deviceItemsInit;
 
 // Shown on the home screen and the About screen. Uses the on-device text editor (TextEditItem).
 static TextEditItem blasterNameItem("Blaster Name", &deviceSettings.blasterName);
@@ -239,11 +255,11 @@ static MenuItem* resetDeviceItems[] = {&resetDeviceConfirmItem};
 static SubmenuItem resetDeviceSubmenu("Factory Reset Device", resetDeviceItems, 1);
 
 static MenuItem* deviceItems[] = {
-    &rebootSubmenu,          &displaySubmenu,       &blasterNameItem,
-    &ledWarningModeLockItem, &dualStageTriggerItem, &debounceTimeItem,
-    &menuHoldTimeItem,       &voltageAvgWindowItem, &rpmShotCounterItem,
-    &goodRpmReadsItem,       &rpmDropThresholdItem, &maxRpmCapItem,
-    &resetDeviceSubmenu,     &aboutItem,
+    &rebootSubmenu,      &displaySubmenu,       &blasterNameItem,
+    &ledWarningModeItem, &dualStageTriggerItem, &debounceTimeItem,
+    &menuHoldTimeItem,   &voltageAvgWindowItem, &rpmShotCounterItem,
+    &goodRpmReadsItem,   &rpmDropThresholdItem, &maxRpmCapItem,
+    &resetDeviceSubmenu, &aboutItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem deviceSubmenu("Device", deviceItems, 13);
+SubmenuItem deviceSubmenu("Device", deviceItems, 14);

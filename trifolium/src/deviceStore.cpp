@@ -125,7 +125,10 @@ void fromJson(JsonDocument& doc, DeviceSettings& out)
 
     out.dualStageTrigger = doc["dualStageTrigger"] | out.dualStageTrigger;
 
-    out.pusherType = (pusherType_t)(doc["pusherType"] | (int)out.pusherType);
+    int loadedPusherType = doc["pusherType"] | (int)out.pusherType;
+    if (loadedPusherType < NO_PUSHER || loadedPusherType > PUSHER_SOLENOID_OPENLOOP)
+        loadedPusherType = PUSHER_SOLENOID_OPENLOOP;
+    out.pusherType = (pusherType_t)loadedPusherType;
 
     out.debounceTime_ms = doc["debounceTime_ms"] | out.debounceTime_ms;
     out.menuButtonHoldTime_ms = doc["menuButtonHoldTime_ms"] | out.menuButtonHoldTime_ms;

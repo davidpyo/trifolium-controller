@@ -46,9 +46,9 @@ inline const ShotProfile kDefaultProfile = {
     .rpmMode = RPM_STAGE,
 
     .fireModes = {
-        {.name = "AUTO", .burstLength = 100, .burstMode = AUTO, .targetDPS = 15.0f},
-        {.name = "BINARY", .burstLength = 1, .burstMode = BINARY, .targetDPS = 15.0f},
-        {.name = "SEMI", .burstLength = 1, .burstMode = BURST, .targetDPS = 15.0f},
+        {.name = "", .burstLength = 100, .burstMode = AUTO, .targetDPS = 15.0f},
+        {.name = "", .burstLength = 1, .burstMode = BINARY, .targetDPS = 15.0f},
+        {.name = "", .burstLength = 1, .burstMode = SEMI, .targetDPS = 15.0f},
     },
     .binaryTriggerTimeout_ms = 2000,
     .defaultFiringMode = 1,

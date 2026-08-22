@@ -30,7 +30,8 @@ class DisplayManager
                          const motorStage_t motorStage[4], uint32_t displayShotCounter,
                          bool isBatteryAdcDefined, int32_t batteryVoltage_mv, bool showCurrentRpm,
                          bool batteryWarningActive, homeScreenDisplayMode_t homeScreenDisplayMode,
-                         uint16_t animDartCount, bool showDps, float achievedDPS, float targetDPS);
+                         uint16_t animDartCount, uint16_t animGroupBreakAt, bool showDps,
+                         float achievedDPS, float targetDPS);
 
     Adafruit_SSD1306& raw() { return display_; }
 
@@ -55,7 +56,6 @@ class DisplayManager
     unsigned long lastFrameTime_ = 0;
     uint16_t beltPos_ = 0;
 
-    // Draws dartCount darts as a tightly-packed cluster, repeating right-to-left. Returns true
-    // if a single cluster is too wide for w, so the caller can show a numeric count alongside it.
-    bool drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t dartCount);
+    bool drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t dartCount,
+                             uint16_t groupBreakAt = 0);
 };

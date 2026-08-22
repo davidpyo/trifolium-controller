@@ -49,15 +49,46 @@ static void pushLevel(const char* title, MenuItem* const* items, uint8_t count)
     level.scrollOffset = 0;
 }
 
+static uint8_t visibleCount(const MenuLevel& level)
+{
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < level.count; i++)
+        if (level.items[i]->isVisible())
+            n++;
+    return n;
+}
+
+static MenuItem* visibleItemAt(const MenuLevel& level, uint8_t pos)
+{
+    for (uint8_t i = 0; i < level.count; i++)
+    {
+        if (!level.items[i]->isVisible())
+            continue;
+        if (pos == 0)
+            return level.items[i];
+        pos--;
+    }
+    return nullptr; // pos out of range - callers only call this for pos < visibleCount(level)
+}
+
 static void moveSelection(MenuLevel& level, int8_t delta)
 {
-    int16_t virtualCount = level.count + 1; // + "< Back"
+    int16_t virtualCount = visibleCount(level) + 1; // + "< Back"
     int16_t next = (int16_t)level.selectedIndex + delta;
     if (next < 0)
         next = virtualCount - 1;
     if (next >= virtualCount)
         next = 0;
     level.selectedIndex = (uint8_t)next;
+}
+
+static void clampToVisible(MenuLevel& level)
+{
+    uint8_t virtualCount = visibleCount(level) + 1; // + "< Back"
+    if (level.selectedIndex >= virtualCount)
+        level.selectedIndex = virtualCount - 1;
+    if (level.scrollOffset >= virtualCount)
+        level.scrollOffset = 0;
 }
 
 static const uint8_t LIST_MAX_CHARS = (OLED_WIDTH - 2) / 6;
@@ -83,7 +114,9 @@ static String itemDisplayText(const MenuItem& item)
 
 static void renderList(MenuLevel& level)
 {
-    uint8_t virtualCount = level.count + 1; // + "< Back"
+    clampToVisible(level);
+    uint8_t count = visibleCount(level);
+    uint8_t virtualCount = count + 1; // + "< Back"
 
     if (level.selectedIndex < level.scrollOffset)
         level.scrollOffset = level.selectedIndex;
@@ -106,7 +139,7 @@ static void renderList(MenuLevel& level)
 
         int16_t y = LIST_TOP_Y + row * ROW_HEIGHT;
         bool selected = (i == level.selectedIndex);
-        String text = (i == level.count) ? "< Back" : itemDisplayText(*level.items[i]);
+        String text = (i == count) ? "< Back" : itemDisplayText(*visibleItemAt(level, i));
 
         if (selected)
         {
@@ -343,6 +376,7 @@ void runMenu()
         else
         {
             MenuLevel& level = menuStack[menuDepth - 1];
+            clampToVisible(level);
 
             if (triggerEdge)
                 moveSelection(level, soloTriggerListDir());
@@ -358,7 +392,7 @@ void runMenu()
             }
             else if (shortPress)
             {
-                if (level.selectedIndex == level.count)
+                if (level.selectedIndex == visibleCount(level))
                 {
                     // synthetic "< Back" row - same as a long press at this level
                     if (menuDepth > 1)
@@ -368,7 +402,7 @@ void runMenu()
                 }
                 else
                 {
-                    MenuItem* item = level.items[level.selectedIndex];
+                    MenuItem* item = visibleItemAt(level, level.selectedIndex);
                     switch (item->activate())
                     {
                     case MenuActivation::EnterSubmenu:

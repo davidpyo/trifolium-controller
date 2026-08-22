@@ -71,12 +71,34 @@ MOTOR_SUBMENU(2, "Motor 3")
 MOTOR_SUBMENU(3, "Motor 4")
 #undef MOTOR_SUBMENU
 
+static const char* const flywheelControlLabels[] = {"PID", "TBH"};
+static EnumItem<flywheelControlType_t>
+    flywheelControlItem("Control Type", &deviceSettings.flywheelControl, flywheelControlLabels, 2);
+
+static bool controlIsPid()
+{
+    return deviceSettings.flywheelControl == PID_CONTROL;
+}
+static bool controlIsTbh()
+{
+    return deviceSettings.flywheelControl == TBH_CONTROL;
+}
+
 // The actual EMA smoothing math uses `half` (1 << (EMAFilter - 1)), not activeProfile.EMAFilter
 // directly - applyEmaFilterConstant() (runMenu()'s post-save hook) recomputes it live.
 static NumericItem<uint8_t> emaFilterItem("EMA Filter", &deviceSettings.EMAFilter, 1, 8, 1);
 static NumericItem<uint8_t> iThresholdItem("I Threshold", &deviceSettings.iThreshold, 0, 255, 5);
 static NumericItem<uint16_t> throttleCapItem("Throttle Cap", &deviceSettings.throttleCap, 0, 2000,
                                              10);
+struct MotorItemsInit
+{
+    MotorItemsInit()
+    {
+        emaFilterItem.setVisibleWhen(controlIsPid);
+        iThresholdItem.setVisibleWhen(controlIsPid);
+        throttleCapItem.setVisibleWhen(controlIsTbh);
+    }
+} motorItemsInit;
 
 // Placeholder pending a fresh design
 static void autoTunePidComingSoon()
@@ -139,8 +161,9 @@ static void escDashboardFired()
 static ActionItem escDashboardItem("ESC Dashboard", escDashboardFired);
 
 static MenuItem* motorsPidItems[] = {
-    &motor0Submenu,  &motor1Submenu,   &motor2Submenu,   &motor3Submenu,    &emaFilterItem,
-    &iThresholdItem, &throttleCapItem, &autoTunePidItem, &escDashboardItem,
+    &motor0Submenu,       &motor1Submenu,   &motor2Submenu,   &motor3Submenu, &flywheelControlItem,
+    &emaFilterItem,       &iThresholdItem,  &throttleCapItem, &autoTunePidItem,
+    &escDashboardItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem motorsPidSubmenu("Motors & PID", motorsPidItems, 9);
+SubmenuItem motorsPidSubmenu("Motors & PID", motorsPidItems, 10);

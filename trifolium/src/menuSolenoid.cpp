@@ -15,15 +15,30 @@ static NumericItem<uint32_t> solenoidLowVoltageItem("Low V Threshold (mV)",
 static NumericItem<uint16_t> solenoidRetractItem("Retract Time (ms)",
                                                  &deviceSettings.solenoidRetractTime_ms, 0, 200, 1);
 
-static const char* const pusherTypeLabels[] = {"None", "Motor", "Solenoid"};
+static const char* const pusherTypeLabels[] = {"None", "Solenoid"};
 static EnumItem<pusherType_t> pusherTypeItem("Pusher Type", &deviceSettings.pusherType,
-                                             pusherTypeLabels, 3, true /* needsReboot */);
+                                             pusherTypeLabels, 2, true /* needsReboot */);
 static ToggleItem pusherReverseItem("Reverse Direction", &deviceSettings.pusherReverseDirection);
 // cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms) is only called once, at attach time
 // in main.cpp's setup().
 static NumericItem<uint16_t> pusherDebounceItem("Debounce (ms)",
                                                 &deviceSettings.pusherDebounceTime_ms, 0, 200, 1,
                                                 true /* needsReboot */);
+
+static bool pusherIsSolenoid()
+{
+    return deviceSettings.pusherType == PUSHER_SOLENOID_OPENLOOP;
+}
+struct SolenoidItemsInit
+{
+    SolenoidItemsInit()
+    {
+        solenoidExtendHighItem.setVisibleWhen(pusherIsSolenoid);
+        solenoidHighVoltageItem.setVisibleWhen(pusherIsSolenoid);
+        solenoidExtendLowItem.setVisibleWhen(pusherIsSolenoid);
+        solenoidLowVoltageItem.setVisibleWhen(pusherIsSolenoid);
+    }
+} solenoidItemsInit;
 
 static MenuItem* solenoidItems[] = {
     &solenoidExtendHighItem,
