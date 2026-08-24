@@ -135,23 +135,13 @@ class BrightnessItem : public MenuItem
     String valueText() const override { return String(*value_); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
         int next = (int)*value_ + direction * 5;
         if (next > 255)
-            next = 255;
+            next = wrap ? 5 : 255;
         if (next < 5) // keep a floor so the screen never goes fully unreadable while adjusting
-            next = 5;
-        *value_ = (uint8_t)next;
-        setDisplayContrast(*value_);
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        int next = (int)*value_ + direction * 5;
-        if (next > 255)
-            next = 5;
-        if (next < 5)
-            next = 255;
+            next = wrap ? 255 : 5;
         *value_ = (uint8_t)next;
         setDisplayContrast(*value_);
     }
@@ -206,7 +196,7 @@ static bool ledIsWired()
 }
 
 static NumericItem<uint16_t> debounceTimeItem("Switch Debounce (ms)",
-                                              &deviceSettings.debounceTime_ms, 1, 200, 1);
+                                              &deviceSettings.debounceTime_ms, 5, 50, 5);
 
 static ToggleItem dualStageTriggerItem("Dual Stage Trigger", &deviceSettings.dualStageTrigger);
 // Only meaningful when a rev pin is wired at all
@@ -214,17 +204,15 @@ static bool revPinWired()
 {
     return pinDefined(revSwitchPin);
 }
-static NumericItem<uint32_t>
-    menuHoldTimeItem("Menu Hold Time (ms)", &deviceSettings.menuButtonHoldTime_ms, 200, 5000, 100);
+static SecondsDisplayItem menuHoldTimeItem("Menu Hold Time", &deviceSettings.menuButtonHoldTime_ms,
+                                           1000, 5000, 500);
 static NumericItem<int> voltageAvgWindowItem("Volt Avg Window",
-                                             &deviceSettings.voltageAveragingWindow, 1, 50, 1);
+                                             &deviceSettings.voltageAveragingWindow, 1, 20, 1);
 static ToggleItem rpmShotCounterItem("RPM Shot Counter", &deviceSettings.useRpmBaseShotCounter);
 static NumericItem<uint16_t> goodRpmReadsItem("Good RPM Reads", &deviceSettings.goodRpmShotReads, 1,
-                                              50, 1);
+                                              30, 1);
 static NumericItem<uint16_t> rpmDropThresholdItem("RPM Drop Thresh",
-                                                  &deviceSettings.rpmDropThreshold, 0, 2000, 10);
-static NumericItem<uint32_t> maxRpmCapItem("Max RPM Cap", &deviceSettings.maxRpmCap, 5000, 100000,
-                                           1000);
+                                                  &deviceSettings.rpmDropThreshold, 0, 2000, 100);
 static bool usesRpmShotCounter()
 {
     return deviceSettings.useRpmBaseShotCounter;
@@ -258,8 +246,8 @@ static MenuItem* deviceItems[] = {
     &rebootSubmenu,      &displaySubmenu,       &blasterNameItem,
     &ledWarningModeItem, &dualStageTriggerItem, &debounceTimeItem,
     &menuHoldTimeItem,   &voltageAvgWindowItem, &rpmShotCounterItem,
-    &goodRpmReadsItem,   &rpmDropThresholdItem, &maxRpmCapItem,
+    &goodRpmReadsItem,   &rpmDropThresholdItem,
     &resetDeviceSubmenu, &aboutItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem deviceSubmenu("Device", deviceItems, 14);
+SubmenuItem deviceSubmenu("Device", deviceItems, 13);

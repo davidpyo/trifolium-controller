@@ -17,7 +17,7 @@ constexpr uint16_t CURRENT_SCHEMA_VERSION = 1;
 bool begin();
 
 ShotProfile defaultProfile(uint8_t index); // returns kDefaultProfile with name defaulted by
-                                            // index - see factoryDefaults.h
+                                            // index - see CONFIGURATION.h
 
 uint8_t loadActiveProfileIndex();
 bool saveActiveProfileIndex(uint8_t index);

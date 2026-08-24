@@ -69,17 +69,6 @@ bool Drv::wake()
     return true;
 }
 
-void Drv::sleep()
-{
-    digitalWrite(nsleep, LOW);
-}
-
-void Drv::drive()
-{
-    digitalWrite(ph, LOW);
-    digitalWrite(en, HIGH);
-}
-
 void Drv::drive(float dutyCycle, bool reverseDirection)
 {
     digitalWrite(ph, LOW);
@@ -88,12 +77,6 @@ void Drv::drive(float dutyCycle, bool reverseDirection)
     else if (dutyCycle > 1.0)
         dutyCycle = 1.0;
     analogWrite(en, (uint16_t)(dutyCycle * 255)); // Arduino PWM: 0-255
-}
-
-void Drv::brake()
-{
-    digitalWrite(ph, LOW);
-    digitalWrite(en, LOW);
 }
 
 void Drv::coast()

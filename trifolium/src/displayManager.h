@@ -4,6 +4,9 @@
 #include <Adafruit_SSD1306.h>
 #include "flywheelMotor.h"
 
+struct FiringContext;
+class FiringModeBehavior;
+
 class DisplayManager
 {
   public:
@@ -30,15 +33,25 @@ class DisplayManager
                          const motorStage_t motorStage[4], uint32_t displayShotCounter,
                          bool isBatteryAdcDefined, int32_t batteryVoltage_mv, bool showCurrentRpm,
                          bool batteryWarningActive, homeScreenDisplayMode_t homeScreenDisplayMode,
-                         uint16_t animDartCount, uint16_t animGroupBreakAt, bool showDps,
-                         float achievedDPS, float targetDPS);
+                         const FiringModeBehavior& modeBehavior, const FiringContext& fireCtx,
+                         bool showDps, float achievedDPS, float targetDPS);
 
     Adafruit_SSD1306& raw() { return display_; }
+
+    bool drawDartBelt(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t dartCount,
+                      uint16_t groupBreakAt = 0);
+
+    void drawDartStream(int16_t x, int16_t y, int16_t w, int16_t h, int16_t dartStep);
 
   private:
     static const int SCREEN_WIDTH = 128;
     static const int SCREEN_HEIGHT = 64;
     static const uint8_t SCREEN_ADDRESS = 0x3C;
+
+    static const int16_t BODY_WIDTH = 6;
+    static const int16_t BODY_HEIGHT = 4;
+    static const int16_t HEAD_HEIGHT = 2;
+    void drawDart(int16_t dartX, int16_t midY);
 
     Adafruit_SSD1306& display_;
     bool hasDisplay_ = false;
@@ -55,7 +68,4 @@ class DisplayManager
     static const uint8_t FIRING_ANIM_PIXELS_PER_TICK = 6;
     unsigned long lastFrameTime_ = 0;
     uint16_t beltPos_ = 0;
-
-    bool drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t dartCount,
-                             uint16_t groupBreakAt = 0);
 };

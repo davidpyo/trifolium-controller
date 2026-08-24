@@ -105,22 +105,13 @@ class DefaultProfileItem : public MenuItem
     String valueText() const override { return profileNameAtIndex(currentOptionIndex()); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
         int next = (int)*value_ + direction;
         if (next < 0)
-            next = 0;
+            next = wrap ? 2 : 0;
         if (next > 2)
-            next = 2;
-        *value_ = (uint8_t)next;
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        int next = (int)*value_ + direction;
-        if (next < 0)
-            next = 2;
-        if (next > 2)
-            next = 0;
+            next = wrap ? 0 : 2;
         *value_ = (uint8_t)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }

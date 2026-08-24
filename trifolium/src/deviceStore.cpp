@@ -1,6 +1,6 @@
 #include "deviceStore.h"
 #include <LittleFS.h>
-#include "factoryDefaults.h"
+#include "CONFIGURATION.h"
 #include "logging.h"
 
 namespace
@@ -12,7 +12,7 @@ namespace DeviceStore
 {
 DeviceSettings defaultDeviceSettings()
 {
-    return kDefaultDeviceSettings; // see factoryDefaults.h
+    return kDefaultDeviceSettings; // see CONFIGURATION.h
 }
 
 void toJson(const DeviceSettings& settings, JsonDocument& doc)
@@ -56,8 +56,6 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["homeScreenDisplayMode"] = (int)settings.homeScreenDisplayMode;
     doc["showDpsOnHomeScreen"] = settings.showDpsOnHomeScreen;
 
-    doc["maxRpmCap"] = settings.maxRpmCap;
-
     doc["ledWarningMode"] = (int)settings.ledWarningMode;
 
     doc["dshotMode"] = (int)settings.dshotMode;
@@ -91,6 +89,7 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["solenoidExtendTimeLow_ms"] = settings.solenoidExtendTimeLow_ms;
     doc["solenoidExtendTimeLowVoltage_mv"] = settings.solenoidExtendTimeLowVoltage_mv;
     doc["solenoidRetractTime_ms"] = settings.solenoidRetractTime_ms;
+    doc["vibrationPulseMs"] = settings.vibrationPulseMs;
 
     doc["batteryType"] = (int)settings.batteryType;
     doc["lowVoltageCutoffPerCell_mv"] = settings.lowVoltageCutoffPerCell_mv;
@@ -157,8 +156,6 @@ void fromJson(JsonDocument& doc, DeviceSettings& out)
         (homeScreenDisplayMode_t)(doc["homeScreenDisplayMode"] | (int)out.homeScreenDisplayMode);
     out.showDpsOnHomeScreen = doc["showDpsOnHomeScreen"] | out.showDpsOnHomeScreen;
 
-    out.maxRpmCap = doc["maxRpmCap"] | out.maxRpmCap;
-
     out.ledWarningMode = (ledWarningMode_t)(doc["ledWarningMode"] | (int)out.ledWarningMode);
 
     out.dshotMode = (dshot_mode_t)(doc["dshotMode"] | (int)out.dshotMode);
@@ -177,8 +174,7 @@ void fromJson(JsonDocument& doc, DeviceSettings& out)
             if (cfg.isNull())
                 continue;
             out.motorConfig[i].enabled = cfg["enabled"] | out.motorConfig[i].enabled;
-            out.motorConfig[i].stage =
-                (motorStage_t)(cfg["stage"] | (int)out.motorConfig[i].stage);
+            out.motorConfig[i].stage = (motorStage_t)(cfg["stage"] | (int)out.motorConfig[i].stage);
             out.motorConfig[i].kp = cfg["kp"] | out.motorConfig[i].kp;
             out.motorConfig[i].ki = cfg["ki"] | out.motorConfig[i].ki;
             out.motorConfig[i].motorKv = cfg["motorKv"] | out.motorConfig[i].motorKv;
@@ -204,6 +200,7 @@ void fromJson(JsonDocument& doc, DeviceSettings& out)
     out.solenoidExtendTimeLowVoltage_mv =
         doc["solenoidExtendTimeLowVoltage_mv"] | out.solenoidExtendTimeLowVoltage_mv;
     out.solenoidRetractTime_ms = doc["solenoidRetractTime_ms"] | out.solenoidRetractTime_ms;
+    out.vibrationPulseMs = doc["vibrationPulseMs"] | out.vibrationPulseMs;
 
     out.batteryType = (batteryType_t)(doc["batteryType"] | (int)out.batteryType);
     out.lowVoltageCutoffPerCell_mv =

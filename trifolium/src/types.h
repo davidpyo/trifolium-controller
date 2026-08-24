@@ -7,21 +7,10 @@
 #define PIN_NOT_USED 255
 
 // deriving from uint32_t etc. would result in problems with function overloading (e.g. when using
-// the same function for i32 variables and int literals, the compiler expects a function for int and
-// one for i32)
-typedef float f32;
-typedef double f64;
-typedef signed char i8;
-typedef signed short i16;
-typedef signed int i32;
-typedef signed long long i64;
+// the same function for a u8 variable and an int literal, the compiler expects a function for int
+// and one for u8)
 typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
 typedef unsigned long long u64;
-
-#define CHECK_TYPE_SIZE(type, expected)                                                            \
-    static_assert((sizeof(type)) == (expected), "Size of " #type " is not as expected.")
 
 enum flywheelState_t
 {
@@ -51,28 +40,12 @@ enum burstFireType_t
     AUTO,
     BURST,
     BINARY,
-    SAFE, // ignores trigger input entirely - a physical safety, not a firing style
-    SEMI, // always exactly 1 dart per trigger pull
+    SAFE,     // ignores trigger input entirely - a physical safety, not a firing style
+    SEMI,     // always exactly 1 dart per trigger pull
+    DEVOTION, // DPS ramps up the longer the trigger is held
+    PLASMA,   // hold to charge on an exponential ramp, release when READY(n) fires n darts (1-3)
 };
 
-inline const char* defaultBurstModeName(burstFireType_t mode)
-{
-    switch (mode)
-    {
-    case AUTO:
-        return "AUTO";
-    case BURST:
-        return "BURST";
-    case BINARY:
-        return "BINARY";
-    case SAFE:
-        return "SAFE";
-    case SEMI:
-        return "SEMI";
-    default:
-        return "";
-    }
-}
 enum pusherType_t
 {
     NO_PUSHER,
@@ -124,27 +97,6 @@ enum dshot_mode_t
     DSHOT600 = 600,
     DSHOT1200 = 1200
 };
-
-enum dshot_min_delay_t
-{
-    DSHOT_MIN_DELAY_300 = 1000,  // 167
-    DSHOT_MIN_DELAY_600 = 1000,  // 113
-    DSHOT_MIN_DELAY_1200 = 1000, // 87
-};
-
-inline dshot_min_delay_t dshotMinDelayFor(dshot_mode_t mode)
-{
-    switch (mode)
-    {
-    case DSHOT600:
-        return DSHOT_MIN_DELAY_600;
-    case DSHOT1200:
-        return DSHOT_MIN_DELAY_1200;
-    case DSHOT300:
-    default:
-        return DSHOT_MIN_DELAY_300;
-    }
-}
 
 typedef struct
 {

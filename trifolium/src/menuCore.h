@@ -19,6 +19,7 @@ extern bool menuButtonNormallyClosed;
 extern uint16_t debounceTime_ms;
 extern uint8_t triggerSwitchPin;
 extern uint8_t revSwitchPin;
+extern uint8_t selectPins[3];
 
 extern Adafruit_SSD1306 display;
 extern Bounce2::Button triggerSwitch;
@@ -28,8 +29,10 @@ extern ShotProfile activeProfile;
 extern DeviceSettings deviceSettings;
 extern uint8_t activeProfileIndex;           // which of the 3 named profiles activeProfile came from
 extern int8_t firingMode;                    // which Firing Mode (1-3) is live-selected right now
+extern int8_t screenOverrideMode;
 extern float solenoidVoltageTimeSlope;       // applySolenoidTimingCurve()'s output
 extern int16_t solenoidVoltageTimeIntercept; // ditto
+extern float maxAchievableDPS;                // applyMaxAchievableDps()'s output
 extern BatteryMonitor* batteryMonitor;
 extern DisplayManager displayManager;
 extern FlywheelMotor motorArr[4];
@@ -144,10 +147,7 @@ class TextEditItem : public MenuItem
     String* value_;
 };
 
-// Transparent proxy onto another MenuItem, resolved fresh on every call rather than bound once at
-// construction - lets a root-level row track whichever underlying item is "active" right now (e.g.
-// Burst Mode for whichever Firing Mode is selected) without duplicating the field. The label shown
-// is this item's own; everything else forwards to the resolved target.
+
 class ShortcutItem : public MenuItem
 {
   public:
@@ -160,11 +160,7 @@ class ShortcutItem : public MenuItem
     MenuItem* const* children() const override { return resolver_()->children(); }
     uint8_t childCount() const override { return resolver_()->childCount(); }
     void beginEdit() override { resolver_()->beginEdit(); }
-    void adjustValue(int8_t direction) override { resolver_()->adjustValue(direction); }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        resolver_()->adjustValueWrapping(direction);
-    }
+    void adjust(int8_t direction, bool wrap) override { resolver_()->adjust(direction, wrap); }
     void cancelEdit() override { resolver_()->cancelEdit(); }
     uint8_t optionCount() const override { return resolver_()->optionCount(); }
     String optionLabel(uint8_t index) const override { return resolver_()->optionLabel(index); }
@@ -176,99 +172,122 @@ class ShortcutItem : public MenuItem
   private:
     Resolver resolver_;
 };
+static const uint8_t RPM_TARGET_ALL_MOTORS = 0xFF;
+
+inline int32_t motorRpmCeiling(uint8_t motorIndex)
+{
+    const MotorConfig& mc = deviceSettings.motorConfig[motorIndex];
+    int64_t theoreticalMax =
+        (int64_t)mc.motorKv * batteryVoltageMax_mv[deviceSettings.batteryType] / 1000;
+    int64_t margin = (int64_t)cellCount(deviceSettings.batteryType) * mc.motorKv / 2;
+    return (int32_t)(theoreticalMax - margin);
+}
+
+inline int32_t motorRpmFloor(uint8_t motorIndex)
+{
+    return 2 * deviceSettings.motorConfig[motorIndex].motorKv;
+}
+
+inline int8_t highestKvEnabledMotor(const uint8_t* candidates, uint8_t count)
+{
+    int8_t best = -1;
+    for (uint8_t i = 0; i < count; i++)
+    {
+        uint8_t idx = candidates[i];
+        if (deviceSettings.motorConfig[idx].enabled &&
+            (best < 0 ||
+             deviceSettings.motorConfig[idx].motorKv > deviceSettings.motorConfig[best].motorKv))
+        {
+            best = (int8_t)idx;
+        }
+    }
+    return best;
+}
 
 class RpmTargetItem : public MenuItem
 {
   public:
-    RpmTargetItem(const char* label, int32_t* value, int32_t step, bool needsReboot = false)
-        : MenuItem(label), value_(value), step_(step)
+    RpmTargetItem(const char* label, int32_t* value, uint8_t motorIndex, int32_t step,
+                 bool needsReboot = false)
+        : MenuItem(label), value_(value), motorIndex_(motorIndex), step_(step)
     {
         needsReboot_ = needsReboot;
     }
     String valueText() const override { return String(*value_); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
+        int32_t floor = 0;
+        int32_t ceiling = 100000; // fallback if no motor in scope is enabled
+        int8_t ref = referenceMotor();
+        if (ref >= 0)
+        {
+            floor = motorRpmFloor((uint8_t)ref);
+            ceiling = motorRpmCeiling((uint8_t)ref);
+        }
         int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)deviceSettings.maxRpmCap)
-            next = (int64_t)deviceSettings.maxRpmCap;
-        if (next < 0)
-            next = 0;
-        *value_ = (int32_t)next;
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)deviceSettings.maxRpmCap)
-            next = 0;
-        if (next < 0)
-            next = (int64_t)deviceSettings.maxRpmCap;
+        if (next > (int64_t)ceiling)
+            next = wrap ? (int64_t)floor : (int64_t)ceiling;
+        if (next < (int64_t)floor)
+            next = wrap ? (int64_t)ceiling : (int64_t)floor;
         *value_ = (int32_t)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }
 
   private:
+    int8_t referenceMotor() const
+    {
+        if (motorIndex_ != RPM_TARGET_ALL_MOTORS)
+            return deviceSettings.motorConfig[motorIndex_].enabled ? (int8_t)motorIndex_ : -1;
+        static const uint8_t allMotors[4] = {0, 1, 2, 3};
+        return highestKvEnabledMotor(allMotors, 4);
+    }
+
     int32_t* value_;
+    uint8_t motorIndex_;
     int32_t step_;
     int32_t entryValue_ = 0;
 };
 
-class TargetDpsItem : public MenuItem
+inline String formatSecondsMs(uint32_t valueMs, uint32_t granularityMs)
+{
+    if (granularityMs >= 1000)
+        return String(valueMs / 1000) + "s";
+    return String(valueMs / 1000.0f, 1) + "s";
+}
+
+class SecondsDisplayItem : public MenuItem
 {
   public:
-    TargetDpsItem(const char* label, float* value) : MenuItem(label), value_(value) {}
-
-    String valueText() const override
+    SecondsDisplayItem(const char* label, uint32_t* value_ms, uint32_t minMs, uint32_t maxMs,
+                       uint32_t granularityMs, bool needsReboot = false)
+        : MenuItem(label), value_(value_ms), min_(minMs), max_(maxMs), granularity_(granularityMs)
     {
-        int hardwareMaxInt = (int)floorf(achievedDPS());
-        int value = (int)roundf(*value_);
-        String text = String(value);
-        if (value >= hardwareMaxInt)
-            text += " (max)";
-        return text;
+        needsReboot_ = needsReboot;
     }
-    // "(max)" pushes this value's rendered width past what size-3 fits at any 2-digit value.
-    uint8_t editValueTextSize() const override { return 2; }
+
+    String valueText() const override { return formatSecondsMs(*value_, granularity_); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
-        float next = roundf(*value_) + direction * 1.0f;
-        if (next < 1.0f)
-            next = 1.0f;
-        float hardwareMax = floorf(achievedDPS());
-        if (next > hardwareMax)
-            next = hardwareMax;
-        *value_ = next;
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        float hardwareMax = floorf(achievedDPS());
-        float next = roundf(*value_) + direction * 1.0f;
-        if (next > hardwareMax)
-            next = 1.0f;
-        if (next < 1.0f)
-            next = hardwareMax;
-        *value_ = next;
+        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)granularity_;
+        if (next > (int64_t)max_)
+            next = wrap ? (int64_t)min_ : (int64_t)max_;
+        if (next < (int64_t)min_)
+            next = wrap ? (int64_t)max_ : (int64_t)min_;
+        *value_ = (uint32_t)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }
 
   private:
-    static float achievedDPS()
-    {
-        float extendAtVoltage_ms = batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope +
-                                   solenoidVoltageTimeIntercept;
-        float cycle_ms = extendAtVoltage_ms + deviceSettings.solenoidRetractTime_ms;
-        return cycle_ms > 0 ? 1000.0f / cycle_ms : 0;
-    }
-    float* value_;
-    float entryValue_ = 0;
+    uint32_t* value_;
+    uint32_t min_;
+    uint32_t max_;
+    uint32_t granularity_;
+    uint32_t entryValue_ = 0;
 };
-
-extern TargetDpsItem firingMode0TargetDpsItem;
-extern TargetDpsItem firingMode1TargetDpsItem;
-extern TargetDpsItem firingMode2TargetDpsItem;
 
 // The root menu's item list (menu.cpp) and its element count.
 extern MenuItem* rootItems[];

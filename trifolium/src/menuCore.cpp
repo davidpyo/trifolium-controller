@@ -10,6 +10,7 @@ void applyMotorConfig();
 void applyEmaFilterConstant();
 void applyFiringRpmThresholds();
 void applySolenoidTimingCurve();
+void applyMaxAchievableDps();
 void applyDebounceInterval();
 void applyPrintTelemetry();
 
@@ -156,7 +157,7 @@ static void renderList(MenuLevel& level)
     display.display();
 }
 
-static void renderEdit(const MenuItem& item)
+static void renderEdit(const MenuItem& item, bool reversedDirection)
 {
     display.clearDisplay();
     display.setTextSize(1);
@@ -164,6 +165,11 @@ static void renderEdit(const MenuItem& item)
     display.setTextWrap(false); // same reasoning as renderList() - clip rather than wrap
     display.setCursor(0, 0);
     display.println(item.label());
+    if (reversedDirection)
+    {
+        display.setCursor(107, 0);
+        display.print("REV");
+    }
     display.drawFastHLine(0, 10, OLED_WIDTH, 1);
 
     String valStr = item.valueText();
@@ -310,6 +316,11 @@ void runMenu()
         0; // renderEditOptions()'s scroll position - reset per edit session below
     bool rebootPending = false;
 
+    static const unsigned long DOUBLE_CLICK_WINDOW_MS = 350;
+    bool reversedDirection = false;
+    bool pendingSave = false;
+    unsigned long pendingSaveStart_ms = 0;
+
     bool triggerWasPressed = triggerSwitch.isPressed();
     bool revWasPressed = revNavPressed();
     HeldRepeat triggerRepeat;
@@ -344,33 +355,58 @@ void runMenu()
         if (editing)
         {
             bool isOptionsList = editingItem->optionCount() > 0;
+            bool usesDoubleClickFlip = !isOptionsList && !revUsableForNav();
             int8_t triggerDir = isOptionsList ? -1 : +1;
             int8_t revDir = isOptionsList ? +1 : -1;
             if (triggerRepeat.poll(triggerIsPressed))
             {
                 if (revUsableForNav())
                 {
-                    editingItem->adjustValue(triggerDir);
+                    editingItem->adjust(triggerDir, false);
                 }
                 else
                 {
                     int8_t soloDir = isOptionsList ? +1 : triggerDir;
-                    editingItem->adjustValueWrapping(soloDir);
+                    if (usesDoubleClickFlip && reversedDirection)
+                        soloDir = (int8_t)-soloDir;
+                    editingItem->adjust(soloDir, true);
                 }
             }
             if (revRepeat.poll(revIsPressed))
-                editingItem->adjustValue(revDir);
+                editingItem->adjust(revDir, false);
 
             if (longPress)
             {
                 editingItem->cancelEdit(); // revert to the value at edit-entry
                 editing = false;
+                pendingSave = false;
             }
             else if (shortPress)
             {
+                if (usesDoubleClickFlip && pendingSave)
+                {
+                    reversedDirection = !reversedDirection;
+                    pendingSave = false;
+                }
+                else if (usesDoubleClickFlip)
+                {
+                    pendingSave = true;
+                    pendingSaveStart_ms = millis();
+                }
+                else
+                {
+                    if (editingItem->needsReboot())
+                        rebootPending = true;
+                    editing = false; // save: keep the live-adjusted value
+                }
+            }
+            else if (pendingSave && millis() - pendingSaveStart_ms >= DOUBLE_CLICK_WINDOW_MS)
+            {
+                // No second click arrived in time - commit the save that's been on hold.
+                pendingSave = false;
                 if (editingItem->needsReboot())
                     rebootPending = true;
-                editing = false; // save: keep the live-adjusted value
+                editing = false;
             }
         }
         else
@@ -429,6 +465,8 @@ void runMenu()
                             editing = true;
                             editingItem = item;
                             optionsScrollOffset = 0;
+                            reversedDirection = false;
+                            pendingSave = false;
                         }
                         break;
                     case MenuActivation::None:
@@ -437,6 +475,13 @@ void runMenu()
                         // doesn't misread that as a fresh long-press and back out a level.
                         if (item->needsReboot())
                             rebootPending = true;
+                        longPressWasActive = true;
+                        break;
+                    case MenuActivation::PopBack:
+                        if (menuDepth > 1)
+                            menuDepth--;
+                        else
+                            menuDepth = 0;
                         longPressWasActive = true;
                         break;
                     }
@@ -452,7 +497,7 @@ void runMenu()
             if (editingItem->optionCount() > 0)
                 renderEditOptions(*editingItem, optionsScrollOffset);
             else
-                renderEdit(*editingItem);
+                renderEdit(*editingItem, reversedDirection);
         }
         else
             renderList(menuStack[menuDepth - 1]);
@@ -475,6 +520,7 @@ void runMenu()
     applyPrintTelemetry();
     batteryMonitor->updateCalibration(deviceSettings.voltageCalibrationFactor,
                                       deviceSettings.voltageAveragingWindow);
+    applyMaxAchievableDps();
     displayManager.setRotation(deviceSettings.rotateDisplay);
 
     if (rebootPending)

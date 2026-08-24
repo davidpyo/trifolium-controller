@@ -40,14 +40,14 @@ static const char* const motorStageLabels[] = {"Stage 1", "Stage 2"};
                                             true);                                                 \
     static EnumItem<motorStage_t> motor##N##StageItem(                                             \
         "Stage", &deviceSettings.motorConfig[N].stage, motorStageLabels, 2, true);                 \
-    static FloatItem motor##N##KPItem("KP", &deviceSettings.motorConfig[N].kp, 0.0f, 5.0f, 0.01f,  \
+    static FloatItem motor##N##KPItem("KP", &deviceSettings.motorConfig[N].kp, 0.0f, 2.0f, 0.1f,   \
                                       2);                                                          \
-    static FloatItem motor##N##KIItem("KI", &deviceSettings.motorConfig[N].ki, 0.0f, 5.0f, 0.01f,  \
+    static FloatItem motor##N##KIItem("KI", &deviceSettings.motorConfig[N].ki, 0.0f, 2.0f, 0.1f,   \
                                       2);                                                          \
     static NumericItem<int16_t> motor##N##PolesItem(                                               \
-        "Poles/2", &deviceSettings.motorConfig[N].motorPolesDiv2, 1, 20, 1);                       \
-    static NumericItem<int32_t> motor##N##KvItem("Kv", &deviceSettings.motorConfig[N].motorKv, 100, \
-                                                  5000, 50);                                       \
+        "Poles/2", &deviceSettings.motorConfig[N].motorPolesDiv2, 1, 10, 1);                       \
+    static NumericItem<int32_t> motor##N##KvItem("Kv", &deviceSettings.motorConfig[N].motorKv, 500, \
+                                                  5000, 10);                                       \
     static void motor##N##TestFired()                                                              \
     {                                                                                              \
         if (!deviceSettings.motorConfig[N].enabled)                                                \
@@ -86,8 +86,8 @@ static bool controlIsTbh()
 
 // The actual EMA smoothing math uses `half` (1 << (EMAFilter - 1)), not activeProfile.EMAFilter
 // directly - applyEmaFilterConstant() (runMenu()'s post-save hook) recomputes it live.
-static NumericItem<uint8_t> emaFilterItem("EMA Filter", &deviceSettings.EMAFilter, 1, 8, 1);
-static NumericItem<uint8_t> iThresholdItem("I Threshold", &deviceSettings.iThreshold, 0, 255, 5);
+static NumericItem<uint8_t> emaFilterItem("EMA Filter", &deviceSettings.EMAFilter, 1, 4, 1);
+static NumericItem<uint16_t> iThresholdItem("I Threshold", &deviceSettings.iThreshold, 0, 500, 10);
 static NumericItem<uint16_t> throttleCapItem("Throttle Cap", &deviceSettings.throttleCap, 0, 2000,
                                              10);
 struct MotorItemsInit

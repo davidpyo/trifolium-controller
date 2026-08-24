@@ -19,6 +19,8 @@
     --series-2: #d95926;
     --series-3: #199e70;
     --series-4: #c98500;
+    /* off the motor palette on purpose - voltage is a shared reference, not a per-motor series */
+    --series-volt: #a06cd5;
     --grid: #2c2c2a;
     --axis-line: #383835;
   }
@@ -534,7 +536,8 @@ el("clearSplashBtn").addEventListener("click", async () => {
 function extractRpmCsv(rawText) {
   const lines = rawText.split(/\r?\n/).map((l) => l.replace(/^\s*\(device\)\s*/, "").trim());
 
-  const headerRe = /^(?:Motor \d+,TargetRPM \d+,Throttle \d+,value \d+,?)+$/;
+  // Voltage_mv prefix is optional - logs captured before it was added still parse.
+  const headerRe = /^(?:Voltage_mv,)?(?:Motor \d+,TargetRPM \d+,Throttle \d+,value \d+,?)+$/;
   const dataRowRe = /^[\d.\-,]+$/;
 
   const headerIdx = lines.findIndex((l) => headerRe.test(l));
@@ -548,27 +551,36 @@ function extractRpmCsv(rawText) {
   return csvLines.length > 1 ? csvLines.join("\n") : null; // header with no data rows isn't useful
 }
 
-// Parses the CSV shape RpmLogger::dumpIfReady() writes (rpmLogger.h): a header row of
-// "Motor N,TargetRPM N,Throttle N,value N," repeated per enabled motor, then one data row per
-// captured control-loop tick in the same column order. The "value" column (PIDIntegral) is
-// read but not charted - only RPM/target/throttle were asked for.
+// Parses the CSV shape RpmLogger::dumpIfReady() writes (rpmLogger.h): an optional leading
+// "Voltage_mv" column, then "Motor N,TargetRPM N,Throttle N,value N," repeated per enabled motor,
+// then one data row per captured control-loop tick in the same column order. The "value" column
+// (PIDIntegral) is read but not charted. Returns {motors, voltage}; voltage is empty for logs
+// captured before that column existed.
 function parseRpmCsv(text) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) return [];
+  if (!lines.length) return { motors: [], voltage: [] };
 
   const headerCells = lines[0].split(",").map((c) => c.trim()).filter(Boolean);
+  const hasVoltage = /^Voltage/i.test(headerCells[0] || "");
+  const base = hasVoltage ? 1 : 0;
+
   const motors = [];
-  for (let i = 0; i < headerCells.length; i += 4) {
+  for (let i = base; i < headerCells.length; i += 4) {
     const m = headerCells[i].match(/Motor (\d+)/);
     if (!m) continue;
     motors.push({ index: Number(m[1]), rpm: [], targetRpm: [], throttle: [] });
   }
-  if (!motors.length) return [];
+  if (!motors.length) return { motors: [], voltage: [] };
 
+  const voltage = [];
   for (let r = 1; r < lines.length; r++) {
     const cells = lines[r].split(",");
+    if (hasVoltage) {
+      const v = Number(cells[0]);
+      if (Number.isFinite(v)) voltage.push(v);
+    }
     motors.forEach((motor, i) => {
-      const col = i * 4;
+      const col = base + i * 4;
       const rpm = Number(cells[col]);
       const target = Number(cells[col + 1]);
       const throttle = Number(cells[col + 2]);
@@ -577,27 +589,46 @@ function parseRpmCsv(text) {
       if (Number.isFinite(throttle)) motor.throttle.push(throttle);
     });
   }
-  return motors;
+  return { motors, voltage };
 }
 
 // One combined line chart: `series` is [{name, color, dashed, dotted, values}]. Single shared
-// y-axis for everything passed in - if series mix RPM (tens of thousands) with throttle (a
-// couple thousand at most), the smaller one will look flat next to the larger one; that's a
-// real readability cost of sharing one axis, not a rendering bug. Hover still gives exact
-// values regardless of how small the line looks.
+// y-axis by default. A series tagged axis:"right" is scaled against its own extent and labelled
+// on the right edge instead - for signals whose interesting detail is too small to survive the
+// left axis. Series sharing the left axis still squash each other (throttle next to RPM); hover
+// gives exact values regardless of how small a line looks.
 function renderChart(title, series, opts = {}) {
   const width = opts.width || 320;
   const height = opts.height || 140;
-  const padding = { top: 10, right: 10, bottom: 8, left: 42 };
+  const hasRight = series.some((s) => s.axis === "right");
+  // One sample is one control-loop tick, so at the stock targetLoopTime_us of 1000 the sample
+  // index is milliseconds outright. Overridable in case the loop time is ever changed.
+  const msPerSample = opts.msPerSample || 1;
+  const Y_TICKS = 4; // gridline intervals, so Y_TICKS + 1 lines
+  const X_TICK_TARGET = 10; // aim for about this many time labels, then round to a sane step
+  const padding = { top: 10, right: hasRight ? 46 : 10, bottom: 24, left: 42 };
   const plotW = width - padding.left - padding.right;
   const plotH = height - padding.top - padding.bottom;
 
-  const allValues = series.flatMap((s) => s.values).filter(Number.isFinite);
   const n = Math.max(1, ...series.map((s) => s.values.length));
-  const minV = Math.min(0, ...(allValues.length ? allValues : [0]));
-  const maxV = Math.max(1, ...(allValues.length ? allValues : [1]));
-  const range = maxV - minV || 1;
-  const yScale = (v) => padding.top + plotH - ((v - minV) / range) * plotH;
+
+  // Each axis gets its own extent. The left one anchors at 0 by default so magnitudes aren't
+  // visually exaggerated; the right one exists precisely to carry a signal at a different scale,
+  // so it fits the data (a ~300mV sag on a ~16000mV rail vanishes if forced against 0).
+  const extentOf = (subset, fromZero) => {
+    const vals = subset.flatMap((s) => s.values).filter(Number.isFinite);
+    const lo = Math.min(...(vals.length ? vals : [0]));
+    const hi = Math.max(...(vals.length ? vals : [1]));
+    const min = fromZero ? Math.min(0, lo) : lo;
+    const max = fromZero ? Math.max(1, hi) : hi;
+    return { min, range: max - min || 1 };
+  };
+  const leftAxis = extentOf(series.filter((s) => s.axis !== "right"), opts.fromZero !== false);
+  const rightAxis = extentOf(series.filter((s) => s.axis === "right"), opts.rightFromZero === true);
+
+  const scaleFor = (axis) => (v) => padding.top + plotH - ((v - axis.min) / axis.range) * plotH;
+  const yLeft = scaleFor(leftAxis);
+  const yRight = scaleFor(rightAxis);
   const xScale = (i) => padding.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
 
   const box = document.createElement("div");
@@ -618,7 +649,7 @@ function renderChart(title, series, opts = {}) {
       sw.style.borderTopColor = s.color;
       sw.style.borderTopStyle = s.dashed ? "dashed" : s.dotted ? "dotted" : "solid";
       item.appendChild(sw);
-      item.appendChild(document.createTextNode(s.name));
+      item.appendChild(document.createTextNode(s.axis === "right" ? `${s.name} (right axis)` : s.name));
       legend.appendChild(item);
     });
     box.appendChild(legend);
@@ -630,9 +661,11 @@ function renderChart(title, series, opts = {}) {
   svg.setAttribute("width", "100%");
   svg.style.display = "block";
 
-  for (let g = 0; g <= 2; g++) {
-    const v = minV + (range * g) / 2;
-    const y = yScale(v);
+  // One set of gridlines shared by both axes - each tick row just gets labelled twice, so the
+  // two scales stay visually aligned instead of drawing a competing second grid.
+  const rightColor = (series.find((s) => s.axis === "right") || {}).color || "var(--muted)";
+  for (let g = 0; g <= Y_TICKS; g++) {
+    const y = padding.top + plotH - (plotH * g) / Y_TICKS;
     const gridLine = document.createElementNS(svgNS, "line");
     gridLine.setAttribute("x1", padding.left);
     gridLine.setAttribute("x2", width - padding.right);
@@ -647,12 +680,64 @@ function renderChart(title, series, opts = {}) {
     label.setAttribute("text-anchor", "end");
     label.setAttribute("font-size", "9");
     label.setAttribute("fill", "var(--muted)");
-    label.textContent = Math.round(v);
+    label.textContent = Math.round(leftAxis.min + (leftAxis.range * g) / Y_TICKS);
     svg.appendChild(label);
+
+    if (hasRight) {
+      const rLabel = document.createElementNS(svgNS, "text");
+      rLabel.setAttribute("x", width - padding.right + 6);
+      rLabel.setAttribute("y", y + 3);
+      rLabel.setAttribute("text-anchor", "start");
+      rLabel.setAttribute("font-size", "9");
+      rLabel.setAttribute("fill", rightColor); // tinted to match its series, not the left axis
+      rLabel.textContent = Math.round(rightAxis.min + (rightAxis.range * g) / Y_TICKS);
+      svg.appendChild(rLabel);
+    }
   }
+
+  // Time grid. Ticks land on a round number of milliseconds (1/2/5 x a power of ten) rather than
+  // on an even fraction of the capture, so the labels stay readable whatever length it came out.
+  const totalMs = (n - 1) * msPerSample;
+  const rawStep = Math.max(totalMs, 1) / X_TICK_TARGET;
+  const pow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const mult = rawStep / pow;
+  const xStepMs = Math.max(msPerSample, (mult <= 1 ? 1 : mult <= 2 ? 2 : mult <= 5 ? 5 : 10) * pow);
+
+  for (let k = 0; k * xStepMs <= totalMs; k++) {
+    const ms = k * xStepMs;
+    const x = xScale(ms / msPerSample);
+    if (k > 0) {
+      // no line at k=0, it would just sit on top of the y axis
+      const vLine = document.createElementNS(svgNS, "line");
+      vLine.setAttribute("x1", x);
+      vLine.setAttribute("x2", x);
+      vLine.setAttribute("y1", padding.top);
+      vLine.setAttribute("y2", padding.top + plotH);
+      vLine.setAttribute("stroke", "var(--grid)");
+      svg.appendChild(vLine);
+    }
+    const xLabel = document.createElementNS(svgNS, "text");
+    xLabel.setAttribute("x", x);
+    xLabel.setAttribute("y", padding.top + plotH + 12);
+    xLabel.setAttribute("text-anchor", "middle");
+    xLabel.setAttribute("font-size", "9");
+    xLabel.setAttribute("fill", "var(--muted)");
+    xLabel.textContent = ms.toLocaleString();
+    svg.appendChild(xLabel);
+  }
+
+  const xAxisTitle = document.createElementNS(svgNS, "text");
+  xAxisTitle.setAttribute("x", padding.left + plotW);
+  xAxisTitle.setAttribute("y", padding.top + plotH + 22);
+  xAxisTitle.setAttribute("text-anchor", "end");
+  xAxisTitle.setAttribute("font-size", "9");
+  xAxisTitle.setAttribute("fill", "var(--muted)");
+  xAxisTitle.textContent = "time (ms)";
+  svg.appendChild(xAxisTitle);
 
   series.forEach((s) => {
     if (!s.values.length) return;
+    const yScale = s.axis === "right" ? yRight : yLeft;
     const d = s.values
       .map((v, i) => `${i === 0 ? "M" : "L"} ${xScale(i).toFixed(1)} ${yScale(v).toFixed(1)}`)
       .join(" ");
@@ -695,7 +780,9 @@ function renderChart(title, series, opts = {}) {
     crosshair.setAttribute("x1", xScale(i));
     crosshair.setAttribute("x2", xScale(i));
     crosshair.style.display = "block";
-    tooltip.innerHTML = `#${i}<br>${series.map((s) => `${s.name}: ${s.values[i] ?? "-"}`).join("<br>")}`;
+    tooltip.innerHTML = `${(i * msPerSample).toLocaleString()} ms<br>${series
+      .map((s) => `${s.name}: ${s.values[i] ?? "-"}`)
+      .join("<br>")}`;
     tooltip.style.display = "block";
     tooltip.style.left = `${Math.min(70, Math.max(0, (relX / width) * 100))}%`;
   });
@@ -708,27 +795,35 @@ function renderChart(title, series, opts = {}) {
   return box;
 }
 
-// Finds the earliest index after which `values` holds essentially flat - a window of
-// windowSize consecutive samples whose range (max-min) is within jitterPct of the window's
-// mean. Returns values.length (no cut) if the series never settles for that long. Used to trim
-// the long idle/hold tail RpmLogger's fixed-length capture carries after the interesting
-// transient (accel ramp, firing) is over, so that part isn't squashed by a boring flat tail.
-function findFlatlineCutoff(values, windowSize, jitterPct) {
-  if (values.length <= windowSize) return values.length;
-  for (let i = 0; i <= values.length - windowSize; i++) {
-    let min = Infinity;
-    let max = -Infinity;
-    let sum = 0;
-    for (let j = i; j < i + windowSize; j++) {
-      const v = values[j];
-      if (v < min) min = v;
-      if (v > max) max = v;
-      sum += v;
-    }
-    const ref = Math.abs(sum / windowSize) || 1;
-    if ((max - min) / ref <= jitterPct) return i + windowSize;
+// Finds where the trailing flatline starts: walks backward from the last sample, growing a
+// candidate tail for as long as that tail's own range (max-min) stays within jitterPct of its
+// mean. Returns values.length (no cut) unless the tail reaches minRun samples, so only a
+// genuinely long boring tail gets trimmed. Used to stop the idle/hold tail RpmLogger's
+// fixed-length capture carries from squashing the interesting transient.
+//
+// Scanning backward is the whole point. A mid-capture hold (a dwell, or a steady full-speed
+// stretch between shots) is exactly as flat as the idle tail, so a forward scan stops at the
+// first one it meets and throws away everything after it, shots included.
+function findTrailingFlatStart(values, minRun, jitterPct) {
+  if (values.length <= minRun) return values.length;
+  let min = Infinity;
+  let max = -Infinity;
+  let sum = 0;
+  let i = values.length - 1;
+  for (; i >= 0; i--) {
+    const v = values[i];
+    if (!Number.isFinite(v)) break;
+    const nextMin = Math.min(min, v);
+    const nextMax = Math.max(max, v);
+    const nextSum = sum + v;
+    const ref = Math.abs(nextSum / (values.length - i)) || 1;
+    if ((nextMax - nextMin) / ref > jitterPct) break;
+    min = nextMin;
+    max = nextMax;
+    sum = nextSum;
   }
-  return values.length;
+  const start = i + 1; // first sample of the flat tail
+  return values.length - start >= minRun ? start : values.length;
 }
 
 function chartRpmLog() {
@@ -737,23 +832,36 @@ function chartRpmLog() {
     log("RPM box is empty - nothing to chart.", "err");
     return;
   }
-  const motors = parseRpmCsv(text);
+  const { motors, voltage } = parseRpmCsv(text);
   if (!motors.length) {
     log("Couldn't find any 'Motor N' header columns in the RPM box - check the CSV format.", "err");
     return;
   }
 
-  // trim the trailing flatline: once every motor's actual RPM has held within 3% jitter for
-  // 200 consecutive rows, cut there - require ALL motors settled (the later of their individual
-  // cutoffs), not just one, so an active motor's tail is never chopped off
+  // Trim the trailing flatline only. Cut where the last motor still had something happening -
+  // the later of every motor's RPM and target settling point - then keep TAIL_MARGIN rows past
+  // it so the chart still shows that it did settle. Throttle is deliberately not part of the
+  // test: it wobbles under PID even during a dead-steady hold, which would block every trim.
+  const FLAT_RUN = 200;
+  const FLAT_JITTER = 0.03;
+  const TAIL_MARGIN = 100;
   const originalLength = motors[0].rpm.length;
-  const cutoff = Math.max(...motors.map((m) => findFlatlineCutoff(m.rpm, 200, 0.03)));
+  const flatStart = Math.max(
+    ...motors.flatMap((m) => [
+      findTrailingFlatStart(m.rpm, FLAT_RUN, FLAT_JITTER),
+      findTrailingFlatStart(m.targetRpm, FLAT_RUN, FLAT_JITTER),
+    ])
+  );
+  const cutoff = Math.min(originalLength, flatStart + TAIL_MARGIN);
+  let voltageTrimmed = voltage;
   if (cutoff < originalLength) {
     motors.forEach((m) => {
       m.rpm = m.rpm.slice(0, cutoff);
       m.targetRpm = m.targetRpm.slice(0, cutoff);
       m.throttle = m.throttle.slice(0, cutoff);
     });
+    // Same cut, so the two charts stay on a common x-axis and line up sample-for-sample.
+    voltageTrimmed = voltage.slice(0, cutoff);
   }
 
   // color by motor (entity), line style by measure - keeps hue count down to however many
@@ -767,21 +875,36 @@ function chartRpmLog() {
     series.push({ name: `Motor ${motor.index} Throttle`, color, dotted: true, values: motor.throttle });
   });
 
+  // Right axis, fitted to its own range - sag is a small deviation on a large rail, so on the
+  // RPM axis it would render as a flat line.
+  if (voltageTrimmed.length) {
+    series.push({
+      name: "Battery mV",
+      color: "var(--series-volt)",
+      values: voltageTrimmed,
+      axis: "right",
+    });
+  }
+
   const chartsEl = el("rpmCharts");
   chartsEl.innerHTML = "";
   chartsEl.appendChild(
-    renderChart("RPM & throttle - solid = actual RPM, dashed = target RPM, dotted = throttle", series, {
-      width: 1400,
-      height: 460,
-      strokeWidth: "1.25",
-    })
+    renderChart(
+      "RPM & throttle (left) - solid = actual, dashed = target, dotted = throttle. Battery mV (right).",
+      series,
+      { width: 1400, height: 460, strokeWidth: "1.25" }
+    )
   );
+
   const trimNote = cutoff < originalLength
-    ? ` Trimmed the flat tail: ${originalLength - cutoff} of ${originalLength} rows dropped after RPM held within 3% for 200 rows.`
+    ? ` Trimmed the flat tail: ${originalLength - cutoff} of ${originalLength} trailing rows dropped (RPM and target held steady to the end of the capture).`
     : "";
+  const voltageNote = voltageTrimmed.length
+    ? ` Battery voltage on the right axis, ${Math.min(...voltageTrimmed)}-${Math.max(...voltageTrimmed)}mV (${Math.max(...voltageTrimmed) - Math.min(...voltageTrimmed)}mV sag).`
+    : " No Voltage_mv column in this log - reflash to capture it.";
   log(
-    `Charted ${motors.length} motor(s) in one view, ${motors[0].rpm.length} samples each.${trimNote} ` +
-      "Throttle shares the RPM axis, so it'll look small next to RPM - hover for exact values.",
+    `Charted ${motors.length} motor(s) in one view, ${motors[0].rpm.length} samples each.${trimNote}` +
+      `${voltageNote} Throttle shares the RPM axis, so it'll look small next to RPM - hover for exact values.`,
     "ok"
   );
 }

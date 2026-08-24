@@ -9,10 +9,7 @@ class Drv : public Driver
         uint8_t nscs_pin, uint8_t sclk_pin);
     void init();
     bool wake();
-    void sleep();
-    void drive();
     void drive(float dutyCycle, bool reverseDirection);
-    void brake();
     void coast();
 
   protected:

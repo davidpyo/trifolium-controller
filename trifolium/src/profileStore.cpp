@@ -1,7 +1,7 @@
 #include "profileStore.h"
 #include <LittleFS.h>
 #include "global.h" // extern BootReason rebootReason - set before the profile-switch reboot
-#include "factoryDefaults.h"
+#include "CONFIGURATION.h"
 #include "logging.h"
 
 namespace
@@ -12,21 +12,6 @@ String profilePath(uint8_t index)
 }
 
 const char* ACTIVE_INDEX_PATH = "/active.cfg";
-
-const char* defaultNameForIndex(uint8_t index)
-{
-    switch (index)
-    {
-    case 0:
-        return "Low";
-    case 1:
-        return "Medium";
-    case 2:
-        return "High";
-    default:
-        return "";
-    }
-}
 
 template <typename T> void readArray(JsonDocument& doc, const char* key, T* out, size_t count)
 {
@@ -63,8 +48,8 @@ bool begin()
 
 ShotProfile defaultProfile(uint8_t index)
 {
-    ShotProfile profile = kDefaultProfile; // see factoryDefaults.h
-    profile.name = defaultNameForIndex(index);
+    ShotProfile profile = kDefaultProfile; // see CONFIGURATION.h
+    profile.name = index < 3 ? kDefaultProfileNames[index] : "";
     return profile;
 }
 
@@ -106,17 +91,21 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
     doc["revSafetyTimeout_ms"] = settings.revSafetyTimeout_ms;
     doc["rpmMode"] = (int)settings.rpmMode;
 
+    doc["activeModeCount"] = settings.activeModeCount;
     JsonArray fireModes = doc["fireModes"].to<JsonArray>();
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < settings.activeModeCount; i++)
     {
         JsonObject mode = fireModes.add<JsonObject>();
         mode["name"] = settings.fireModes[i].name;
         mode["burstLength"] = settings.fireModes[i].burstLength;
         mode["burstMode"] = (int)settings.fireModes[i].burstMode;
         mode["targetDPS"] = settings.fireModes[i].targetDPS;
+        mode["reversible"] = settings.fireModes[i].reversible;
+        mode["binaryTriggerTimeout_ms"] = settings.fireModes[i].binaryTriggerTimeout_ms;
+        mode["includeInCycle"] = settings.fireModes[i].includeInCycle;
     }
-    doc["binaryTriggerTimeout_ms"] = settings.binaryTriggerTimeout_ms;
     doc["defaultFiringMode"] = settings.defaultFiringMode;
+    writeArray(doc, "switchPositionAssignment", settings.switchPositionAssignment, 3);
 }
 
 void fromJson(JsonDocument& doc, ShotProfile& out)
@@ -125,8 +114,7 @@ void fromJson(JsonDocument& doc, ShotProfile& out)
     if (loadedVersion != CURRENT_SCHEMA_VERSION)
     {
         logger.error("Profile schema version ", loadedVersion, " != ", CURRENT_SCHEMA_VERSION,
-                     " - resetting to defaults");
-        out = kDefaultProfile;
+                     " - ignoring saved data, keeping defaults");
         return;
     }
 
@@ -140,10 +128,17 @@ void fromJson(JsonDocument& doc, ShotProfile& out)
     out.revSafetyTimeout_ms = doc["revSafetyTimeout_ms"] | out.revSafetyTimeout_ms;
     out.rpmMode = (rpmModeType_t)(doc["rpmMode"] | (int)out.rpmMode);
 
+    uint8_t loadedModeCount = doc["activeModeCount"] | out.activeModeCount;
+    if (loadedModeCount < 1)
+        loadedModeCount = 1;
+    if (loadedModeCount > MAX_FIRE_MODES)
+        loadedModeCount = MAX_FIRE_MODES;
+    out.activeModeCount = loadedModeCount;
+
     JsonArrayConst fireModes = doc["fireModes"];
     if (!fireModes.isNull())
     {
-        for (int i = 0; i < 3 && i < (int)fireModes.size(); i++)
+        for (int i = 0; i < (int)out.activeModeCount && i < (int)fireModes.size(); i++)
         {
             JsonObjectConst mode = fireModes[i];
             if (mode.isNull())
@@ -153,10 +148,15 @@ void fromJson(JsonDocument& doc, ShotProfile& out)
             out.fireModes[i].burstMode =
                 (burstFireType_t)(mode["burstMode"] | (int)out.fireModes[i].burstMode);
             out.fireModes[i].targetDPS = mode["targetDPS"] | out.fireModes[i].targetDPS;
+            out.fireModes[i].reversible = mode["reversible"] | out.fireModes[i].reversible;
+            out.fireModes[i].binaryTriggerTimeout_ms =
+                mode["binaryTriggerTimeout_ms"] | out.fireModes[i].binaryTriggerTimeout_ms;
+            out.fireModes[i].includeInCycle =
+                mode["includeInCycle"] | out.fireModes[i].includeInCycle;
         }
     }
-    out.binaryTriggerTimeout_ms = doc["binaryTriggerTimeout_ms"] | out.binaryTriggerTimeout_ms;
     out.defaultFiringMode = doc["defaultFiringMode"] | out.defaultFiringMode;
+    readArray(doc, "switchPositionAssignment", out.switchPositionAssignment, 3);
 }
 
 bool loadProfile(uint8_t index, ShotProfile& out)

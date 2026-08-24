@@ -53,8 +53,6 @@ struct DeviceSettings
     homeScreenDisplayMode_t homeScreenDisplayMode; // Counter / Fire Mode / Both - see types.h
     bool showDpsOnHomeScreen; // adds a 3rd line under the live-RPM column: real/set DPS
 
-    uint32_t maxRpmCap; // ceiling shared by every RPM target field in the menu
-
     ledWarningMode_t ledWarningMode; // what battery condition blinks board.LED_DATA, if present
 
     dshot_mode_t dshotMode; // reboot-required, read once at boot
@@ -70,7 +68,7 @@ struct DeviceSettings
     int32_t minFiringRPM;
     uint32_t rampupTimeout_ms;
     uint8_t EMAFilter;
-    uint8_t iThreshold;
+    uint16_t iThreshold;
     uint16_t throttleCap;
 
     // Solenoid timing
@@ -79,6 +77,7 @@ struct DeviceSettings
     uint16_t solenoidExtendTimeLow_ms;
     uint32_t solenoidExtendTimeLowVoltage_mv;
     uint16_t solenoidRetractTime_ms;
+    uint16_t vibrationPulseMs;
 
     // Battery
     batteryType_t batteryType;

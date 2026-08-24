@@ -28,14 +28,14 @@ void FlywheelMotor::resetControl(flywheelControlType_t mode)
     }
 }
 
-void FlywheelMotor::readTelemetry(uint32_t& rpmOut)
+bool FlywheelMotor::readTelemetry(uint32_t& erpmOut)
 {
     uint32_t value;
     switch (esc->getTelemetryPacket(&value))
     {
     case BidirDshotTelemetryType::ERPM:
-        rpmOut = value;
-        break;
+        erpmOut = value;
+        return true;
     case BidirDshotTelemetryType::VOLTAGE:
         telemetryVoltageRaw = value;
         telemetryVoltageSeen = true;
@@ -53,14 +53,21 @@ void FlywheelMotor::readTelemetry(uint32_t& rpmOut)
         telemetryStressSeen = true;
         break;
     default:
-        break; // NO_PACKET/CHECKSUM_ERROR/STATUS/DEBUG_FRAME_* - rpmOut left as-is
+        break; // NO_PACKET/CHECKSUM_ERROR/STATUS/DEBUG_FRAME_*
     }
+    return false;
 }
 
 void FlywheelMotor::refreshFilteredRpm(uint8_t EMAFilter, uint32_t half, int batteryType)
 {
-    readTelemetry(motorRPMRaw);
-    motorRPMRaw /= m_config->m_motorPolesDiv2; // convert eRPM to RPM
+    uint32_t erpm;
+    if (!readTelemetry(erpm))
+    {
+        // EDT frame or dropped packet - no new reading this tick, so hold the last filtered value
+        // rather than re-scaling one that has already been converted.
+        return;
+    }
+    motorRPMRaw = erpm / m_config->m_motorPolesDiv2; // convert eRPM to RPM
 
     // reject impossible rpm readings - high-pass plus cell-count-scaled tolerance
     if (motorRPMRaw * 1000 > m_config->m_motorKv * batteryVoltageMax_mv[batteryType] +
@@ -128,16 +135,19 @@ void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywhee
     for our error accumulator, which we cap at 1999. Just trying to reuse variables to save runtime
     memory
     */
-    readTelemetry(motorRPM);
-    motorRPM /= m_config->m_motorPolesDiv2; // convert eRPM to RPM
-
-    // reject impossible rpm readings
-    if (motorRPM * 1000 > m_config->m_motorKv * batteryVoltage_mv)
+    uint32_t erpm;
+    if (readTelemetry(erpm)) // no new reading means hold motorRPM/motorRPMFilter as they are
     {
-        // assign to last valid filtered rpm reading
-        motorRPM = motorRPMFilter;
+        motorRPM = erpm / m_config->m_motorPolesDiv2; // convert eRPM to RPM
+
+        // reject impossible rpm readings
+        if (motorRPM * 1000 > m_config->m_motorKv * batteryVoltage_mv)
+        {
+            // assign to last valid filtered rpm reading
+            motorRPM = motorRPMFilter;
+        }
+        motorRPMFilter = motorRPM;
     }
-    motorRPMFilter = motorRPM;
 
     PIDError = targetRPM - motorRPM;
 
@@ -176,8 +186,11 @@ void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywhee
 
 void FlywheelMotor::updateOpenLoop(int32_t batteryVoltage_mv, int32_t maxThrottle)
 {
-    readTelemetry(motorRPM);
-    motorRPM /= m_config->m_motorPolesDiv2; // convert eRPM to RPM
+    uint32_t erpm;
+    if (readTelemetry(erpm)) // no new reading means hold the last motorRPM
+    {
+        motorRPM = erpm / m_config->m_motorPolesDiv2; // convert eRPM to RPM
+    }
     int32_t openLoopTarget =
         maxThrottle * targetRPM / batteryVoltage_mv * 1000 / m_config->m_motorKv;
     if (openLoopTarget < PIDOutput)

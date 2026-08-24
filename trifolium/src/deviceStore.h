@@ -7,9 +7,9 @@ namespace DeviceStore
 {
 // Bump whenever a breaking change is made to DeviceSettings's on-disk shape. Independent from
 // ProfileStore::CURRENT_SCHEMA_VERSION - see that constant's comment for the full rationale.
-constexpr uint16_t CURRENT_SCHEMA_VERSION = 1;
+constexpr uint16_t CURRENT_SCHEMA_VERSION = 2;
 
-DeviceSettings defaultDeviceSettings(); // returns kDefaultDeviceSettings - see factoryDefaults.h
+DeviceSettings defaultDeviceSettings(); // returns kDefaultDeviceSettings - see CONFIGURATION.h
 
 bool loadDeviceSettings(DeviceSettings& out);
 

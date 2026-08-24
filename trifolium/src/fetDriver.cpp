@@ -16,9 +16,3 @@ void Fet::coast()
 {
     digitalWrite(m_pin, LOW);
 }
-
-// cannot actually brake with only 1 FET, coast instead
-void Fet::brake()
-{
-    digitalWrite(m_pin, LOW);
-}

@@ -21,6 +21,7 @@
 #include "batteryMonitor.h"
 #include "rpmLogger.h"
 #include "displayManager.h"
+#include "firingModeBehavior.h"
 
 #include <SPI.h>
 // #include <Wire.h>
@@ -63,7 +64,8 @@ bool showRuntimeInfo = false;
 bool updateRuntimeNow = false;
 uint32_t runtimeShotCounter = 0;
 uint32_t displayShotCounter = 0;
-bool allowShotDetection = false;
+uint8_t pendingShotDetections = 0;
+static const uint32_t kShotDetectionGraceMs = 250;
 
 // rebooting stuff
 BootReason bootReason;
@@ -86,22 +88,20 @@ static float lastMeasuredDPS = 0; // last extend-to-extend rate, read by loop1()
 uint32_t dwellTime_ms;
 uint32_t idleTime_ms;
 uint32_t currentSpindownSpeed = 0;
-uint16_t burstLength;
 burstFireType_t burstMode;
 int8_t firingMode = 0;
-bool fromIdle;
-int32_t dshotValue = 0;
+int8_t activeSwitchPosition = -1; // -1 only until the first updateFiringMode() tick sets it
+int8_t screenOverrideMode = -1;
 int16_t shotsToFire = 0;
+float liveTargetDPS = 0;
+bool requestRev = false;
 flywheelState_t flywheelState = STATE_IDLE;
 bool firing = false;
-bool reverseBraking = false;
-bool pusherDwelling = false;
+float rpmScale_ = -1.0f;
+int16_t buzzPulsesRequested_ = 0;
 
 BatteryMonitor* batteryMonitor; // constructed in setup(), once activeProfile is loaded
 
-int32_t pusherShunt_mv = 0;
-int32_t pusherCurrent_ma = 0;
-int32_t pusherCurrentSmoothed_ma = 0;
 const int32_t maxThrottle = 1999;
 uint32_t half =
     0; // 1 << (deviceSettings.EMAFilter - 1); computed in setup(), once activeProfile is loaded
@@ -110,20 +110,12 @@ uint16_t solenoidExtendTime_ms = 0;
 float solenoidVoltageTimeSlope =
     0; // relationship between voltage and solenoid extend time calculated at setup
 int16_t solenoidVoltageTimeIntercept = 0;
-bool wifiState = false;
-// String telemBuffer = "";
-int8_t telemMotorNum = -1; // 0-3
+float maxAchievableDPS = 0;
 
-int32_t tempRPM;
-bool currentlyLogging = false;
 bool enableFwControl = true;
 
-// Set by a menu action that needs direct, exclusive throttle control (flywheel test, storage
-// discharge) - fwControlLoop() skips its own motor/ESC handling while this is set.
 volatile bool directMotorControlActive = false;
 
-// True only while the ESC Dashboard screen is open, so Rev can keep spinning flywheels for that
-// one read-only view even though every other menu screen blocks it.
 bool escDashboardOpen = false;
 
 bool revControlAllowed()
@@ -133,8 +125,6 @@ bool revControlAllowed()
 
 bool revSafetyLatched = false;
 
-// True once the battery drops below the non-cutoff warning threshold - drives a blinking
-// indicator in DisplayManager::renderTelemetry().
 bool batteryWarningActive = false;
 
 Bounce2::Button revSwitch = Bounce2::Button();
@@ -147,8 +137,7 @@ Bounce2::Button select2 = Bounce2::Button();
 Bounce2::Button* selectSwitches[3] = {&select0, &select1, &select2};
 uint8_t selectPins[3]; // populated in setup() from deviceSettings.select0/1/2Pin
 
-Motor motorsObj[4] = {Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0),
-                      Motor(0, 0, 0, 0)};
+Motor motorsObj[4] = {Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0)};
 
 bool motorsEnabled[4];
 motorStage_t motorStages[4];
@@ -170,6 +159,7 @@ void applyMotorConfig();
 void applyEmaFilterConstant();
 void applyFiringRpmThresholds();
 void applySolenoidTimingCurve();
+void applyMaxAchievableDps();
 void applyDebounceInterval();
 void applyPrintTelemetry();
 uint32_t computePusherDwellPadding_ms();
@@ -183,7 +173,7 @@ void logData()
 {
     // record() is a no-op unless a capture is currently armed (startCapture() succeeded and
     // hasn't been dumped yet) - no separate deviceSettings.useRpmLogging check needed here.
-    rpmLogger.record(motorArr, motorsEnabled);
+    rpmLogger.record(motorArr, motorsEnabled, batteryMonitor->getVoltage_mv());
 }
 
 // call this whenever a shot is detected/fired, regardless of which detection method triggered it
@@ -261,15 +251,23 @@ void applySolenoidTimingCurve()
     }
 }
 
+void applyMaxAchievableDps()
+{
+    float extendAtVoltage_ms =
+        batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept;
+    float cycle_ms = extendAtVoltage_ms + deviceSettings.solenoidRetractTime_ms;
+    maxAchievableDPS = cycle_ms > 0 ? 1000.0f / cycle_ms : 0;
+}
+
 // Auto Timing's additive dwell on top of the existing voltage-compensated extend/retract cycle.
 uint32_t computePusherDwellPadding_ms()
 {
-    if (activeProfile.fireModes[firingMode].targetDPS <= 0)
+    if (liveTargetDPS <= 0)
         return 0;
 
     float extendAtVoltage_ms =
         batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept;
-    float cycleTarget_ms = 1000.0f / activeProfile.fireModes[firingMode].targetDPS;
+    float cycleTarget_ms = 1000.0f / liveTargetDPS;
     float padding_ms = cycleTarget_ms - extendAtVoltage_ms - deviceSettings.solenoidRetractTime_ms;
     if (padding_ms < 0) // requested DPS isn't reachable - fire as fast as the hardware allows
         padding_ms = 0;
@@ -290,6 +288,8 @@ void applyDebounceInterval()
         if (pinDefined(selectPins[i]))
             selectSwitches[i]->interval(debounceTime_ms);
     }
+    if (pinDefined(deviceSettings.cycleSwitchPin))
+        cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms);
 }
 
 // Mirrors deviceSettings.printTelemetry into the plain global logging.h actually gates on.
@@ -313,7 +313,6 @@ void setup()
     activeProfileIndex = ProfileStore::loadActiveProfileIndex();
     DeviceStore::loadDeviceSettings(deviceSettings);
     applyPrintTelemetry(); // as early as possible so logging behaves correctly for the rest of boot
-    targetLoopTime_us = dshotMinDelayFor(deviceSettings.dshotMode); // before attachEsc() calls
 
     for (int i = 0; i < 4; i++)
     {
@@ -524,6 +523,7 @@ void setup()
     }
 
     applySolenoidTimingCurve();
+    applyMaxAchievableDps();
 
     if (deviceSettings.variableFPS)
     {
@@ -631,45 +631,41 @@ void mainFiringLogic()
             logger.info("Idle switch released");
         }
     }
+    int8_t previousFiringMode = firingMode;
     updateFiringMode();
-    // changes burst options
-    burstLength = activeProfile.fireModes[firingMode].effectiveBurstLength();
     burstMode = activeProfile.fireModes[firingMode].burstMode;
+    if (firingMode != previousFiringMode)
+        liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
 
-    if (menuIsOpen() || burstMode == SAFE)
+    requestRev = false;
+
+    if (menuIsOpen())
     {
-        // menu mode and firing mode are mutually exclusive, or the active mode's burst mode is
-        // the safety - either way, ignore trigger input and cancel any shots already queued
         shotsToFire = 0;
     }
-    else if (triggerSwitch.pressed() ||
-             (burstMode == BINARY && triggerSwitch.released() &&
-              time_ms < triggerTime_ms + activeProfile.binaryTriggerTimeout_ms))
-    { // pressed and released are transitions, isPressed is for state
-        const char* eventLabel = triggerSwitch.pressed() ? "Trigger pressed, burstMode "
-                                                         : " binary trigger released, burstMode ";
-        triggerTime_ms = time_ms;
-        int16_t shotsToFireBefore = shotsToFire;
-        if (burstMode == AUTO)
-        {
-            shotsToFire = burstLength;
-        }
-        else
-        {
-            if (shotsToFire < burstLength || shotsToFire == 1)
-            {
-                shotsToFire += burstLength;
-            }
-        }
-        logger.info(eventLabel, burstMode, " shotsToFire before ", shotsToFireBefore, " after ",
-                    shotsToFire);
-    }
-    else if (triggerSwitch.released())
+    else
     {
-        if (burstMode == AUTO && shotsToFire > 1)
-        {
-            shotsToFire = 1;
-        }
+        TriggerEvent event = triggerSwitch.pressed()     ? TriggerEvent::PRESSED
+                             : triggerSwitch.released()  ? TriggerEvent::RELEASED
+                             : triggerSwitch.isPressed() ? TriggerEvent::HELD
+                                                         : TriggerEvent::IDLE;
+
+        if (event == TriggerEvent::PRESSED)
+            liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
+
+        FiringContext ctx{
+            shotsToFire,
+            liveTargetDPS,
+            time_ms,
+            triggerTime_ms,
+            activeProfile.fireModes[firingMode].binaryTriggerTimeout_ms,
+            activeProfile.fireModes[firingMode].burstLength,
+            activeProfile.fireModes[firingMode].reversible,
+            requestRev,
+            rpmScale_,
+            buzzPulsesRequested_,
+        };
+        behaviorFor(burstMode).update(ctx, event);
     }
     batteryMonitor->update();
 }
@@ -716,7 +712,11 @@ void checkLowVoltageCutoff()
 // RPM-drop-based shot detection
 void checkRpmDropShotDetection()
 {
-    if (!(allowShotDetection && deviceSettings.useRpmBaseShotCounter))
+    if (pendingShotDetections == 0 || !deviceSettings.useRpmBaseShotCounter)
+    {
+        return;
+    }
+    if (flywheelState == STATE_ACCELERATING)
     {
         return;
     }
@@ -735,13 +735,48 @@ void checkRpmDropShotDetection()
         {
             logger.info("SHOT DETECTED!!!");
             registerShot();
-            allowShotDetection = false;
+            pendingShotDetections--;
             for (int j = 0; j < 4; j++)
             {
                 motorArr[j].shotsUnderThreshold = 0;
             }
             break;
         }
+    }
+}
+
+static int16_t buzzPulsesRemaining_ = 0;
+static bool buzzPulsing_ = false;
+static uint32_t buzzPulseTimer_ms = 0;
+static const uint32_t kBuzzPulseGapMs = 60; // fixed spacing between pulses within one burst
+
+void handlePlasmaBuzzPulse()
+{
+    if (deviceSettings.vibrationPulseMs == 0) // 0 = disabled
+    {
+        buzzPulsesRequested_ = 0;
+        return;
+    }
+    if (buzzPulsesRequested_ > 0 && buzzPulsesRemaining_ == 0 && !buzzPulsing_ && !firing)
+    {
+        buzzPulsesRemaining_ = buzzPulsesRequested_;
+        buzzPulsesRequested_ = 0;
+    }
+    if (buzzPulsesRemaining_ == 0 || firing) // never fight a real shot for the solenoid
+        return;
+
+    if (!buzzPulsing_ && time_ms >= buzzPulseTimer_ms)
+    {
+        pusher->drive(1.0f, deviceSettings.pusherReverseDirection);
+        buzzPulsing_ = true;
+        buzzPulseTimer_ms = time_ms + deviceSettings.vibrationPulseMs;
+    }
+    else if (buzzPulsing_ && time_ms >= buzzPulseTimer_ms)
+    {
+        pusher->coast();
+        buzzPulsing_ = false;
+        buzzPulsesRemaining_--;
+        buzzPulseTimer_ms = time_ms + kBuzzPulseGapMs;
     }
 }
 
@@ -769,7 +804,8 @@ bool fwControlLoop()
     case STATE_IDLE:
         checkLowVoltageCutoff();
 
-        if (shotsToFire > 0 || (revControlAllowed() && revSwitch.isPressed() && !revSafetyLatched))
+        if (shotsToFire > 0 ||
+            (revControlAllowed() && (revSwitch.isPressed() || requestRev) && !revSafetyLatched))
         {
             enableFwControl = true;
             revStartTime_us = loopStartTimer_us;
@@ -811,17 +847,18 @@ bool fwControlLoop()
             }
         }
         else if ((time_ms < lastRevTime_ms + dwellTime_ms && lastRevTime_ms > 0) ||
-                 allowShotDetection)
+                 pendingShotDetections > 0)
         { // dwell flywheels
-            if (allowShotDetection &&
-                time_ms > pusherTimer_ms + deviceSettings.solenoidRetractTime_ms)
+            if (pendingShotDetections > 0 && time_ms > pusherTimer_ms +
+                                                           deviceSettings.solenoidRetractTime_ms +
+                                                           kShotDetectionGraceMs)
             {
-                allowShotDetection = false;
+                // Gave up waiting - a dry fire never produces the drop.
+                pendingShotDetections = 0;
                 for (int j = 0; j < 4; j++)
                 {
                     motorArr[j].shotsUnderThreshold = 0;
                 }
-                // logger.info("Timeout reached");
             }
             else
             {
@@ -889,12 +926,16 @@ bool fwControlLoop()
                         (motorArr[i].targetRPM > rpmDrop) ? (motorArr[i].targetRPM - rpmDrop) : 0;
                 }
             }
-            fromIdle = false;
         }
         break;
 
     case STATE_ACCELERATING:
         // clang-format off
+
+        // Every tick, not just at rev-start, so a mode can reshape the ramp live.
+        for (int i = 0; i < 4; i++)
+            motorArr[i].targetRPM = (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
+                                                       : motorArr[i].revRPM;
 
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
         if ((!motorsEnabled[0] || motorArr[0].motorRPM > motorArr[0].firingRPM) &&
@@ -903,15 +944,19 @@ bool fwControlLoop()
             (!motorsEnabled[3] || motorArr[3].motorRPM > motorArr[3].firingRPM)
         ) {
             flywheelState = STATE_FULLSPEED;
-            fromIdle =  true;
             logger.info("STATE_FULLSPEED transition 1");
-        } else if (loopStartTimer_us - revStartTime_us > deviceSettings.rampupTimeout_ms * 1000UL) {
+        } else if (!behaviorFor(burstMode).managesOwnRevLifecycle() &&
+                   loopStartTimer_us - revStartTime_us > deviceSettings.rampupTimeout_ms * 1000UL) {
             flywheelState = STATE_IDLE;
             resetFWControl();
             shotsToFire = 0;
             for (int i = 0; i < 4; i++) {
-                if (motorsEnabled[i] && motorArr[i].motorRPM <= motorArr[i].firingRPM) {
-                    logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", motorArr[i].firingRPM);
+                if (motorsEnabled[i]) {
+                    if (motorArr[i].motorRPM <= motorArr[i].firingRPM) {
+                        logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", motorArr[i].firingRPM);
+                    }
+                    motorArr[i].targetRPM = 0;
+                    motorArr[i].PIDOutput = 0;
                 }
             }
         }
@@ -920,13 +965,18 @@ bool fwControlLoop()
         // clang-format on
 
     case STATE_FULLSPEED:
-        if ((!revControlAllowed() || !revSwitch.isPressed()) && shotsToFire == 0 && !firing)
+        for (int i = 0; i < 4; i++)
+            motorArr[i].targetRPM = (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
+                                                        : motorArr[i].revRPM;
+
+        if ((!revControlAllowed() || !(revSwitch.isPressed() || requestRev)) && shotsToFire == 0 &&
+            !firing)
         {
             flywheelState = STATE_IDLE;
             logger.info("State transition: FULLSPEED to IDLE 1");
         }
-        // Rev-safety timeout
-        else if (activeProfile.revSafetyTimeout_ms > 0 && shotsToFire == 0 && !firing &&
+        else if (!behaviorFor(burstMode).managesOwnRevLifecycle() &&
+                 activeProfile.revSafetyTimeout_ms > 0 && shotsToFire == 0 && !firing &&
                  time_ms - lastRevTime_ms > activeProfile.revSafetyTimeout_ms)
         {
             flywheelState = STATE_IDLE;
@@ -948,15 +998,10 @@ bool fwControlLoop()
                 }
                 else
                 {
-                    allowShotDetection = true;
-                    for (int j = 0; j < 4; j++)
-                    {
-                        motorArr[j].shotsUnderThreshold = 0;
-                    }
-                    // logger.info("cacheIndex ", cacheIndex);
+                    pendingShotDetections++;
                 }
 
-                pusher->drive(100, deviceSettings.pusherReverseDirection);
+                pusher->drive(1.0f, deviceSettings.pusherReverseDirection);
                 firing = true;
                 shotsToFire = max(0, shotsToFire - 1);
                 pusherTimer_ms = time_ms;
@@ -993,6 +1038,9 @@ bool fwControlLoop()
     }
     // let's do the solenoid counting
     checkRpmDropShotDetection();
+
+    if (burstMode == PLASMA || buzzPulsesRemaining_ > 0 || buzzPulsing_)
+        handlePlasmaBuzzPulse();
 
     if (enableFwControl)
     {
@@ -1074,7 +1122,7 @@ void updateFiringMode()
     {
         int8_t previousFiringMode = firingMode;
 
-        firingMode = activeProfile.defaultFiringMode;
+        int8_t newActivePosition = -1; // -1 = no wired pin is currently grounded
         for (int i = 0; i < 3; i++)
         {
             if (pinDefined(selectPins[i]))
@@ -1082,10 +1130,34 @@ void updateFiringMode()
                 selectSwitches[i]->update();
                 if (selectSwitches[i]->isPressed())
                 {
-                    firingMode = i;
+                    newActivePosition = i;
                     break;
                 }
             }
+        }
+
+        if (newActivePosition != activeSwitchPosition)
+        {
+            // The switch itself moved (even to/from "nothing grounded") - hand authority back to
+            // it, discarding any menu override from before this move.
+            activeSwitchPosition = newActivePosition;
+            screenOverrideMode = -1;
+        }
+
+        if (screenOverrideMode != -1)
+        {
+            firingMode = screenOverrideMode;
+        }
+        else if (activeSwitchPosition < 0)
+        {
+            firingMode = activeProfile.defaultFiringMode;
+        }
+        else
+        {
+            int8_t assigned = activeProfile.switchPositionAssignment[activeSwitchPosition];
+            bool assignedIsUsable =
+                assigned >= 0 && assigned < (int8_t)activeProfile.activeModeCount;
+            firingMode = assignedIsUsable ? assigned : activeProfile.defaultFiringMode;
         }
 
         if (firingMode != previousFiringMode)
@@ -1099,11 +1171,23 @@ void updateFiringMode()
             select0.update();
             if (select0.pressed())
             {
-                firingMode++;
-                if (firingMode > 2)
+                // Skip modes with includeInCycle == false. Bounded to activeModeCount attempts
+                // so a list with no cyclable mode at all falls back to defaultFiringMode instead
+                // of looping forever.
+                int8_t candidate = firingMode;
+                bool found = false;
+                for (uint8_t attempts = 0; attempts < activeProfile.activeModeCount; attempts++)
                 {
-                    firingMode = 0;
+                    candidate++;
+                    if (candidate > (int8_t)activeProfile.activeModeCount - 1)
+                        candidate = 0;
+                    if (activeProfile.fireModes[candidate].includeInCycle)
+                    {
+                        found = true;
+                        break;
+                    }
                 }
+                firingMode = found ? candidate : activeProfile.defaultFiringMode;
                 logger.info("Select button pressed, firingMode ", firingMode);
                 return;
             }
@@ -1194,34 +1278,31 @@ void loop1()
 
             if (millis() - lastUpdated > 100 || updateRuntimeNow)
             {
-                // Dart count for the HOME_FIRE_MODE animation - one per shot in the burst, except
-
+                // Cross-core read-only mirror of core 0's firing state, same plain-global
+                // sharing pattern as displayShotCounter above - only used for rendering here.
                 const FireModeConfig& liveFireMode = activeProfile.fireModes[firingMode];
-                uint16_t animDartCount;
-                uint16_t animGroupBreakAt = 0;
-                if (liveFireMode.burstMode == SAFE)
-                {
-                    animDartCount = 0;
-                }
-                else if (liveFireMode.burstMode == BINARY)
-                {
-                    animDartCount = 2 * liveFireMode.effectiveBurstLength();
-                    animGroupBreakAt = liveFireMode.effectiveBurstLength();
-                }
-                else
-                {
-                    animDartCount = liveFireMode.effectiveBurstLength();
-                }
+                FiringContext fireCtx{
+                    shotsToFire,
+                    liveTargetDPS,
+                    time_ms,
+                    triggerTime_ms,
+                    liveFireMode.binaryTriggerTimeout_ms,
+                    liveFireMode.burstLength,
+                    liveFireMode.reversible,
+                    requestRev,
+                    rpmScale_,
+                    buzzPulsesRequested_,
+                };
                 // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
                 // last measured extend-to-extend interval, set is the raw targetDPS setting.
                 displayManager.renderTelemetry(
                     liveFireMode.effectiveName().c_str(), activeProfile.name.c_str(),
-                    deviceSettings.blasterName.c_str(), motorArr, motorsEnabled,
-                    motorStages, displayShotCounter, batteryMonitor->isDefined(),
+                    deviceSettings.blasterName.c_str(), motorArr, motorsEnabled, motorStages,
+                    displayShotCounter, batteryMonitor->isDefined(),
                     batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
-                    batteryWarningActive, deviceSettings.homeScreenDisplayMode, animDartCount,
-                    animGroupBreakAt, deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS,
-                    liveFireMode.targetDPS);
+                    batteryWarningActive, deviceSettings.homeScreenDisplayMode,
+                    behaviorFor(liveFireMode.burstMode), fireCtx,
+                    deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS, liveFireMode.targetDPS);
                 updateRuntimeNow = false;
                 lastUpdated = millis();
             }

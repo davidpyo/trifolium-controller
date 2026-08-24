@@ -22,6 +22,7 @@ enum class MenuActivation : uint8_t
     None,
     EnterSubmenu,
     EnterEdit,
+    PopBack,
 };
 
 // Base class for every menu item - the engine only talks to items through this interface.
@@ -50,10 +51,9 @@ class MenuItem
     virtual uint8_t childCount() const { return 0; }
 
     // Edit-mode lifecycle, only meaningful for items that return EnterEdit above.
-    virtual void beginEdit() {}                   // snapshot for cancel-revert
-    virtual void adjustValue(int8_t direction) {} // trigger/rev while editing
+    virtual void beginEdit() {} // snapshot for cancel-revert
 
-    virtual void adjustValueWrapping(int8_t direction) { adjustValue(direction); }
+    virtual void adjust(int8_t direction, bool wrap) {}
 
     virtual void cancelEdit() {} // long-press: revert to snapshot
 
@@ -131,6 +131,22 @@ class ActionItem : public MenuItem
     MenuAction action_;
 };
 
+class PopBackActionItem : public MenuItem
+{
+  public:
+    PopBackActionItem(const char* label, MenuAction action) : MenuItem(label), action_(action) {}
+
+    MenuActivation activate() override
+    {
+        if (action_)
+            action_();
+        return MenuActivation::PopBack;
+    }
+
+  private:
+    MenuAction action_;
+};
+
 class ToggleItem : public MenuItem
 {
   public:
@@ -166,23 +182,14 @@ template <typename T> class NumericItem : public MenuItem
     String valueText() const override { return String(*value_); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
         // wide intermediate type so a narrow field can't wrap mid-calculation
         int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
         if (next > (int64_t)max_)
-            next = (int64_t)max_;
+            next = wrap ? (int64_t)min_ : (int64_t)max_;
         if (next < (int64_t)min_)
-            next = (int64_t)min_;
-        *value_ = (T)next;
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)max_)
-            next = (int64_t)min_;
-        if (next < (int64_t)min_)
-            next = (int64_t)max_;
+            next = wrap ? (int64_t)max_ : (int64_t)min_;
         *value_ = (T)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }
@@ -209,22 +216,13 @@ class FloatItem : public MenuItem
     String valueText() const override { return String(*value_, decimals_); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
         float next = *value_ + direction * step_;
         if (next > max_)
-            next = max_;
+            next = wrap ? min_ : max_;
         if (next < min_)
-            next = min_;
-        *value_ = next;
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        float next = *value_ + direction * step_;
-        if (next > max_)
-            next = min_;
-        if (next < min_)
-            next = max_;
+            next = wrap ? max_ : min_;
         *value_ = next;
     }
     void cancelEdit() override { *value_ = entryValue_; }
@@ -251,22 +249,13 @@ template <typename E> class EnumItem : public MenuItem
     String valueText() const override { return labels_[currentOptionIndex()]; }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
         int next = (int)*value_ + direction;
         if (next < 0)
-            next = 0;
+            next = wrap ? (int)count_ - 1 : 0;
         if (next >= (int)count_)
-            next = (int)count_ - 1;
-        *value_ = (E)next;
-    }
-    void adjustValueWrapping(int8_t direction) override
-    {
-        int next = (int)*value_ + direction;
-        if (next < 0)
-            next = (int)count_ - 1;
-        if (next >= (int)count_)
-            next = 0;
+            next = wrap ? 0 : (int)count_ - 1;
         *value_ = (E)next;
     }
     void cancelEdit() override { *value_ = entryValue_; }
@@ -303,12 +292,8 @@ extern SubmenuItem motorsPidSubmenu;
 // menuSelectFire.cpp
 extern SubmenuItem selectFireSubmenu;
 MenuItem* screenFireModeTarget();
-extern EnumItem<burstFireType_t> firingMode0BurstModeItem;
-extern EnumItem<burstFireType_t> firingMode1BurstModeItem;
-extern EnumItem<burstFireType_t> firingMode2BurstModeItem;
-extern NumericItem<uint32_t> firingMode0BurstLengthItem;
-extern NumericItem<uint32_t> firingMode1BurstLengthItem;
-extern NumericItem<uint32_t> firingMode2BurstLengthItem;
+MenuItem* activeFireModeBurstLengthTarget();
+MenuItem* activeFireModeTargetDpsTarget();
 
 // menuBattery.cpp
 extern SubmenuItem batterySubmenu;

@@ -16,14 +16,11 @@ void handleSerialCommands();  // defined in main.cpp
 
 static const int16_t OLED_WIDTH = 128;
 
-// Fixed launch position, right edge, vertically centered on the display's active region.
 static const int16_t ORIGIN_X = 123;
 static const int16_t FIELD_TOP_Y = 14;    // just below the status row's hline
 static const int16_t FIELD_BOTTOM_Y = 62; // uses the full remaining height
 static const int16_t ORIGIN_Y = (FIELD_TOP_Y + FIELD_BOTTOM_Y) / 2;
 
-// How close an entity's y has to be to ORIGIN_Y to be in the line of fire - matches the entity
-// glyph's own vertical extent (drawEntity() draws roughly y-4 to y+3).
 static const int16_t ALIGN_TOLERANCE_PX = 4;
 
 static const uint8_t MAX_ENTITIES = 6;
@@ -39,8 +36,6 @@ struct Entity
     float amp = 0;  // vertical swing, centered on ORIGIN_Y
 };
 
-// Vertical position is a sine wave centered on ORIGIN_Y - guarantees each entity periodically
-// sweeps back through the firing line regardless of phase/amplitude.
 static void advanceEntity(Entity& entity, float dt)
 {
     entity.t += dt;
@@ -80,13 +75,10 @@ static void drawOrigin()
 
 static void drawEntity(int16_t x, int16_t y)
 {
-    // Rounded dome, scalloped skirt, two small dark eyes. Centered on (x, y), roughly 8px across.
-    display.fillRoundRect(x - 4, y - 4, 8, 7, 2, SSD1306_WHITE);
-    display.drawPixel(x - 3, y + 2, SSD1306_BLACK);
-    display.drawPixel(x, y + 2, SSD1306_BLACK);
-    display.drawPixel(x + 3, y + 2, SSD1306_BLACK);
-    display.drawPixel(x - 2, y - 1, SSD1306_BLACK);
-    display.drawPixel(x + 2, y - 1, SSD1306_BLACK);
+    static const uint8_t ZOMBIE_GLYPH[7] = {
+        0b00111100, 0b00110100, 0b00111100, 0b01111111, 0b00111000, 0b00111000, 0b00100100,
+    };
+    display.drawBitmap(x - 4, y - 4, ZOMBIE_GLYPH, 8, 7, SSD1306_WHITE);
 }
 
 // Dashed line from the origin to a resolved shot's endpoint - plots every few pixels along the

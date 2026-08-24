@@ -1,11 +1,12 @@
 #include "menuCore.h"
 
-static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", &activeProfile.spindownSpeed, 1,
-                                               2000, 10);
+static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", &activeProfile.spindownSpeed, 10,
+                                               200, 10);
 // firingRPM = max(revRPM - firingRPMTolerance, minFiringRPM) - see applyFiringRpmThresholds().
 static NumericItem<int32_t> firingRpmToleranceItem("Firing RPM Tol",
-                                                   &deviceSettings.firingRPMTolerance, 0, 5000, 50);
-static RpmTargetItem minFiringRpmItem("Min Firing RPM", &deviceSettings.minFiringRPM, 500);
+                                                   &deviceSettings.firingRPMTolerance, 0, 10000, 500);
+static RpmTargetItem minFiringRpmItem("Min Firing RPM", &deviceSettings.minFiringRPM,
+                                      RPM_TARGET_ALL_MOTORS, 1000);
 // Parameterizes the existing STATE_ACCELERATING abort-to-idle timeout in fwControlLoop() - doesn't
 // change the transition's shape, just how long it waits before giving up. Checked live, no reboot.
 static NumericItem<uint32_t> rampupTimeoutItem("Rampup Timeout (ms)",
@@ -61,18 +62,36 @@ class StageRpmItem : public MenuItem
     String valueText() const override { return String(currentValue()); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = currentValue(); }
-    void adjustValue(int8_t direction) override
+    void adjust(int8_t direction, bool wrap) override
     {
+        int32_t floor = 0;
+        int32_t ceiling = 100000; // fallback if no motor in this stage is enabled
+        int8_t ref = referenceMotor();
+        if (ref >= 0)
+        {
+            floor = motorRpmFloor((uint8_t)ref);
+            ceiling = motorRpmCeiling((uint8_t)ref);
+        }
         int64_t next = (int64_t)currentValue() + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)deviceSettings.maxRpmCap)
-            next = (int64_t)deviceSettings.maxRpmCap;
-        if (next < 0)
-            next = 0;
+        if (next > (int64_t)ceiling)
+            next = wrap ? (int64_t)floor : (int64_t)ceiling;
+        if (next < (int64_t)floor)
+            next = wrap ? (int64_t)ceiling : (int64_t)floor;
         setAll((int32_t)next);
     }
     void cancelEdit() override { setAll(entryValue_); }
 
   private:
+    int8_t referenceMotor() const
+    {
+        uint8_t candidates[4];
+        uint8_t count = 0;
+        for (uint8_t i = 0; i < 4; i++)
+            if (deviceSettings.motorConfig[i].stage == stage_)
+                candidates[count++] = i;
+        return highestKvEnabledMotor(candidates, count);
+    }
+
     int32_t currentValue() const
     {
         for (int i = 0; i < 4; i++)
@@ -93,10 +112,10 @@ class StageRpmItem : public MenuItem
     int32_t entryValue_ = 0;
 };
 
-static NumericItem<int32_t> idleRpm0Item("Motor 1", &activeProfile.idleRPM[0], 0, 20000, 100);
-static NumericItem<int32_t> idleRpm1Item("Motor 2", &activeProfile.idleRPM[1], 0, 20000, 100);
-static NumericItem<int32_t> idleRpm2Item("Motor 3", &activeProfile.idleRPM[2], 0, 20000, 100);
-static NumericItem<int32_t> idleRpm3Item("Motor 4", &activeProfile.idleRPM[3], 0, 20000, 100);
+static RpmTargetItem idleRpm0Item("Motor 1", &activeProfile.idleRPM[0], 0, 1000);
+static RpmTargetItem idleRpm1Item("Motor 2", &activeProfile.idleRPM[1], 1, 1000);
+static RpmTargetItem idleRpm2Item("Motor 3", &activeProfile.idleRPM[2], 2, 1000);
+static RpmTargetItem idleRpm3Item("Motor 4", &activeProfile.idleRPM[3], 3, 1000);
 static MenuItem* idleRpmCustomItems[] = {&idleRpm0Item, &idleRpm1Item, &idleRpm2Item,
                                          &idleRpm3Item};
 static ModeVisibleSubmenuItem idleRpmCustomSubmenu("Idle RPM (Custom)", idleRpmCustomItems, 4,
@@ -108,10 +127,10 @@ static MenuItem* idleRpmStageItems[] = {&idleRpmStage1Item, &idleRpmStage2Item};
 static ModeVisibleSubmenuItem idleRpmStageSubmenu("Idle RPM (Stage)", idleRpmStageItems, 2,
                                                   RPM_STAGE);
 
-static RpmTargetItem profileRpmMotor0Item("Motor 1 RPM", &activeProfile.revRPM[0], 500, true);
-static RpmTargetItem profileRpmMotor1Item("Motor 2 RPM", &activeProfile.revRPM[1], 500, true);
-static RpmTargetItem profileRpmMotor2Item("Motor 3 RPM", &activeProfile.revRPM[2], 500, true);
-static RpmTargetItem profileRpmMotor3Item("Motor 4 RPM", &activeProfile.revRPM[3], 500, true);
+static RpmTargetItem profileRpmMotor0Item("Motor 1 RPM", &activeProfile.revRPM[0], 0, 500, true);
+static RpmTargetItem profileRpmMotor1Item("Motor 2 RPM", &activeProfile.revRPM[1], 1, 500, true);
+static RpmTargetItem profileRpmMotor2Item("Motor 3 RPM", &activeProfile.revRPM[2], 2, 500, true);
+static RpmTargetItem profileRpmMotor3Item("Motor 4 RPM", &activeProfile.revRPM[3], 3, 500, true);
 static MenuItem* profileRpmCustomItems[] = {&profileRpmMotor0Item, &profileRpmMotor1Item,
                                             &profileRpmMotor2Item, &profileRpmMotor3Item};
 static ModeVisibleSubmenuItem profileRpmCustomSubmenu("Per Motor RPM", profileRpmCustomItems, 4,
@@ -126,15 +145,15 @@ MenuItem* activeProfileRpmTarget()
 {
     return activeProfile.rpmMode == RPM_STAGE ? &profileRpmStageSubmenu : &profileRpmCustomSubmenu;
 }
-static NumericItem<uint32_t> profileDwellItem("Dwell Time (ms)", &activeProfile.dwellTime_ms, 0,
-                                              5000, 50, true);
-static NumericItem<uint32_t> profileIdleItem("Idle Time (ms)", &activeProfile.idleTime_ms, 0,
-                                             300000, 1000, true);
+static SecondsDisplayItem profileDwellItem("Dwell Time", &activeProfile.dwellTime_ms, 0, 10000,
+                                           1000, true);
+static SecondsDisplayItem profileIdleItem("Idle Time", &activeProfile.idleTime_ms, 0, 60000, 1000,
+                                          true);
 
 // Additive to the exit condition already checked in fwControlLoop()'s STATE_FULLSPEED - 0
 // disables. Checked live, no reboot needed.
-static NumericItem<uint32_t>
-    revSafetyTimeoutItem("Rev Safety TO (ms)", &activeProfile.revSafetyTimeout_ms, 0, 600000, 5000);
+static SecondsDisplayItem revSafetyTimeoutItem("Rev Safety TO", &activeProfile.revSafetyTimeout_ms,
+                                               0, 60000, 1000);
 
 static MenuItem* flywheelRpmItems[] = {
     &rpmModeItem,          &profileRpmStageSubmenu, &profileRpmCustomSubmenu, &profileDwellItem,

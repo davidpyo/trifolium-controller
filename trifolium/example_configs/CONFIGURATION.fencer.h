@@ -9,7 +9,7 @@
 #define CONFIG_VERSION_MINOR 0
 #define CONFIG_VERSION_PATCH 0
 
-inline dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300;
+inline uint32_t targetLoopTime_us = 1000;
 
 inline boards_t board =
     trifolium_v1_1_esc_driver; // select the one that matches your board revision
@@ -33,6 +33,8 @@ inline bool printTelemetry = false; // output printing - mirrors deviceSettings.
 // RPM logging is controlled by deviceSettings.useRpmLogging/rpmLogLength (Serial-only)
 inline const uint32_t MAX_RPM_LOG_LENGTH = 2000;
 
+inline const char* const kDefaultProfileNames[3] = {"Low", "Medium", "High"};
+
 // Factory defaults - ProfileStore/DeviceStore fall back to these on a missing/corrupt file.
 inline const ShotProfile kDefaultProfile = {
     .name = "",
@@ -40,18 +42,19 @@ inline const ShotProfile kDefaultProfile = {
     .revRPM = {0, 29000, 0, 29000},
     .dwellTime_ms = 0,
     .idleTime_ms = 5000,
-    .idleRPM = {1000, 1000, 1000, 1000},
+    .idleRPM = {10000, 10000, 10000, 10000},
     .spindownSpeed = 100,
-    .revSafetyTimeout_ms = 300000, // 5 minutes
+    .revSafetyTimeout_ms = 0, // disabled
     .rpmMode = RPM_STAGE,
 
     .fireModes = {
-        {.name = "", .burstLength = 100, .burstMode = AUTO, .targetDPS = 0},
-        {.name = "", .burstLength = 1, .burstMode = BINARY, .targetDPS = 0},
-        {.name = "", .burstLength = 1, .burstMode = SEMI, .targetDPS = 0},
+        fireMode(100, AUTO, 0, false, 1000),
+        fireMode(1, BINARY, 0, false, 1000),
+        fireMode(1, SEMI, 0, false, 1000),
     },
-    .binaryTriggerTimeout_ms = 1000,
+    .activeModeCount = 3,
     .defaultFiringMode = 1,
+    .switchPositionAssignment = {0, 1, 2},
 };
 
 inline const DeviceSettings kDefaultDeviceSettings = {
@@ -79,7 +82,7 @@ inline const DeviceSettings kDefaultDeviceSettings = {
 
     .pusherType = PUSHER_SOLENOID_OPENLOOP,
 
-    .debounceTime_ms = 100,
+    .debounceTime_ms = 20,
     .menuButtonHoldTime_ms = 1500,
     .pusherDebounceTime_ms = 25,
     .voltageAveragingWindow = 5,
@@ -91,8 +94,6 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .showCurrentRpmOnHomeScreen = false,
     .homeScreenDisplayMode = HOME_COUNTER,
     .showDpsOnHomeScreen = false,
-
-    .maxRpmCap = 50000,
 
     .ledWarningMode = LED_WARNING_LOW_BATT,
 
@@ -122,10 +123,11 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .solenoidExtendTimeLow_ms = 25,
     .solenoidExtendTimeLowVoltage_mv = 11800,
     .solenoidRetractTime_ms = 35,
+    .vibrationPulseMs = 0,
 
     .batteryType = BATTERY_4S,
-    .lowVoltageCutoffPerCell_mv = 2500,
-    .lowVoltageWarningPerCell_mv = 2800,
+    .lowVoltageCutoffPerCell_mv = 3300,
+    .lowVoltageWarningPerCell_mv = 3700,
     .voltageCalibrationFactor = 1.0f,
 
     .selectFireType = SWITCH_SELECT_FIRE,

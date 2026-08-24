@@ -17,7 +17,8 @@ class RpmLogger
         rpmCache_ = new (std::nothrow) uint32_t[length][4];
         throttleCache_ = new (std::nothrow) int16_t[length][4];
         valueCache_ = new (std::nothrow) float[length][4];
-        if (!targetRpmCache_ || !rpmCache_ || !throttleCache_ || !valueCache_)
+        voltageCache_ = new (std::nothrow) int32_t[length]; // per sample, not per motor
+        if (!targetRpmCache_ || !rpmCache_ || !throttleCache_ || !valueCache_ || !voltageCache_)
         {
             freeBuffers();
             return false;
@@ -28,10 +29,11 @@ class RpmLogger
     }
 
     // Call once per control-loop tick to record the current sample, if a capture is active.
-    void record(FlywheelMotor motorArr[4], const bool motors[4])
+    void record(FlywheelMotor motorArr[4], const bool motors[4], int32_t batteryVoltage_mv)
     {
         if (!armed() || cacheIndex_ >= length_)
             return;
+        voltageCache_[cacheIndex_] = batteryVoltage_mv;
         for (int i = 0; i < 4; i++)
         {
             if (motors[i])
@@ -56,8 +58,8 @@ class RpmLogger
         if (cacheIndex_ > length_)
             return false; // already dumped this capture
 
-        char rowBuf[220];
-        int len = 0;
+        char rowBuf[240];
+        int len = snprintf(rowBuf, sizeof(rowBuf), "Voltage_mv,");
         for (int j = 0; j < 4; j++)
         {
             if (motors[j])
@@ -68,7 +70,7 @@ class RpmLogger
 
         for (uint32_t i = 0; i < length_; i++)
         {
-            len = 0;
+            len = snprintf(rowBuf, sizeof(rowBuf), "%ld,", (long)voltageCache_[i]);
             for (int j = 0; j < 4; j++)
             {
                 if (motors[j])
@@ -97,10 +99,12 @@ class RpmLogger
         delete[] rpmCache_;
         delete[] throttleCache_;
         delete[] valueCache_;
+        delete[] voltageCache_;
         targetRpmCache_ = nullptr;
         rpmCache_ = nullptr;
         throttleCache_ = nullptr;
         valueCache_ = nullptr;
+        voltageCache_ = nullptr;
         length_ = 0;
         cacheIndex_ = 0;
     }
@@ -109,6 +113,7 @@ class RpmLogger
     uint32_t (*rpmCache_)[4] = nullptr;
     int16_t (*throttleCache_)[4] = nullptr;
     float (*valueCache_)[4] = nullptr;
+    int32_t* voltageCache_ = nullptr;
     uint32_t length_ = 0;
     uint32_t cacheIndex_ = 0;
 };

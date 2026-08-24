@@ -51,6 +51,8 @@ class FlywheelMotor
     void refreshFilteredRpm(uint8_t EMAFilter, uint32_t half, int batteryType);
 
   private:
-    // ERPM overwrites rpmOut; any other recognized telemetry type updates the cache fields above.
-    void readTelemetry(uint32_t& rpmOut);
+    // Consumes one telemetry frame. Returns true and writes a fresh eRPM to erpmOut only for an
+    // ERPM frame; any other recognized type updates the cache fields above and returns false,
+    // leaving erpmOut untouched. Callers must not scale erpmOut unless this returned true.
+    bool readTelemetry(uint32_t& erpmOut);
 };

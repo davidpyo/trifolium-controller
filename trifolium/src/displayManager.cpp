@@ -2,6 +2,7 @@
 #include "bitmaps.h"
 #include "splashStore.h"
 #include "global.h" // MAJOR_VERSION/MINOR_VERSION/PATCH_VERSION macros
+#include "firingModeBehavior.h"
 
 DisplayManager::DisplayManager(Adafruit_SSD1306& display) : display_(display) {}
 
@@ -83,8 +84,14 @@ void DisplayManager::flushMailbox()
     }
 }
 
-bool DisplayManager::drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_t h,
-                                         uint16_t dartCount, uint16_t groupBreakAt)
+void DisplayManager::drawDart(int16_t dartX, int16_t midY)
+{
+    display_.fillRect(dartX + 1, midY - BODY_HEIGHT / 2, BODY_WIDTH, BODY_HEIGHT, SSD1306_WHITE);
+    display_.fillRect(dartX, midY - HEAD_HEIGHT / 2, 1, HEAD_HEIGHT, SSD1306_WHITE);
+}
+
+bool DisplayManager::drawDartBelt(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t dartCount,
+                                  uint16_t groupBreakAt)
 {
     unsigned long now = millis();
     if (now - lastFrameTime_ >= FIRING_ANIM_FRAME_MS)
@@ -96,9 +103,6 @@ bool DisplayManager::drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_
     if (dartCount == 0)
         return false;
 
-    static const int16_t BODY_WIDTH = 6;
-    static const int16_t BODY_HEIGHT = 4;
-    static const int16_t HEAD_HEIGHT = 2;
     static const int16_t DART_GAP = 1;  // gap between consecutive darts within one sub-burst
     static const int16_t GROUP_GAP = 4; // gap between Binary's press-group and release-group
     static const int32_t BURST_GAP =
@@ -109,7 +113,7 @@ bool DisplayManager::drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_
 
     bool hasGroupBreak = groupBreakAt > 0 && groupBreakAt < dartCount;
     int32_t clusterWidth = (int32_t)dartCount * dartStep - DART_GAP + // no trailing gap after
-                           (hasGroupBreak ? extraGroupGap : 0);      // the last dart
+                           (hasGroupBreak ? extraGroupGap : 0);       // the last dart
     int32_t cycleLength = clusterWidth + BURST_GAP;
     beltPos_ = (uint16_t)((uint32_t)beltPos_ % (uint32_t)cycleLength);
 
@@ -129,13 +133,36 @@ bool DisplayManager::drawFiringAnimation(int16_t x, int16_t y, int16_t w, int16_
         {
             int32_t groupOffset = (hasGroupBreak && i >= (int32_t)groupBreakAt) ? extraGroupGap : 0;
             int16_t dartX = (int16_t)(leadX + i * dartStep + groupOffset);
-            display_.fillRect(dartX + 1, midY - BODY_HEIGHT / 2, BODY_WIDTH, BODY_HEIGHT,
-                              SSD1306_WHITE);
-            display_.fillRect(dartX, midY - HEAD_HEIGHT / 2, 1, HEAD_HEIGHT, SSD1306_WHITE);
+            drawDart(dartX, midY);
         }
     }
 
-    return clusterWidth > w;
+    bool tooWideForCluster = clusterWidth > w;
+    if (tooWideForCluster)
+    {
+        String countString = "x" + String(dartCount);
+        int16_t countW = (int16_t)countString.length() * 6;
+        display_.setCursor(max((int16_t)0, (int16_t)(128 - countW - 1)), 36);
+        display_.print(countString);
+    }
+    return tooWideForCluster;
+}
+
+void DisplayManager::drawDartStream(int16_t x, int16_t y, int16_t w, int16_t h, int16_t dartStep)
+{
+    unsigned long now = millis();
+    if (now - lastFrameTime_ >= FIRING_ANIM_FRAME_MS)
+    {
+        lastFrameTime_ = now;
+        beltPos_ += FIRING_ANIM_PIXELS_PER_TICK;
+    }
+
+    dartStep = max((int16_t)(BODY_WIDTH + 2), dartStep);
+    int16_t pos = beltPos_ % dartStep;
+
+    int16_t midY = y + h / 2;
+    for (int16_t lead = x + w - pos; lead > x - (BODY_WIDTH + 1); lead -= dartStep)
+        drawDart(lead, midY);
 }
 
 void DisplayManager::renderTelemetry(
@@ -143,8 +170,8 @@ void DisplayManager::renderTelemetry(
     FlywheelMotor motorArr[4], const bool motors[4], const motorStage_t motorStage[4],
     uint32_t displayShotCounter, bool isBatteryAdcDefined, int32_t batteryVoltage_mv,
     bool showCurrentRpm, bool batteryWarningActive, homeScreenDisplayMode_t homeScreenDisplayMode,
-    uint16_t animDartCount, uint16_t animGroupBreakAt, bool showDps, float achievedDPS,
-    float targetDPS)
+    const FiringModeBehavior& modeBehavior, const FiringContext& fireCtx, bool showDps,
+    float achievedDPS, float targetDPS)
 {
     if (!hasDisplay_)
         return;
@@ -249,7 +276,8 @@ void DisplayManager::renderTelemetry(
     }
     else
     {
-        bool tightenForAnim = (homeScreenDisplayMode == HOME_FIRE_MODE) && showDps;
+        bool effectiveShowDps = showDps && modeBehavior.supportsTargetDps();
+        bool tightenForAnim = (homeScreenDisplayMode == HOME_FIRE_MODE) && effectiveShowDps;
         int16_t rpmRow0Y = tightenForAnim ? 17 : 20;
         int16_t rpmRow1Y = tightenForAnim ? 26 : 30;
         int16_t dpsRowY = tightenForAnim ? 35 : 40;
@@ -269,7 +297,7 @@ void DisplayManager::renderTelemetry(
                 nextX[row] += cell.length() * 6 + 4;
             }
         }
-        if (showDps)
+        if (effectiveShowDps)
         {
             display_.setCursor(0, dpsRowY);
             display_.print(String(achievedDPS, 0) + "/" + String(targetDPS, 0));
@@ -298,17 +326,9 @@ void DisplayManager::renderTelemetry(
             display_.setCursor(0, 56);
             display_.print(displayShotCounterString);
 
-            int16_t animY = showDps ? 44 : 42;
-            int16_t animH = showDps ? 8 : 12;
-            bool tooWideForCluster =
-                drawFiringAnimation(0, animY, 128, animH, animDartCount, animGroupBreakAt);
-            if (tooWideForCluster)
-            {
-                String countString = "x" + String(animDartCount);
-                int16_t countW = (int16_t)countString.length() * 6;
-                display_.setCursor(max((int16_t)0, (int16_t)(128 - countW - 1)), 36);
-                display_.print(countString);
-            }
+            int16_t animY = effectiveShowDps ? 44 : 42;
+            int16_t animH = effectiveShowDps ? 8 : 12;
+            modeBehavior.render(*this, 0, animY, 128, animH, fireCtx);
         }
     }
 
