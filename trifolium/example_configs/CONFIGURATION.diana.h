@@ -1,64 +1,21 @@
+#pragma once
+#include "motor.h"
 #include "boards_config.h" // board pinouts are in this file
+#include "shotProfile.h"
+#include "deviceSettings.h"
 
-//config to check config and code versions match
-#define CONFIG_VERSION_MAJOR 1
-#define CONFIG_VERSION_MINOR 3
+// config to check config and code versions match
+#define CONFIG_VERSION_MAJOR 2
+#define CONFIG_VERSION_MINOR 0
 #define CONFIG_VERSION_PATCH 0
 
+inline uint32_t targetLoopTime_us = 1000;
 
-// Flywheel Settings
-// If variableFPS is true, the following settings are set on boot and locked. Otherwise, it always uses the first mode
-bool variableFPS = true;
-int32_t revRPMset[3][4] = { { 70000, 70000, 40000, 40000 }, { 60000, 60000, 25000, 25000 }, { 40000, 40000, 14000, 14000 } }; // adjust this to change fps, groups are firingMode 1, 2, 3, and the 4 elements in each group are individual motor RPM
-uint32_t dwellTimeSet_ms[3] = { 500, 500,500 }; // how long to keep the flywheels at full rpm for after releasing the trigger, in milliseconds
-uint32_t idleTimeSet_ms[3] = { 20000, 20000, 20000 }; // how long to keep the flywheels spinning after dwell time, in milliseconds
-//uint32_t firingDelaySet_ms[3] = { 150, 125, 100 }; // delay to allow flywheels to spin up before firing dart
-//uint32_t firingDelayIdleSet_ms[3] = { 125, 100, 80 }; // delay to allow flywheels to spin up before firing dart when starting from idle state
-uint32_t spindownSpeed = 100; // RPM per ms
-
-int32_t motorKv = 4800; // critical for closed loop
-int32_t idleRPM[4] = { 500, 500, 500, 500 }; // rpm for flywheel idling, set this as low as possible where the wheels still spin reliably
-dshot_mode_t dshotMode = DSHOT300; // Options are DSHOT150, DSHOT300, DSHOT600, or DSHOT_OFF. DSHOT300 is recommended, DSHOT150 does not work with either AM32 ESCs or closed loop control, and DSHOT600 seems less reliable. DSHOT_OFF falls back to servo PWM. PWM is not working, probably a ESP32 timer resource conflict with the pusher PWM circuit
-dshot_min_delay_t targetLoopTime_us = DSHOT_MIN_DELAY_300; // PID Loop time, must correspond to dshotmode
-
-// Closed Loop Settings
-flywheelControlType_t flywheelControl = PID_CONTROL; // PID_CONTROL, or TBH_CONTROL
-const bool motors[4] = {true, true, false, false}; // which motors are hooked up
-//bool timeOverrideWhenIdling = true; // while idling, fire the pusher after firingDelay_ms even before the flywheels are up to speed
-int32_t fullThrottleRpmTolerance = 5000; // if rpm is more than this amount below target rpm, send full throttle. too high and rpm will undershoot, too low and it will overshoot NOT USED CURRENTLY
-int32_t firingRPMTolerance = 500; // fire pusher when all flywheels are within this amount of target rpm. higher values will mean less pusher delay but potentially fire too early
-int32_t minFiringRPM = 10000; // overrides firingRPMTolerance for low rpm settings 
-//int32_t minFiringDelaySet_ms[3] = {0, 0, 0}; // when not idling, don't fire the pusher before this amount of time, even if wheels are up to speed. makes the delay more consistent
-//int32_t minFiringDelayIdleSet_ms[3] = {0, 0, 0}; // same but when idling
-
-// Select Fire Settings
-uint32_t burstLengthSet[3] = { 100, 1, 1 };
-burstFireType_t burstModeSet[3] = { AUTO, BINARY, BURST };
-const char * fireModeStrings[3] = { "AUTO", "BINARY", "SEMI" };
-// burstMode AUTO = stops firing when trigger is released
-// burstMode BURST = always completes the burst
-// burstMode BINARY = fires one burst when you pull the trigger and another when you release the trigger
-// for full auto, set burstLength high (50+) and burstMode to AUTO
-// for semi auto, set burstLength to 1 and burstMode to BURST
-// for burst fire, set burstLength and burstMode to BURST
-// i find a very useful mode is full auto with a 5 dart limit (burstMode AUTO, burstLength 5)
-// it is your responsibility to set the firemode string to the appropriate option.
-
-uint32_t binaryTriggerTimeout_ms = 1000; // if you hold the trigger for more than this amount of time, releasing the trigger will not fire a burst
-
-
-selectFireType_t selectFireType = SWITCH_SELECT_FIRE; // pick NO_SELECT_FIRE, SWITCH_SELECT_FIRE, 
-uint8_t defaultFiringMode = 1; // only for SWITCH_SELECT_FIRE, what mode to select if no pins are connected
-
-// Board Settings
-uint32_t lowVoltageCutoff_mv = 2500 * 4; // default is 2.5V per cell * 4 cells because the ESP32 voltage measurement is not very accurate
-// to protect your batteries, i reccomend doing the calibration below and then setting the cutoff to 3.2V to 3.4V per cell
-float voltageCalibrationFactor = 1.0; // measure the battery voltage with a multimeter and divide that by the "Battery voltage before calibration" printed in the Serial Monitor, then put the result here
-
-
-boards_t board = pico_zero_diana; // select the one that matches your board revision
+inline boards_t board = diana_v1_0; // select the one that matches your board revision
 // Options
 // rune_0_2,
+// trifolium_v1_4_fet_driver
+// trifolium_v1_3_fet_driver
 // trifolium_v1_2_esc_driver
 // trifolium_v1_2_fet_driver
 // trifolium_v1_1_esc_driver
@@ -67,70 +24,112 @@ boards_t board = pico_zero_diana; // select the one that matches your board revi
 // trifolium_v1_0_fet_driver
 // pico_zero
 // pico_zero_diana
-const char * blasterName = "Diana";//set to blaster name
-bool hasDisplay = false; // set to true if you have an I2C OLED display connected
-bool rotateDisplay = true; // set to true if your display is upside down
-bool useRpmBaseShotCounter = true; // if true, shot counter increases based on detected rpm drop, otherwise increases based on pusher cycles
-uint16_t goodRpmShotReads = 5;  // number of good rpm reads below threshold to count as a shot
-uint16_t rpmDropThreshold = 200; // rpm drop to count as a shot
-
-// Input Pins, set to PIN_NOT_USED if not using
-uint8_t triggerSwitchPin = board.IO1; // main trigger pin
-uint8_t revSwitchPin = PIN_NOT_USED; // optional rev trigger
-uint8_t cycleSwitchPin = PIN_NOT_USED; // pusher motor home switch
-uint8_t select0Pin = board.IO2; // optional for select fire
-uint8_t select1Pin = PIN_NOT_USED; // optional for select fire
-uint8_t select2Pin = board.IO3; // optional for select fire
-
-
-// Pusher Settings
-pusherType_t pusherType = PUSHER_SOLENOID_OPENLOOP; // PUSHER_SOLENOID_OPENLOOP
-//uint32_t pusherVoltage_mv = 13000; // if battery voltage is above this voltage, then use PWM to reduce the voltage that the pusher sees
-bool pusherReverseDirection = false; // make motor spin backwards NOT USED
-
-
-// Solenoid Settings
-uint16_t solenoidExtendTimeHigh_ms = 25; // set this to the high voltage min push time
-uint32_t solenoidExtendTimeHighVoltage_mv = 16800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeHigh_ms time (from log)
-uint16_t solenoidExtendTimeLow_ms = 25;
-uint32_t solenoidExtendTimeLowVoltage_mv = 11800; // set this to the voltage at which the solenoid still extends fully at the solenoidExtendTimeLow_ms time (from log)
-uint16_t solenoidRetractTime_ms = 35;
-
-// Advanced Settings
-//uint16_t pusherStallTime_ms = 750; // for PUSHER_MOTOR_CLOSEDLOOP, how long do you run the motor without seeing an update on the cycle control switch before you decide the motor is stalled?
-bool revSwitchNormallyClosed = false; // invert switch signal?
-bool triggerSwitchNormallyClosed = false;
-bool cycleSwitchNormallyClosed = false;
-uint16_t debounceTime_ms = 100; // decrease if you're unable to make fast double taps in semi auto, increase if you're getting accidental double taps in semi auto
-uint16_t pusherDebounceTime_ms = 25; // NOT USED
-const int voltageAveragingWindow = 5;
-uint32_t pusherCurrentSmoothingFactor = 90;
-//uint8_t telemetryInterval_ms = 5;
-//float maxDutyCycle_pct = 98;
-//uint8_t deadtime = 10;
-//uint16_t pwmFreq_hz = 20000;
-//uint16_t servoFreq_hz = 200;
-
-// PID Settings
-const uint8_t EMAFilter = 2; // exponential moving average filter constant for flywheel RPM readings, higher values mean more smoothing but more lag.
-const uint8_t iThreshold = 50; //abs error threshold to activate integration. If this is too low, integration might not activate. If this is too high, integration might activate too soon and cause overshoot.  
-float KP = .1;
-float KI = 0.2;
-float KD = 0;
-
-// TBH Settings
-// for TBH PIDIntegral is used for TBH variable, and Gain is KI
-
-//float KI = 0.01;
-const uint16_t throttleCap = 300;
+// diana_v1_0
 
 // Debug settings
-// For running the blaster without telemetry, set printTelemetry to false and comment out #define USE_RPM_LOGGING
-bool printTelemetry =   false; // output printing
-//#define USE_RPM_LOGGING //RPM Logging
-#ifdef USE_RPM_LOGGING
-const uint32_t rpmLogLength = 2000;
-#endif
+inline bool printTelemetry = false; // output printing - mirrors deviceSettings.printTelemetry
 
+// RPM logging is controlled by deviceSettings.useRpmLogging/rpmLogLength (Serial-only)
+inline const uint32_t MAX_RPM_LOG_LENGTH = 2000;
 
-#define MOTOR_POLES 12
+inline const char* const kDefaultProfileNames[3] = {"Low", "Medium", "High"};
+
+// Factory defaults - ProfileStore/DeviceStore fall back to these on a missing/corrupt file.
+inline const ShotProfile kDefaultProfile = {
+    .name = "",
+
+    .revRPM = {50000, 50000, 0, 0},
+    .dwellTime_ms = 500,
+    .idleTime_ms = 0,
+    .idleRPM = {10000, 10000, 10000, 10000},
+    .spindownSpeed = 100,
+    .revSafetyTimeout_ms = 0, // disabled
+    .rpmMode = RPM_STAGE,
+
+    .fireModes = {
+        fireMode(1, SEMI, 0),
+        fireMode(100, AUTO, 0),
+        fireMode(0, SAFE, 0),
+    },
+    .activeModeCount = 3,
+    .defaultFiringMode = 1,
+    .switchPositionAssignment = {0, 1, 2},
+};
+
+inline const DeviceSettings kDefaultDeviceSettings = {
+    .hasDisplay = false,
+    .rotateDisplay = true,
+    .blasterName = "Diana",
+
+    .menuButtonPin = PIN_NOT_USED,
+    .triggerSwitchPin = board.IO1,
+    .revSwitchPin = PIN_NOT_USED,
+    .cycleSwitchPin = PIN_NOT_USED,
+    .idleSwitchPin = board.IO2,
+    .select0Pin = board.IO3,
+    .select1Pin = board.IO4,
+    .select2Pin = board.IO5,
+
+    .revSwitchNormallyClosed = false,
+    .triggerSwitchNormallyClosed = false,
+    .cycleSwitchNormallyClosed = false,
+    .idleSwitchNormallyClosed = false,
+    .menuButtonNormallyClosed = false,
+    .pusherReverseDirection = false,
+
+    .dualStageTrigger = false,
+
+    .pusherType = PUSHER_SOLENOID_OPENLOOP,
+
+    .debounceTime_ms = 20,
+    .menuButtonHoldTime_ms = 1500,
+    .pusherDebounceTime_ms = 25,
+    .voltageAveragingWindow = 5,
+    .useRpmBaseShotCounter = true,
+    .goodRpmShotReads = 5,
+    .rpmDropThreshold = 200,
+
+    .displayBrightness = 255,
+    .showCurrentRpmOnHomeScreen = false,
+    .homeScreenDisplayMode = HOME_COUNTER,
+    .showDpsOnHomeScreen = false,
+
+    .ledWarningMode = LED_WARNING_LOW_BATT,
+
+    .dshotMode = DSHOT300,
+    .printTelemetry = false,
+
+    .useRpmLogging = false,
+    .rpmLogLength = MAX_RPM_LOG_LENGTH,
+
+    .motorConfig = {
+        {.enabled = true, .stage = STAGE_1, .kp = 0.1f, .ki = 0.2f, .motorKv = 4800, .motorPolesDiv2 = 6},
+        {.enabled = true, .stage = STAGE_1, .kp = 0.1f, .ki = 0.2f, .motorKv = 4800, .motorPolesDiv2 = 6},
+        {.enabled = false, .stage = STAGE_1, .kp = 0.1f, .ki = 0.2f, .motorKv = 4800, .motorPolesDiv2 = 6},
+        {.enabled = false, .stage = STAGE_1, .kp = 0.1f, .ki = 0.2f, .motorKv = 4800, .motorPolesDiv2 = 6},
+    },
+
+    .flywheelControl = PID_CONTROL,
+    .firingRPMTolerance = 500,
+    .minFiringRPM = 10000,
+    .rampupTimeout_ms = 500,
+    .EMAFilter = 2,
+    .iThreshold = 50,
+    .throttleCap = 300,
+
+    .solenoidExtendTimeHigh_ms = 15,
+    .solenoidExtendTimeHighVoltage_mv = 16800,
+    .solenoidExtendTimeLow_ms = 20,
+    .solenoidExtendTimeLowVoltage_mv = 11800,
+    .solenoidRetractTime_ms = 20,
+    .vibrationPulseMs = 0,
+
+    .batteryType = BATTERY_4S,
+    .lowVoltageCutoffPerCell_mv = 3500,
+    .lowVoltageWarningPerCell_mv = 3800,
+    .voltageCalibrationFactor = 1.0f,
+
+    .selectFireType = SWITCH_SELECT_FIRE,
+    .variableFPS = true,
+    .defaultProfileIndex = 1, // Medium - used when no select-switch position is active
+};
