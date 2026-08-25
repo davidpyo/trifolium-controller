@@ -358,7 +358,12 @@ class PlasmaMode : public FiringModeBehavior
             ctx.requestRev = false;
             uint32_t heldMs = ctx.time_ms - chargeStartMs_;
             bool overheated = isOverheating(heldMs);
-            ctx.shotsToFire = overheated ? 0 : readySlots(heldMs);
+            int16_t slots = readySlots(heldMs);
+            // Released before the first slot arms: one dart at whatever the ramp has reached, so
+            // charge duration sets power below READY and dart count above it.
+            if (slots == 0 && ctx.atSpeed)
+                slots = 1;
+            ctx.shotsToFire = overheated ? 0 : slots;
             if (overheated)
             {
                 lockoutUntilMs_ = ctx.time_ms + kOverheatLockoutMs;

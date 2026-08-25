@@ -8,7 +8,6 @@
 // post-save hook below so these settings apply immediately rather than requiring a reboot.
 void applyMotorConfig();
 void applyEmaFilterConstant();
-void applyFiringRpmThresholds();
 void applySolenoidTimingCurve();
 void applyMaxAchievableDps();
 void applyDebounceInterval();
@@ -439,52 +438,39 @@ void runMenu()
                 else
                 {
                     MenuItem* item = visibleItemAt(level, level.selectedIndex);
-                    switch (item->activate())
+                    if (!item->isEditable())
                     {
-                    case MenuActivation::EnterSubmenu:
-                        if (!item->isEditable())
+                        // e.g. Ratio based FPS while the profile is in Custom mode
+                        showTrapdoor(item->lockedMessage());
+                        longPressWasActive = true; // don't also count as a long-press-to-exit
+                    }
+                    else
+                        switch (item->activate())
                         {
-                            // e.g. Ratio based FPS while the profile is in Custom mode
-                            showTrapdoor(item->lockedMessage());
-                            longPressWasActive = true; // don't also count as a long-press-to-exit
-                        }
-                        else
-                        {
+                        case MenuActivation::EnterSubmenu:
                             pushLevel(item->label(), item->children(), item->childCount());
-                        }
-                        break;
-                    case MenuActivation::EnterEdit:
-                        if (!item->isEditable())
-                        {
-                            showTrapdoor(item->lockedMessage());
-                            longPressWasActive = true;
-                        }
-                        else
-                        {
+                            break;
+                        case MenuActivation::EnterEdit:
                             item->beginEdit();
                             editing = true;
                             editingItem = item;
                             optionsScrollOffset = 0;
                             reversedDirection = false;
                             pendingSave = false;
+                            break;
+                        case MenuActivation::None:
+                            if (item->needsReboot())
+                                rebootPending = true;
+                            longPressWasActive = true;
+                            break;
+                        case MenuActivation::PopBack:
+                            if (menuDepth > 1)
+                                menuDepth--;
+                            else
+                                menuDepth = 0;
+                            longPressWasActive = true;
+                            break;
                         }
-                        break;
-                    case MenuActivation::None:
-                        // A blocking ActionItem callback (Flywheel Test, ESC Dashboard, etc.) may
-                        // return with the dismissing press still held - seed this so the next tick
-                        // doesn't misread that as a fresh long-press and back out a level.
-                        if (item->needsReboot())
-                            rebootPending = true;
-                        longPressWasActive = true;
-                        break;
-                    case MenuActivation::PopBack:
-                        if (menuDepth > 1)
-                            menuDepth--;
-                        else
-                            menuDepth = 0;
-                        longPressWasActive = true;
-                        break;
-                    }
                 }
             }
         }
@@ -512,7 +498,6 @@ void runMenu()
     // Re-apply every reboot-eliminated setting - cheap to recompute even if nothing changed.
     applyMotorConfig();
     applyEmaFilterConstant();
-    applyFiringRpmThresholds();
     applySolenoidTimingCurve();
     applyDebounceInterval();
     menuButton.interval(debounceTime_ms); // owned here, not main.cpp - applyDebounceInterval()

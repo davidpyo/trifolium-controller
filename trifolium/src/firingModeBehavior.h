@@ -24,6 +24,8 @@ struct FiringContext
 
     float& rpmScale;              // < 0 = motors use their own revRPM; 0..1 = scale each motor's
     int16_t& buzzPulsesRequested; // consumed and cleared by handlePlasmaBuzzPulse()
+
+    bool atSpeed; // flywheels have reached what the mode is asking for - a shot would fire now
 };
 
 class FiringModeBehavior
@@ -39,6 +41,7 @@ class FiringModeBehavior
     virtual bool supportsBurstLength() const { return true; }
     virtual bool supportsTargetDps() const { return true; }
     virtual bool supportsReversible() const { return false; } // true only for BURST, SEMI
+
     virtual bool managesOwnRevLifecycle() const { return false; }
 
     virtual ~FiringModeBehavior() = default;

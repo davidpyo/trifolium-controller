@@ -27,12 +27,12 @@ extern Bounce2::Button revSwitch;
 
 extern ShotProfile activeProfile;
 extern DeviceSettings deviceSettings;
-extern uint8_t activeProfileIndex;           // which of the 3 named profiles activeProfile came from
-extern int8_t firingMode;                    // which Firing Mode (1-3) is live-selected right now
+extern uint8_t activeProfileIndex; // which of the 3 named profiles activeProfile came from
+extern int8_t firingMode;          // which Firing Mode (1-3) is live-selected right now
 extern int8_t screenOverrideMode;
 extern float solenoidVoltageTimeSlope;       // applySolenoidTimingCurve()'s output
 extern int16_t solenoidVoltageTimeIntercept; // ditto
-extern float maxAchievableDPS;                // applyMaxAchievableDps()'s output
+extern float maxAchievableDPS;               // applyMaxAchievableDps()'s output
 extern BatteryMonitor* batteryMonitor;
 extern DisplayManager displayManager;
 extern FlywheelMotor motorArr[4];
@@ -40,6 +40,7 @@ extern volatile bool directMotorControlActive; // see fwControlLoop()
 extern bool escDashboardOpen;                  // lets Rev spin flywheels while this screen is open
 
 bool pinDefined(uint8_t pin);
+bool isPusherEscChannel(uint8_t motorIndex);
 void handleSerialCommands();
 
 // Shared list-layout constants - menuCore.cpp's renderList() and menuTextEditor.cpp's
@@ -147,7 +148,6 @@ class TextEditItem : public MenuItem
     String* value_;
 };
 
-
 class ShortcutItem : public MenuItem
 {
   public:
@@ -174,8 +174,10 @@ class ShortcutItem : public MenuItem
 };
 static const uint8_t RPM_TARGET_ALL_MOTORS = 0xFF;
 
-inline int32_t motorRpmCeiling(uint8_t motorIndex)
+inline int32_t motorRpmCeiling(int8_t motorIndex)
 {
+    if (motorIndex < 0)
+        return 100000;
     const MotorConfig& mc = deviceSettings.motorConfig[motorIndex];
     int64_t theoreticalMax =
         (int64_t)mc.motorKv * batteryVoltageMax_mv[deviceSettings.batteryType] / 1000;
@@ -183,8 +185,10 @@ inline int32_t motorRpmCeiling(uint8_t motorIndex)
     return (int32_t)(theoreticalMax - margin);
 }
 
-inline int32_t motorRpmFloor(uint8_t motorIndex)
+inline int32_t motorRpmFloor(int8_t motorIndex)
 {
+    if (motorIndex < 0)
+        return 0;
     return 2 * deviceSettings.motorConfig[motorIndex].motorKv;
 }
 
@@ -208,7 +212,7 @@ class RpmTargetItem : public MenuItem
 {
   public:
     RpmTargetItem(const char* label, int32_t* value, uint8_t motorIndex, int32_t step,
-                 bool needsReboot = false)
+                  bool needsReboot = false)
         : MenuItem(label), value_(value), motorIndex_(motorIndex), step_(step)
     {
         needsReboot_ = needsReboot;
@@ -218,20 +222,9 @@ class RpmTargetItem : public MenuItem
     void beginEdit() override { entryValue_ = *value_; }
     void adjust(int8_t direction, bool wrap) override
     {
-        int32_t floor = 0;
-        int32_t ceiling = 100000; // fallback if no motor in scope is enabled
         int8_t ref = referenceMotor();
-        if (ref >= 0)
-        {
-            floor = motorRpmFloor((uint8_t)ref);
-            ceiling = motorRpmCeiling((uint8_t)ref);
-        }
-        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)ceiling)
-            next = wrap ? (int64_t)floor : (int64_t)ceiling;
-        if (next < (int64_t)floor)
-            next = wrap ? (int64_t)ceiling : (int64_t)floor;
-        *value_ = (int32_t)next;
+        *value_ = (int32_t)steppedToGrid(*value_, direction, step_, motorRpmFloor(ref),
+                                         motorRpmCeiling(ref), wrap);
     }
     void cancelEdit() override { *value_ = entryValue_; }
 
@@ -272,12 +265,7 @@ class SecondsDisplayItem : public MenuItem
     void beginEdit() override { entryValue_ = *value_; }
     void adjust(int8_t direction, bool wrap) override
     {
-        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)granularity_;
-        if (next > (int64_t)max_)
-            next = wrap ? (int64_t)min_ : (int64_t)max_;
-        if (next < (int64_t)min_)
-            next = wrap ? (int64_t)max_ : (int64_t)min_;
-        *value_ = (uint32_t)next;
+        *value_ = (uint32_t)steppedToGrid(*value_, direction, granularity_, min_, max_, wrap);
     }
     void cancelEdit() override { *value_ = entryValue_; }
 

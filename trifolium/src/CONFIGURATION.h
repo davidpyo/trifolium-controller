@@ -50,11 +50,12 @@ inline const ShotProfile kDefaultProfile = {
     .revSafetyTimeout_ms = 0, // disabled
     .rpmMode = RPM_STAGE,
 
-    .fireModes = {
-        fireMode(100, AUTO, 15.0f),
-        fireMode(1, BINARY, 15.0f),
-        fireMode(1, SEMI, 15.0f),
-    },
+    .fireModes =
+        {
+            fireMode(100, AUTO, 15.0f),
+            fireMode(1, BINARY, 15.0f),
+            fireMode(1, SEMI, 15.0f),
+        },
     .activeModeCount = 3,
     .defaultFiringMode = 1,
     .switchPositionAssignment = {0, 1, 2},
@@ -106,12 +107,33 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .useRpmLogging = false,
     .rpmLogLength = MAX_RPM_LOG_LENGTH,
 
-    .motorConfig = {
-        {.enabled = false, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
-        {.enabled = true, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
-        {.enabled = false, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
-        {.enabled = true, .stage = STAGE_1, .kp = 0.2f, .ki = 0.5f, .motorKv = 3200, .motorPolesDiv2 = 7},
-    },
+    .motorConfig =
+        {
+            {.enabled = false,
+             .stage = STAGE_1,
+             .kp = 0.2f,
+             .ki = 0.5f,
+             .motorKv = 3200,
+             .motorPolesDiv2 = 7},
+            {.enabled = true,
+             .stage = STAGE_1,
+             .kp = 0.2f,
+             .ki = 0.5f,
+             .motorKv = 3200,
+             .motorPolesDiv2 = 7},
+            {.enabled = false,
+             .stage = STAGE_1,
+             .kp = 0.2f,
+             .ki = 0.5f,
+             .motorKv = 3200,
+             .motorPolesDiv2 = 7},
+            {.enabled = true,
+             .stage = STAGE_1,
+             .kp = 0.2f,
+             .ki = 0.5f,
+             .motorKv = 3200,
+             .motorPolesDiv2 = 7},
+        },
 
     .flywheelControl = PID_CONTROL,
     .firingRPMTolerance = 500,

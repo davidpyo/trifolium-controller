@@ -8,6 +8,29 @@ template <typename T> struct NoDeduceHelper
 };
 template <typename T> using NoDeduce = typename NoDeduceHelper<T>::Type;
 
+// Steps `value` to the next multiple of `step` in the direction of travel, clamped to [lo, hi]
+inline int64_t steppedToGrid(int64_t value, int8_t direction, int64_t step, int64_t lo, int64_t hi,
+                             bool wrap)
+{
+    if (step <= 0 || direction == 0)
+        return value;
+    auto floorDiv = [](int64_t a, int64_t b)
+    {
+        int64_t q = a / b;
+        return (a % b != 0 && (a < 0) != (b < 0)) ? q - 1 : q;
+    };
+    lo = -floorDiv(-lo, step) * step;
+    hi = floorDiv(hi, step) * step;
+
+    int64_t next =
+        (direction > 0) ? (floorDiv(value, step) + 1) * step : floorDiv(value - 1, step) * step;
+    if (next > hi)
+        next = wrap ? lo : hi;
+    if (next < lo)
+        next = wrap ? hi : lo;
+    return next;
+}
+
 // Attach the menu button pin (no-op if menuButtonPin is PIN_NOT_USED). Call once from setup().
 void setupMenuButton();
 
@@ -69,9 +92,11 @@ class MenuItem
 
     // False for an item whose edit would be pointless right now - shows lockedMessage() instead
     // of opening the editor, rather than hiding the row.
-    virtual bool isEditable() const { return true; }
+    virtual bool isEditable() const { return !editableWhen_ || editableWhen_(); }
     virtual String lockedMessage() const
     {
+        if (lockedMessage_)
+            return lockedMessage_;
         return "This setting can't be\nedited right now.\nany press = back";
     }
 
@@ -84,6 +109,13 @@ class MenuItem
     using VisibilityPredicate = bool (*)();
     void setVisibleWhen(VisibilityPredicate pred) { visibleWhen_ = pred; }
 
+    // Keeps the row visible but refuses activation with `message` while pred() is false.
+    void setEditableWhen(VisibilityPredicate pred, const char* message)
+    {
+        editableWhen_ = pred;
+        lockedMessage_ = message;
+    }
+
     // True for settings that only take effect after a reboot.
     bool needsReboot() const { return needsReboot_; }
 
@@ -93,6 +125,8 @@ class MenuItem
 
   private:
     VisibilityPredicate visibleWhen_ = nullptr;
+    VisibilityPredicate editableWhen_ = nullptr;
+    const char* lockedMessage_ = nullptr;
 };
 
 class SubmenuItem : public MenuItem
@@ -184,13 +218,7 @@ template <typename T> class NumericItem : public MenuItem
     void beginEdit() override { entryValue_ = *value_; }
     void adjust(int8_t direction, bool wrap) override
     {
-        // wide intermediate type so a narrow field can't wrap mid-calculation
-        int64_t next = (int64_t)*value_ + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)max_)
-            next = wrap ? (int64_t)min_ : (int64_t)max_;
-        if (next < (int64_t)min_)
-            next = wrap ? (int64_t)max_ : (int64_t)min_;
-        *value_ = (T)next;
+        *value_ = (T)steppedToGrid(*value_, direction, step_, min_, max_, wrap);
     }
     void cancelEdit() override { *value_ = entryValue_; }
 

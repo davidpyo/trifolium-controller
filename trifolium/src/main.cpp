@@ -137,6 +137,13 @@ Bounce2::Button select2 = Bounce2::Button();
 Bounce2::Button* selectSwitches[3] = {&select0, &select1, &select2};
 uint8_t selectPins[3]; // populated in setup() from deviceSettings.select0/1/2Pin
 
+bool revRequestedNow()
+{
+    if (requestRev)
+        return true;
+    return !behaviorFor(burstMode).managesOwnRevLifecycle() && revSwitch.isPressed();
+}
+
 Motor motorsObj[4] = {Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0)};
 
 bool motorsEnabled[4];
@@ -157,7 +164,6 @@ void registerShot();
 void handleSerialCommands();
 void applyMotorConfig();
 void applyEmaFilterConstant();
-void applyFiringRpmThresholds();
 void applySolenoidTimingCurve();
 void applyMaxAchievableDps();
 void applyDebounceInterval();
@@ -167,6 +173,23 @@ uint32_t computePusherDwellPadding_ms();
 bool pinDefined(uint8_t pin)
 {
     return pin != PIN_NOT_USED;
+}
+
+uint8_t escPin(uint8_t motorIndex)
+{
+    const uint8_t pins[4] = {board.esc1, board.esc2, board.esc3, board.esc4};
+    return pins[motorIndex];
+}
+
+bool isPusherEscChannel(uint8_t motorIndex)
+{
+    return board.pusherDriverType == ESC_DRIVER && board.drvEN == escPin(motorIndex);
+}
+
+int32_t atSpeedRpm(uint8_t motorIndex)
+{
+    return max((int32_t)motorArr[motorIndex].targetRPM - deviceSettings.firingRPMTolerance,
+               deviceSettings.minFiringRPM);
 }
 
 void logData()
@@ -208,20 +231,6 @@ void applyEmaFilterConstant()
         deviceSettings.EMAFilter = 1;
     }
     half = uint32_t{1} << (deviceSettings.EMAFilter - 1);
-}
-
-// Recomputes each enabled motor's firingRPM ("at speed" threshold) from revRPM plus
-// firingRPMTolerance/minFiringRPM.
-void applyFiringRpmThresholds()
-{
-    for (int i = 0; i < 4; i++)
-    {
-        if (motorsEnabled[i])
-        {
-            motorArr[i].firingRPM = max(motorArr[i].revRPM - deviceSettings.firingRPMTolerance,
-                                        deviceSettings.minFiringRPM);
-        }
-    }
 }
 
 // Recomputes the solenoid extend-time/voltage slope+intercept from the four Solenoid/Pusher fields.
@@ -361,15 +370,12 @@ void setup()
     applyEmaFilterConstant();
     applyMotorConfig();
 
-    // per-motor ESC pin, indexed same as motors[]/motorsObj[]
-    const uint8_t escPins[4] = {board.esc1, board.esc2, board.esc3, board.esc4};
-
     // need to do some checking for valid motor/esc driver pins here
     for (int i = 0; i < 4; i++)
     {
         if (motorsEnabled[i])
         {
-            if (board.pusherDriverType == ESC_DRIVER && board.drvEN == escPins[i])
+            if (isPusherEscChannel(i))
             {
                 while (1)
                 {
@@ -409,7 +415,7 @@ void setup()
         {
             if (motorsEnabled[i])
             {
-                pins[currentPin] = escPins[i];
+                pins[currentPin] = escPin(i);
                 currentPin++;
             }
         }
@@ -537,10 +543,9 @@ void setup()
         if (motorsEnabled[i])
         {
             motorArr[i].revRPM = activeProfile.revRPM[i];
-            motorArr[i].attachEsc(new BidirDShotX1(escPins[i], deviceSettings.dshotMode));
+            motorArr[i].attachEsc(new BidirDShotX1(escPin(i), deviceSettings.dshotMode));
         }
     }
-    applyFiringRpmThresholds();
     dwellTime_ms = activeProfile.dwellTime_ms;
     idleTime_ms = activeProfile.idleTime_ms;
 
@@ -664,6 +669,7 @@ void mainFiringLogic()
             requestRev,
             rpmScale_,
             buzzPulsesRequested_,
+            flywheelState == STATE_FULLSPEED,
         };
         behaviorFor(burstMode).update(ctx, event);
     }
@@ -804,8 +810,7 @@ bool fwControlLoop()
     case STATE_IDLE:
         checkLowVoltageCutoff();
 
-        if (shotsToFire > 0 ||
-            (revControlAllowed() && (revSwitch.isPressed() || requestRev) && !revSafetyLatched))
+        if (shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched))
         {
             enableFwControl = true;
             revStartTime_us = loopStartTimer_us;
@@ -938,10 +943,10 @@ bool fwControlLoop()
                                                        : motorArr[i].revRPM;
 
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
-        if ((!motorsEnabled[0] || motorArr[0].motorRPM > motorArr[0].firingRPM) &&
-            (!motorsEnabled[1] || motorArr[1].motorRPM > motorArr[1].firingRPM) &&
-            (!motorsEnabled[2] || motorArr[2].motorRPM > motorArr[2].firingRPM) &&
-            (!motorsEnabled[3] || motorArr[3].motorRPM > motorArr[3].firingRPM)
+        if ((!motorsEnabled[0] || (int32_t)motorArr[0].motorRPM > atSpeedRpm(0)) &&
+            (!motorsEnabled[1] || (int32_t)motorArr[1].motorRPM > atSpeedRpm(1)) &&
+            (!motorsEnabled[2] || (int32_t)motorArr[2].motorRPM > atSpeedRpm(2)) &&
+            (!motorsEnabled[3] || (int32_t)motorArr[3].motorRPM > atSpeedRpm(3))
         ) {
             flywheelState = STATE_FULLSPEED;
             logger.info("STATE_FULLSPEED transition 1");
@@ -952,8 +957,8 @@ bool fwControlLoop()
             shotsToFire = 0;
             for (int i = 0; i < 4; i++) {
                 if (motorsEnabled[i]) {
-                    if (motorArr[i].motorRPM <= motorArr[i].firingRPM) {
-                        logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", motorArr[i].firingRPM);
+                    if ((int32_t)motorArr[i].motorRPM <= atSpeedRpm(i)) {
+                        logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
                     }
                     motorArr[i].targetRPM = 0;
                     motorArr[i].PIDOutput = 0;
@@ -969,8 +974,7 @@ bool fwControlLoop()
             motorArr[i].targetRPM = (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
                                                         : motorArr[i].revRPM;
 
-        if ((!revControlAllowed() || !(revSwitch.isPressed() || requestRev)) && shotsToFire == 0 &&
-            !firing)
+        if ((!revControlAllowed() || !revRequestedNow()) && shotsToFire == 0 && !firing)
         {
             flywheelState = STATE_IDLE;
             logger.info("State transition: FULLSPEED to IDLE 1");
@@ -1292,6 +1296,7 @@ void loop1()
                     requestRev,
                     rpmScale_,
                     buzzPulsesRequested_,
+                    false, // render() never reads this
                 };
                 // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
                 // last measured extend-to-extend interval, set is the raw targetDPS setting.

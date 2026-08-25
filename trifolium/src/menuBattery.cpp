@@ -8,12 +8,12 @@ static NumericItem<uint32_t> lowVoltageCutoffItem("Low V Cutoff (mV/cell)",
                                                   3800, 50);
 // Earlier, non-cutoff warning threshold - expected above the cutoff so it trips first.
 static NumericItem<uint32_t> lowVoltageWarningItem("Low V Warning (mV/cell)",
-                                                   &deviceSettings.lowVoltageWarningPerCell_mv, 3000,
-                                                   3800, 50);
+                                                   &deviceSettings.lowVoltageWarningPerCell_mv,
+                                                   3000, 3800, 50);
 // Applies live via BatteryMonitor::updateCalibration(), called from runMenu()'s post-save hook.
 static FloatItem voltageCalibrationItem("Volt Calibration",
-                                        &deviceSettings.voltageCalibrationFactor, 0.5f, 1.5f,
-                                        0.1f, 3);
+                                        &deviceSettings.voltageCalibrationFactor, 0.5f, 1.5f, 0.1f,
+                                        3);
 
 // Spins all enabled motors at a low fixed throttle to bleed the pack down to a target per-cell
 // storage voltage, then stops and alerts. Blocks for the duration; any button press aborts early.
@@ -40,7 +40,7 @@ static void storageDischargeFired()
         menuButton.update();
         for (int i = 0; i < 4; i++)
         {
-            if (deviceSettings.motorConfig[i].enabled)
+            if (deviceSettings.motorConfig[i].enabled && !isPusherEscChannel(i))
                 motorArr[i].sendThrottle(STORAGE_DISCHARGE_THROTTLE);
         }
         if (millis() - lastUpdate > 200)

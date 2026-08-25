@@ -24,7 +24,7 @@ static bool testOneMotor(int motorIndex)
         menuButton.update();
         for (int j = 0; j < 4; j++)
         {
-            if (deviceSettings.motorConfig[j].enabled)
+            if (deviceSettings.motorConfig[j].enabled && !isPusherEscChannel(j))
                 motorArr[j].sendThrottle(j == motorIndex ? FLYWHEEL_TEST_THROTTLE : 0);
         }
         if (dismiss.poll())
@@ -35,7 +35,15 @@ static bool testOneMotor(int motorIndex)
 }
 
 static const char* const motorStageLabels[] = {"Stage 1", "Stage 2"};
+
+static const char* const kPusherChannelLocked =
+    "Pusher channel - not\nusable as a flywheel\nany press = back";
+
 #define MOTOR_SUBMENU(N, LABEL)                                                                    \
+    static bool motor##N##Runnable()                                                               \
+    {                                                                                              \
+        return !isPusherEscChannel(N);                                                             \
+    }                                                                                              \
     static ToggleItem motor##N##EnabledItem("Enabled", &deviceSettings.motorConfig[N].enabled,     \
                                             true);                                                 \
     static EnumItem<motorStage_t> motor##N##StageItem(                                             \
@@ -46,8 +54,8 @@ static const char* const motorStageLabels[] = {"Stage 1", "Stage 2"};
                                       2);                                                          \
     static NumericItem<int16_t> motor##N##PolesItem(                                               \
         "Poles/2", &deviceSettings.motorConfig[N].motorPolesDiv2, 1, 10, 1);                       \
-    static NumericItem<int32_t> motor##N##KvItem("Kv", &deviceSettings.motorConfig[N].motorKv, 500, \
-                                                  5000, 10);                                       \
+    static NumericItem<int32_t> motor##N##KvItem("Kv", &deviceSettings.motorConfig[N].motorKv,     \
+                                                 500, 5000, 10);                                   \
     static void motor##N##TestFired()                                                              \
     {                                                                                              \
         if (!deviceSettings.motorConfig[N].enabled)                                                \
@@ -55,15 +63,23 @@ static const char* const motorStageLabels[] = {"Stage 1", "Stage 2"};
         directMotorControlActive = true;                                                           \
         testOneMotor(N);                                                                           \
         for (int j = 0; j < 4; j++)                                                                \
-            if (deviceSettings.motorConfig[j].enabled)                                              \
+            if (deviceSettings.motorConfig[j].enabled && !isPusherEscChannel(j))                   \
                 motorArr[j].sendThrottle(0);                                                       \
         directMotorControlActive = false;                                                          \
     }                                                                                              \
     static ActionItem motor##N##TestItem("Test This Motor", motor##N##TestFired);                  \
     static MenuItem* motor##N##Items[] = {                                                         \
-        &motor##N##EnabledItem, &motor##N##StageItem, &motor##N##KPItem,                           \
-        &motor##N##KIItem,      &motor##N##PolesItem, &motor##N##KvItem, &motor##N##TestItem};     \
-    static SubmenuItem motor##N##Submenu(LABEL, motor##N##Items, 7);
+        &motor##N##EnabledItem, &motor##N##StageItem, &motor##N##KPItem,  &motor##N##KIItem,       \
+        &motor##N##PolesItem,   &motor##N##KvItem,    &motor##N##TestItem};                        \
+    static SubmenuItem motor##N##Submenu(LABEL, motor##N##Items, 7);                               \
+    static struct Motor##N##Init                                                                   \
+    {                                                                                              \
+        Motor##N##Init()                                                                           \
+        {                                                                                          \
+            motor##N##EnabledItem.setEditableWhen(motor##N##Runnable, kPusherChannelLocked);       \
+            motor##N##TestItem.setEditableWhen(motor##N##Runnable, kPusherChannelLocked);          \
+        }                                                                                          \
+    } motor##N##Init;
 
 MOTOR_SUBMENU(0, "Motor 1")
 MOTOR_SUBMENU(1, "Motor 2")
@@ -161,9 +177,8 @@ static void escDashboardFired()
 static ActionItem escDashboardItem("ESC Dashboard", escDashboardFired);
 
 static MenuItem* motorsPidItems[] = {
-    &motor0Submenu,       &motor1Submenu,   &motor2Submenu,   &motor3Submenu, &flywheelControlItem,
-    &emaFilterItem,       &iThresholdItem,  &throttleCapItem, &autoTunePidItem,
-    &escDashboardItem,
+    &motor0Submenu, &motor1Submenu,  &motor2Submenu,   &motor3Submenu,   &flywheelControlItem,
+    &emaFilterItem, &iThresholdItem, &throttleCapItem, &autoTunePidItem, &escDashboardItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
 SubmenuItem motorsPidSubmenu("Motors & PID", motorsPidItems, 10);

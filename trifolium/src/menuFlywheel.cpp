@@ -2,9 +2,9 @@
 
 static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", &activeProfile.spindownSpeed, 10,
                                                200, 10);
-// firingRPM = max(revRPM - firingRPMTolerance, minFiringRPM) - see applyFiringRpmThresholds().
-static NumericItem<int32_t> firingRpmToleranceItem("Firing RPM Tol",
-                                                   &deviceSettings.firingRPMTolerance, 0, 10000, 500);
+// "At speed" = max(targetRPM - firingRPMTolerance, minFiringRPM) - see atSpeedRpm() in main.cpp.
+static NumericItem<int32_t>
+    firingRpmToleranceItem("Firing RPM Tol", &deviceSettings.firingRPMTolerance, 0, 10000, 500);
 static RpmTargetItem minFiringRpmItem("Min Firing RPM", &deviceSettings.minFiringRPM,
                                       RPM_TARGET_ALL_MOTORS, 1000);
 // Parameterizes the existing STATE_ACCELERATING abort-to-idle timeout in fwControlLoop() - doesn't
@@ -19,10 +19,7 @@ static bool selectFireIsWired()
 }
 struct FlywheelItemsInit
 {
-    FlywheelItemsInit()
-    {
-        variableFPSItem.setVisibleWhen(selectFireIsWired);
-    }
+    FlywheelItemsInit() { variableFPSItem.setVisibleWhen(selectFireIsWired); }
 } flywheelItemsInit;
 
 static const char* const rpmModeLabels[] = {"Custom", "Stage"};
@@ -64,20 +61,9 @@ class StageRpmItem : public MenuItem
     void beginEdit() override { entryValue_ = currentValue(); }
     void adjust(int8_t direction, bool wrap) override
     {
-        int32_t floor = 0;
-        int32_t ceiling = 100000; // fallback if no motor in this stage is enabled
         int8_t ref = referenceMotor();
-        if (ref >= 0)
-        {
-            floor = motorRpmFloor((uint8_t)ref);
-            ceiling = motorRpmCeiling((uint8_t)ref);
-        }
-        int64_t next = (int64_t)currentValue() + (int64_t)direction * (int64_t)step_;
-        if (next > (int64_t)ceiling)
-            next = wrap ? (int64_t)floor : (int64_t)ceiling;
-        if (next < (int64_t)floor)
-            next = wrap ? (int64_t)ceiling : (int64_t)floor;
-        setAll((int32_t)next);
+        setAll((int32_t)steppedToGrid(currentValue(), direction, step_, motorRpmFloor(ref),
+                                      motorRpmCeiling(ref), wrap));
     }
     void cancelEdit() override { setAll(entryValue_); }
 
@@ -95,14 +81,16 @@ class StageRpmItem : public MenuItem
     int32_t currentValue() const
     {
         for (int i = 0; i < 4; i++)
-            if (deviceSettings.motorConfig[i].enabled && deviceSettings.motorConfig[i].stage == stage_)
+            if (deviceSettings.motorConfig[i].enabled &&
+                deviceSettings.motorConfig[i].stage == stage_)
                 return values_[i];
         return 0;
     }
     void setAll(int32_t value)
     {
         for (int i = 0; i < 4; i++)
-            if (deviceSettings.motorConfig[i].enabled && deviceSettings.motorConfig[i].stage == stage_)
+            if (deviceSettings.motorConfig[i].enabled &&
+                deviceSettings.motorConfig[i].stage == stage_)
                 values_[i] = value;
     }
 

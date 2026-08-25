@@ -12,7 +12,6 @@ class FlywheelMotor
 
     uint32_t revRPM = 0;         // target RPM to rev up to for the active firing mode
     uint32_t targetRPM = 0;      // current target RPM (ramps/dwells/idles toward this)
-    uint32_t firingRPM = 0;      // RPM threshold considered "at speed" to allow firing
     uint32_t motorRPM = 0;       // filtered/last-known-good RPM reading
     uint32_t motorRPMRaw = 0;    // raw RPM reading before filtering (PID_CONTROL only)
     uint32_t motorRPMFilter = 0; // EMA filter accumulator (PID_CONTROL only)
