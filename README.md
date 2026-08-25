@@ -18,10 +18,10 @@ trifolium-controller
  - [x] Telemetry printing  
  - [x] Python live graphing  
  - [x] Screen support  
- - [ ] Menu support  
+ - [X] Menu support  
  - [ ] Auto PID tuning  
  - [X] PID variables per motor (asymmetrical setup support)  
- - [ ] ESC temperature monitoring  
+ - [X] ESC temperature monitoring  
  - [x] ESC passthrough
 
 ## Features
