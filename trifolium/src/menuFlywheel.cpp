@@ -6,7 +6,7 @@ static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", &activeProfile.
 static NumericItem<int32_t>
     firingRpmToleranceItem("Firing RPM Tol", &deviceSettings.firingRPMTolerance, 0, 10000, 500);
 static RpmTargetItem minFiringRpmItem("Min Firing RPM", &deviceSettings.minFiringRPM,
-                                      RPM_TARGET_ALL_MOTORS, 1000);
+                                      RPM_TARGET_ALL_MOTORS, 1000, RPM_FLOOR_ZERO);
 // Parameterizes the existing STATE_ACCELERATING abort-to-idle timeout in fwControlLoop() - doesn't
 // change the transition's shape, just how long it waits before giving up. Checked live, no reboot.
 static NumericItem<uint32_t> rampupTimeoutItem("Rampup Timeout (ms)",
@@ -50,8 +50,8 @@ class StageRpmItem : public MenuItem
 {
   public:
     StageRpmItem(const char* label, int32_t* perMotorArray, motorStage_t stage, int32_t step,
-                 bool needsReboot = false)
-        : MenuItem(label), values_(perMotorArray), stage_(stage), step_(step)
+                 rpmFloorType_t floorType, bool needsReboot = false)
+        : MenuItem(label), values_(perMotorArray), stage_(stage), step_(step), floorType_(floorType)
     {
         needsReboot_ = needsReboot;
     }
@@ -62,8 +62,9 @@ class StageRpmItem : public MenuItem
     void adjust(int8_t direction, bool wrap) override
     {
         int8_t ref = referenceMotor();
-        setAll((int32_t)steppedToGrid(currentValue(), direction, step_, motorRpmFloor(ref),
-                                      motorRpmCeiling(ref), wrap));
+        int32_t floor = (floorType_ == RPM_FLOOR_ZERO) ? 0 : motorRpmFloor(ref);
+        setAll((int32_t)steppedToGrid(currentValue(), direction, step_, floor, motorRpmCeiling(ref),
+                                      wrap));
     }
     void cancelEdit() override { setAll(entryValue_); }
 
@@ -97,34 +98,43 @@ class StageRpmItem : public MenuItem
     int32_t* values_;
     motorStage_t stage_;
     int32_t step_;
+    rpmFloorType_t floorType_;
     int32_t entryValue_ = 0;
 };
 
-static RpmTargetItem idleRpm0Item("Motor 1", &activeProfile.idleRPM[0], 0, 1000);
-static RpmTargetItem idleRpm1Item("Motor 2", &activeProfile.idleRPM[1], 1, 1000);
-static RpmTargetItem idleRpm2Item("Motor 3", &activeProfile.idleRPM[2], 2, 1000);
-static RpmTargetItem idleRpm3Item("Motor 4", &activeProfile.idleRPM[3], 3, 1000);
+static RpmTargetItem idleRpm0Item("Motor 1", &activeProfile.idleRPM[0], 0, 1000, RPM_FLOOR_ZERO);
+static RpmTargetItem idleRpm1Item("Motor 2", &activeProfile.idleRPM[1], 1, 1000, RPM_FLOOR_ZERO);
+static RpmTargetItem idleRpm2Item("Motor 3", &activeProfile.idleRPM[2], 2, 1000, RPM_FLOOR_ZERO);
+static RpmTargetItem idleRpm3Item("Motor 4", &activeProfile.idleRPM[3], 3, 1000, RPM_FLOOR_ZERO);
 static MenuItem* idleRpmCustomItems[] = {&idleRpm0Item, &idleRpm1Item, &idleRpm2Item,
                                          &idleRpm3Item};
 static ModeVisibleSubmenuItem idleRpmCustomSubmenu("Idle RPM (Custom)", idleRpmCustomItems, 4,
                                                    RPM_CUSTOM);
 
-static StageRpmItem idleRpmStage1Item("Stage 1", activeProfile.idleRPM, STAGE_1, 100);
-static StageRpmItem idleRpmStage2Item("Stage 2", activeProfile.idleRPM, STAGE_2, 100);
+static StageRpmItem idleRpmStage1Item("Stage 1", activeProfile.idleRPM, STAGE_1, 100,
+                                      RPM_FLOOR_ZERO);
+static StageRpmItem idleRpmStage2Item("Stage 2", activeProfile.idleRPM, STAGE_2, 100,
+                                      RPM_FLOOR_ZERO);
 static MenuItem* idleRpmStageItems[] = {&idleRpmStage1Item, &idleRpmStage2Item};
 static ModeVisibleSubmenuItem idleRpmStageSubmenu("Idle RPM (Stage)", idleRpmStageItems, 2,
                                                   RPM_STAGE);
 
-static RpmTargetItem profileRpmMotor0Item("Motor 1 RPM", &activeProfile.revRPM[0], 0, 500, true);
-static RpmTargetItem profileRpmMotor1Item("Motor 2 RPM", &activeProfile.revRPM[1], 1, 500, true);
-static RpmTargetItem profileRpmMotor2Item("Motor 3 RPM", &activeProfile.revRPM[2], 2, 500, true);
-static RpmTargetItem profileRpmMotor3Item("Motor 4 RPM", &activeProfile.revRPM[3], 3, 500, true);
+static RpmTargetItem profileRpmMotor0Item("Motor 1 RPM", &activeProfile.revRPM[0], 0, 500,
+                                          RPM_FLOOR_MOTOR_MIN, true);
+static RpmTargetItem profileRpmMotor1Item("Motor 2 RPM", &activeProfile.revRPM[1], 1, 500,
+                                          RPM_FLOOR_MOTOR_MIN, true);
+static RpmTargetItem profileRpmMotor2Item("Motor 3 RPM", &activeProfile.revRPM[2], 2, 500,
+                                          RPM_FLOOR_MOTOR_MIN, true);
+static RpmTargetItem profileRpmMotor3Item("Motor 4 RPM", &activeProfile.revRPM[3], 3, 500,
+                                          RPM_FLOOR_MOTOR_MIN, true);
 static MenuItem* profileRpmCustomItems[] = {&profileRpmMotor0Item, &profileRpmMotor1Item,
                                             &profileRpmMotor2Item, &profileRpmMotor3Item};
 static ModeVisibleSubmenuItem profileRpmCustomSubmenu("Per Motor RPM", profileRpmCustomItems, 4,
                                                       RPM_CUSTOM);
-static StageRpmItem profileRpmStage1Item("1st Stage RPM", activeProfile.revRPM, STAGE_1, 500, true);
-static StageRpmItem profileRpmStage2Item("2nd Stage RPM", activeProfile.revRPM, STAGE_2, 500, true);
+static StageRpmItem profileRpmStage1Item("1st Stage RPM", activeProfile.revRPM, STAGE_1, 500,
+                                         RPM_FLOOR_MOTOR_MIN, true);
+static StageRpmItem profileRpmStage2Item("2nd Stage RPM", activeProfile.revRPM, STAGE_2, 500,
+                                         RPM_FLOOR_MOTOR_MIN, true);
 static MenuItem* profileRpmStageItems[] = {&profileRpmStage1Item, &profileRpmStage2Item};
 static ModeVisibleSubmenuItem profileRpmStageSubmenu("Per Stage RPM", profileRpmStageItems, 2,
                                                      RPM_STAGE);

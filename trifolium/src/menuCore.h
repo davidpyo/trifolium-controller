@@ -174,6 +174,12 @@ class ShortcutItem : public MenuItem
 };
 static const uint8_t RPM_TARGET_ALL_MOTORS = 0xFF;
 
+enum rpmFloorType_t : uint8_t
+{
+    RPM_FLOOR_MOTOR_MIN,
+    RPM_FLOOR_ZERO,
+};
+
 inline int32_t motorRpmCeiling(int8_t motorIndex)
 {
     if (motorIndex < 0)
@@ -212,8 +218,9 @@ class RpmTargetItem : public MenuItem
 {
   public:
     RpmTargetItem(const char* label, int32_t* value, uint8_t motorIndex, int32_t step,
-                  bool needsReboot = false)
-        : MenuItem(label), value_(value), motorIndex_(motorIndex), step_(step)
+                  rpmFloorType_t floorType, bool needsReboot = false)
+        : MenuItem(label), value_(value), motorIndex_(motorIndex), step_(step),
+          floorType_(floorType)
     {
         needsReboot_ = needsReboot;
     }
@@ -223,8 +230,9 @@ class RpmTargetItem : public MenuItem
     void adjust(int8_t direction, bool wrap) override
     {
         int8_t ref = referenceMotor();
-        *value_ = (int32_t)steppedToGrid(*value_, direction, step_, motorRpmFloor(ref),
-                                         motorRpmCeiling(ref), wrap);
+        int32_t floor = (floorType_ == RPM_FLOOR_ZERO) ? 0 : motorRpmFloor(ref);
+        *value_ =
+            (int32_t)steppedToGrid(*value_, direction, step_, floor, motorRpmCeiling(ref), wrap);
     }
     void cancelEdit() override { *value_ = entryValue_; }
 
@@ -240,6 +248,7 @@ class RpmTargetItem : public MenuItem
     int32_t* value_;
     uint8_t motorIndex_;
     int32_t step_;
+    rpmFloorType_t floorType_;
     int32_t entryValue_ = 0;
 };
 
