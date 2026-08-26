@@ -34,7 +34,15 @@ inline int64_t steppedToGrid(int64_t value, int8_t direction, int64_t step, int6
 // Attach the menu button pin (no-op if menuButtonPin is PIN_NOT_USED). Call once from setup().
 void setupMenuButton();
 
-bool menuButtonHeld();
+enum class MenuButtonPress : uint8_t
+{
+    None,
+    Tap,
+    Hold,
+};
+MenuButtonPress pollMenuButton();
+
+bool menuButtonDrivesModeCycle();
 
 void runMenu();
 

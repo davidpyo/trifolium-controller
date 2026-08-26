@@ -13,6 +13,11 @@ String profilePath(uint8_t index)
 
 const char* ACTIVE_INDEX_PATH = "/active.cfg";
 
+String firingModePath(uint8_t index)
+{
+    return "/mode" + String(index) + ".cfg";
+}
+
 template <typename T> void readArray(JsonDocument& doc, const char* key, T* out, size_t count)
 {
     JsonArrayConst arr = doc[key];
@@ -73,6 +78,32 @@ bool saveActiveProfileIndex(uint8_t index)
     if (!f)
         return false;
     f.print(index);
+    f.close();
+    return true;
+}
+
+int8_t loadLastFiringMode(uint8_t index)
+{
+    if (index >= MAX_PROFILE_COUNT)
+        return -1;
+    File f = LittleFS.open(firingModePath(index), "r");
+    if (!f)
+        return -1; // never stored one for this profile
+    int mode = f.parseInt();
+    f.close();
+    if (mode < 0 || mode >= MAX_FIRE_MODES)
+        return -1;
+    return (int8_t)mode;
+}
+
+bool saveLastFiringMode(uint8_t index, int8_t mode)
+{
+    if (index >= MAX_PROFILE_COUNT || mode < 0 || mode >= MAX_FIRE_MODES)
+        return false;
+    File f = LittleFS.open(firingModePath(index), "w");
+    if (!f)
+        return false;
+    f.print(mode);
     f.close();
     return true;
 }
@@ -221,6 +252,7 @@ bool resetProfile(uint8_t index)
 {
     if (index >= MAX_PROFILE_COUNT)
         return false;
+    LittleFS.remove(firingModePath(index)); // factory defaults means booting at mode 0 again
     return saveProfile(index, defaultProfile(index));
 }
 

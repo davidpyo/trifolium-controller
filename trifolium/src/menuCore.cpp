@@ -279,8 +279,14 @@ bool showTrapdoor(const String& message)
     return waitForTrapdoorPress();
 }
 
+static bool modeCycleOnMenuButton = false;
+
 void setupMenuButton()
 {
+    modeCycleOnMenuButton = deviceSettings.selectFireType == BUTTON_SELECT_FIRE &&
+                            pinDefined(menuButtonPin) &&
+                            menuButtonPin == deviceSettings.select0Pin;
+
     if (pinDefined(menuButtonPin))
     {
         menuButton.attach(menuButtonPin, INPUT_PULLUP);
@@ -289,16 +295,31 @@ void setupMenuButton()
     }
 }
 
-bool menuButtonHeld()
+bool menuButtonDrivesModeCycle()
 {
+    return modeCycleOnMenuButton;
+}
+
+MenuButtonPress pollMenuButton()
+{
+    if (!pinDefined(menuButtonPin))
+        return MenuButtonPress::None;
+
     menuButton.update();
 
     static bool wasActive = false;
-    bool isActive = pinDefined(menuButtonPin) && menuButton.isPressed() &&
+    bool isActive = menuButton.isPressed() &&
                     menuButton.currentDuration() >= deviceSettings.menuButtonHoldTime_ms;
     bool risingEdge = isActive && !wasActive;
     wasActive = isActive;
-    return risingEdge;
+    if (risingEdge)
+        return MenuButtonPress::Hold;
+
+    if (menuButton.released() &&
+        menuButton.previousDuration() < deviceSettings.menuButtonHoldTime_ms)
+        return MenuButtonPress::Tap;
+
+    return MenuButtonPress::None;
 }
 
 void runMenu()
