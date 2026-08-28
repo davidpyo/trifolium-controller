@@ -10,7 +10,7 @@
 // version the persisted flash JSON at runtime, not this source file at compile time.
 #define CONFIG_VERSION_MAJOR 2
 #define CONFIG_VERSION_MINOR 0
-#define CONFIG_VERSION_PATCH 0
+#define CONFIG_VERSION_PATCH 1
 
 inline uint32_t targetLoopTime_us = 1000;
 

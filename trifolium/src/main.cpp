@@ -90,6 +90,7 @@ uint32_t idleTime_ms;
 uint32_t currentSpindownSpeed = 0;
 burstFireType_t burstMode;
 int8_t firingMode = 0;
+static int8_t persistedFiringMode = 0;
 int8_t activeSwitchPosition = -1; // -1 only until the first updateFiringMode() tick sets it
 int8_t screenOverrideMode = -1;
 int16_t shotsToFire = 0;
@@ -156,6 +157,7 @@ FlywheelMotor motorArr[4] = {FlywheelMotor(&motorsObj[0]), FlywheelMotor(&motors
 RpmLogger rpmLogger;
 
 void updateFiringMode();
+void cycleFiringMode();
 uint8_t selectShotProfileAtBoot();
 bool fwControlLoop();
 void mainFiringLogic();
@@ -169,6 +171,12 @@ void applyMaxAchievableDps();
 void applyDebounceInterval();
 void applyPrintTelemetry();
 uint32_t computePusherDwellPadding_ms();
+
+static bool firingModePersists()
+{
+    return deviceSettings.selectFireType == BUTTON_SELECT_FIRE ||
+           deviceSettings.selectFireType == SCREEN_SELECT_FIRE;
+}
 
 bool pinDefined(uint8_t pin)
 {
@@ -482,6 +490,8 @@ void setup()
     {
         for (int i = 0; i < 3; i++)
         {
+            if (i == 0 && menuButtonDrivesModeCycle())
+                continue;
             if (pinDefined(selectPins[i]))
             {
                 selectSwitches[i]->attach(selectPins[i], INPUT_PULLUP);
@@ -537,6 +547,15 @@ void setup()
     }
     ProfileStore::loadProfile(activeProfileIndex, activeProfile);
     logger.info("activeProfileIndex: ", activeProfileIndex);
+
+    if (firingModePersists())
+    {
+        int8_t storedMode = ProfileStore::loadLastFiringMode(activeProfileIndex);
+        if (storedMode >= 0 && storedMode < (int8_t)activeProfile.activeModeCount)
+            firingMode = storedMode;
+        persistedFiringMode = firingMode;
+        logger.info("Boot firingMode ", firingMode);
+    }
 
     for (int i = 0; i < 4; i++)
     {
@@ -1170,33 +1189,34 @@ void updateFiringMode()
     }
     else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
-        if (pinDefined(deviceSettings.select0Pin))
+        if (!menuButtonDrivesModeCycle() && pinDefined(deviceSettings.select0Pin))
         {
             select0.update();
             if (select0.pressed())
             {
-                // Skip modes with includeInCycle == false. Bounded to activeModeCount attempts
-                // so a list with no cyclable mode at all falls back to defaultFiringMode instead
-                // of looping forever.
-                int8_t candidate = firingMode;
-                bool found = false;
-                for (uint8_t attempts = 0; attempts < activeProfile.activeModeCount; attempts++)
-                {
-                    candidate++;
-                    if (candidate > (int8_t)activeProfile.activeModeCount - 1)
-                        candidate = 0;
-                    if (activeProfile.fireModes[candidate].includeInCycle)
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                firingMode = found ? candidate : activeProfile.defaultFiringMode;
+                cycleFiringMode();
                 logger.info("Select button pressed, firingMode ", firingMode);
-                return;
             }
         }
     }
+}
+
+void cycleFiringMode()
+{
+    int8_t candidate = firingMode;
+    bool found = false;
+    for (uint8_t attempts = 0; attempts < activeProfile.activeModeCount; attempts++)
+    {
+        candidate++;
+        if (candidate > (int8_t)activeProfile.activeModeCount - 1)
+            candidate = 0;
+        if (activeProfile.fireModes[candidate].includeInCycle)
+        {
+            found = true;
+            break;
+        }
+    }
+    firingMode = found ? candidate : activeProfile.defaultFiringMode;
 }
 
 // call this function to reset PID integral values, or reset I for TBH control
@@ -1230,7 +1250,7 @@ uint8_t selectShotProfileAtBoot()
     }
     else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
-        if (pinDefined(deviceSettings.select0Pin))
+        if (!menuButtonDrivesModeCycle() && pinDefined(deviceSettings.select0Pin))
         {
             select0.update();
             if (select0.isPressed())
@@ -1261,56 +1281,118 @@ void setup1()
     displayManager.begin(deviceSettings.rotateDisplay);
 }
 
+static bool serviceMenuButton()
+{
+    MenuButtonPress press = pollMenuButton();
+    if (press == MenuButtonPress::Tap && menuButtonDrivesModeCycle())
+    {
+        cycleFiringMode();
+        logger.info("Menu button tapped, firingMode ", firingMode);
+    }
+    return press == MenuButtonPress::Hold;
+}
+
+static const uint32_t FIRING_MODE_SETTLE_MS = 2000;
+
+static bool driveTrainStopped()
+{
+    if (flywheelState != STATE_IDLE || shotsToFire != 0 || firing)
+        return false;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && motorArr[i].targetRPM != 0)
+            return false;
+    }
+    return true;
+}
+
+static void persistFiringModeWhenIdle()
+{
+    if (!showRuntimeInfo || !firingModePersists())
+        return;
+
+    static int8_t lastSeenMode = 0;
+    static uint32_t changedAt_ms = 0;
+
+    int8_t mode = firingMode;
+    if (mode != lastSeenMode)
+    {
+        lastSeenMode = mode;
+        changedAt_ms = millis();
+        return;
+    }
+
+    if (changedAt_ms == 0 || mode == persistedFiringMode)
+        return;
+    if (millis() - changedAt_ms < FIRING_MODE_SETTLE_MS)
+        return;
+    if (!driveTrainStopped())
+        return;
+
+    if (ProfileStore::saveLastFiringMode(activeProfileIndex, mode))
+    {
+        persistedFiringMode = mode;
+        changedAt_ms = 0;
+        logger.info("Stored firingMode ", mode);
+    }
+}
+
 void loop1()
 {
     handleSerialCommands();
 
-    if (deviceSettings.hasDisplay)
+    if (!deviceSettings.hasDisplay)
     {
-        displayManager.flushMailbox();
+        serviceMenuButton();
+        persistFiringModeWhenIdle();
+        return;
+    }
 
-        unsigned long lastUpdated = 0;
-        while (showRuntimeInfo)
+    displayManager.flushMailbox();
+
+    unsigned long lastUpdated = 0;
+    while (showRuntimeInfo)
+    {
+        handleSerialCommands();
+
+        if (serviceMenuButton())
         {
-            handleSerialCommands();
+            runMenu();
+            break; // menu closed - fall through and let loop1() re-enter fresh next tick
+        }
 
-            if (menuButtonHeld())
-            {
-                runMenu();
-                break; // menu closed - fall through and let loop1() re-enter fresh next tick
-            }
+        persistFiringModeWhenIdle();
 
-            if (millis() - lastUpdated > 100 || updateRuntimeNow)
-            {
-                // Cross-core read-only mirror of core 0's firing state, same plain-global
-                // sharing pattern as displayShotCounter above - only used for rendering here.
-                const FireModeConfig& liveFireMode = activeProfile.fireModes[firingMode];
-                FiringContext fireCtx{
-                    shotsToFire,
-                    liveTargetDPS,
-                    time_ms,
-                    triggerTime_ms,
-                    liveFireMode.binaryTriggerTimeout_ms,
-                    liveFireMode.burstLength,
-                    liveFireMode.reversible,
-                    requestRev,
-                    rpmScale_,
-                    buzzPulsesRequested_,
-                    false, // render() never reads this
-                };
-                // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
-                // last measured extend-to-extend interval, set is the raw targetDPS setting.
-                displayManager.renderTelemetry(
-                    liveFireMode.effectiveName().c_str(), activeProfile.name.c_str(),
-                    deviceSettings.blasterName.c_str(), motorArr, motorsEnabled, motorStages,
-                    displayShotCounter, batteryMonitor->isDefined(),
-                    batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
-                    batteryWarningActive, deviceSettings.homeScreenDisplayMode,
-                    behaviorFor(liveFireMode.burstMode), fireCtx,
-                    deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS, liveFireMode.targetDPS);
-                updateRuntimeNow = false;
-                lastUpdated = millis();
-            }
+        if (millis() - lastUpdated > 100 || updateRuntimeNow)
+        {
+            // Cross-core read-only mirror of core 0's firing state, same plain-global
+            // sharing pattern as displayShotCounter above - only used for rendering here.
+            const FireModeConfig& liveFireMode = activeProfile.fireModes[firingMode];
+            FiringContext fireCtx{
+                shotsToFire,
+                liveTargetDPS,
+                time_ms,
+                triggerTime_ms,
+                liveFireMode.binaryTriggerTimeout_ms,
+                liveFireMode.burstLength,
+                liveFireMode.reversible,
+                requestRev,
+                rpmScale_,
+                buzzPulsesRequested_,
+                false, // render() never reads this
+            };
+            // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
+            // last measured extend-to-extend interval, set is the raw targetDPS setting.
+            displayManager.renderTelemetry(
+                liveFireMode.effectiveName().c_str(), activeProfile.name.c_str(),
+                deviceSettings.blasterName.c_str(), motorArr, motorsEnabled, motorStages,
+                displayShotCounter, batteryMonitor->isDefined(),
+                batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
+                batteryWarningActive, deviceSettings.homeScreenDisplayMode,
+                behaviorFor(liveFireMode.burstMode), fireCtx,
+                deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS, liveFireMode.targetDPS);
+            updateRuntimeNow = false;
+            lastUpdated = millis();
         }
     }
 }

@@ -22,6 +22,9 @@ ShotProfile defaultProfile(uint8_t index); // returns kDefaultProfile with name 
 uint8_t loadActiveProfileIndex();
 bool saveActiveProfileIndex(uint8_t index);
 
+int8_t loadLastFiringMode(uint8_t index);
+bool saveLastFiringMode(uint8_t index, int8_t mode);
+
 bool loadProfile(uint8_t index, ShotProfile& out);
 
 bool saveProfile(uint8_t index, const ShotProfile& settings);
