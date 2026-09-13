@@ -89,7 +89,7 @@ void FlywheelMotor::updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, in
 
     PIDError = targetRPM - motorRPM;
     if ((signbit(PIDError) ||
-         ((abs(PIDErrorPrior - PIDError) < iThreshold) && motorRPM > (targetRPM / 2))) &&
+         ((abs(PIDErrorPrior - PIDError) < iThreshold) && motorRPM > (targetRPM / 2) && (PIDErrorPrior != PIDError))) &&
         !firstCrossing)
     {
         firstCrossing = true;

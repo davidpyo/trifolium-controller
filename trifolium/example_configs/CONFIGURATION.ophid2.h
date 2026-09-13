@@ -4,7 +4,10 @@
 #include "shotProfile.h"
 #include "deviceSettings.h"
 
-// config to check config and code versions match
+// Build-time check that THIS literal config file matches what main.cpp expects (see the
+// #if/#error in main.cpp comparing against global.h's MAJOR_VERSION/MINOR_VERSION/PATCH_VERSION).
+// Unrelated to ProfileStore::CURRENT_SCHEMA_VERSION/DeviceStore::CURRENT_SCHEMA_VERSION, which
+// version the persisted flash JSON at runtime, not this source file at compile time.
 #define CONFIG_VERSION_MAJOR 2
 #define CONFIG_VERSION_MINOR 0
 #define CONFIG_VERSION_PATCH 2
@@ -12,7 +15,7 @@
 inline uint32_t targetLoopTime_us = 1000;
 
 inline boards_t board =
-    trifolium_v1_1_esc_driver; // select the one that matches your board revision
+    trifolium_v1_4_fet_driver; // select the one that matches your board revision
 // Options
 // rune_0_2,
 // trifolium_v1_4_fet_driver
@@ -39,19 +42,20 @@ inline const char* const kDefaultProfileNames[3] = {"Low", "Medium", "High"};
 inline const ShotProfile kDefaultProfile = {
     .name = "",
 
-    .revRPM = {0, 29000, 0, 29000},
-    .dwellTime_ms = 0,
+    .revRPM = {30000, 30000, 30000, 30000},
+    .dwellTime_ms = 1000,
     .idleTime_ms = 5000,
-    .idleRPM = {10000, 10000, 10000, 10000},
-    .spindownSpeed = 100,
+    .idleRPM = {1000, 1000, 1000, 1000},
+    .spindownSpeed = 300,
     .revSafetyTimeout_ms = 0, // disabled
     .rpmMode = RPM_STAGE,
 
-    .fireModes = {
-        fireMode(100, AUTO, 0, false, 1000),
-        fireMode(1, BINARY, 0, false, 1000),
-        fireMode(1, SEMI, 0, false, 1000),
-    },
+    .fireModes =
+        {
+            fireMode(100, AUTO, 0),
+            fireMode(3, BURST, 0),
+            fireMode(1, SEMI, 0),
+        },
     .activeModeCount = 3,
     .defaultFiringMode = 1,
     .switchPositionAssignment = {0, 1, 2},
@@ -60,9 +64,9 @@ inline const ShotProfile kDefaultProfile = {
 inline const DeviceSettings kDefaultDeviceSettings = {
     .hasDisplay = true,
     .rotateDisplay = true,
-    .blasterName = "Fencer",
+    .blasterName = "Ophid 2",
 
-    .menuButtonPin = board.IO5,
+    .menuButtonPin = 8, //hardcoded to selector
     .triggerSwitchPin = board.IO1,
     .revSwitchPin = board.IO2,
     .cycleSwitchPin = PIN_NOT_USED,
@@ -78,7 +82,7 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .menuButtonNormallyClosed = false,
     .pusherReverseDirection = false,
 
-    .dualStageTrigger = true,
+    .dualStageTrigger = false,
 
     .pusherType = PUSHER_SOLENOID_OPENLOOP,
 
@@ -91,11 +95,11 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .rpmDropThreshold = 200,
 
     .displayBrightness = 255,
-    .showCurrentRpmOnHomeScreen = false,
-    .homeScreenDisplayMode = HOME_COUNTER,
-    .showDpsOnHomeScreen = false,
+    .showCurrentRpmOnHomeScreen = true,
+    .homeScreenDisplayMode = HOME_COUNTER, // the plain shot-counter layout
+    .showDpsOnHomeScreen = true,
 
-    .ledWarningMode = LED_WARNING_LOW_BATT,
+    .ledWarningMode = LED_WARNING_NONE,
 
     .dshotMode = DSHOT300,
     .printTelemetry = false,
@@ -103,12 +107,33 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .useRpmLogging = false,
     .rpmLogLength = MAX_RPM_LOG_LENGTH,
 
-    .motorConfig = {
-        {.enabled = false, .stage = STAGE_1, .kp = 0.1f, .ki = 2.0f, .motorKv = 3200, .motorPolesDiv2 = 7},
-        {.enabled = true, .stage = STAGE_1, .kp = 0.1f, .ki = 2.0f, .motorKv = 3200, .motorPolesDiv2 = 7},
-        {.enabled = false, .stage = STAGE_1, .kp = 0.1f, .ki = 2.0f, .motorKv = 3200, .motorPolesDiv2 = 7},
-        {.enabled = true, .stage = STAGE_1, .kp = 0.1f, .ki = 2.0f, .motorKv = 3200, .motorPolesDiv2 = 7},
-    },
+    .motorConfig =
+        {
+            {.enabled = true,
+             .stage = STAGE_1,
+             .kp = 0.1f,
+             .ki = 2.0f,
+             .motorKv = 1980,
+             .motorPolesDiv2 = 7},
+            {.enabled = true,
+             .stage = STAGE_1,
+             .kp = 0.1f,
+             .ki = 2.0f,
+             .motorKv = 1980,
+             .motorPolesDiv2 = 7},
+            {.enabled = false,
+             .stage = STAGE_1,
+             .kp = 0.1f,
+             .ki = 2.0f,
+             .motorKv = 1980,
+             .motorPolesDiv2 = 7},
+            {.enabled = false,
+             .stage = STAGE_1,
+             .kp = 0.1f,
+             .ki = 2.0f,
+             .motorKv = 1980,
+             .motorPolesDiv2 = 7},
+        },
 
     .flywheelControl = PID_CONTROL,
     .firingRPMTolerance = 500,
@@ -118,14 +143,14 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .iThreshold = 50,
     .throttleCap = 300,
 
-    .solenoidExtendTimeHigh_ms = 25,
-    .solenoidExtendTimeHighVoltage_mv = 16800,
-    .solenoidExtendTimeLow_ms = 25,
-    .solenoidExtendTimeLowVoltage_mv = 11800,
-    .solenoidRetractTime_ms = 35,
+    .solenoidExtendTimeHigh_ms = 12,
+    .solenoidExtendTimeHighVoltage_mv = 26000,
+    .solenoidExtendTimeLow_ms = 12,
+    .solenoidExtendTimeLowVoltage_mv = 22000,
+    .solenoidRetractTime_ms = 25,
     .vibrationPulseMs = 0,
 
-    .batteryType = BATTERY_4S,
+    .batteryType = BATTERY_6S,
     .lowVoltageCutoffPerCell_mv = 3300,
     .lowVoltageWarningPerCell_mv = 3700,
     .voltageCalibrationFactor = 1.0f,
