@@ -1,17 +1,22 @@
 #include "menuCore.h"
+#include "enumIds.h"
 
 static const char* const batteryTypeLabels[] = {"3S", "4S", "5S", "6S"};
-static EnumItem<batteryType_t> batteryTypeItem("Battery Type", &deviceSettings.batteryType,
-                                               batteryTypeLabels, 4);
+static_assert(sizeof(batteryTypeLabels) / sizeof(batteryTypeLabels[0]) == kBatteryTypeIdCount, "batteryTypeLabels is out of step");
+static EnumItem<batteryType_t> batteryTypeItem("Battery Type", "device:batteryType",
+                                               &deviceSettings.batteryType, batteryTypeLabels,
+                                               kBatteryTypeIds, kBatteryTypeIdCount);
 static NumericItem<uint32_t> lowVoltageCutoffItem("Low V Cutoff (mV/cell)",
+                                                  "device:lowVoltageCutoffPerCell_mv",
                                                   &deviceSettings.lowVoltageCutoffPerCell_mv, 3000,
                                                   3800, 50);
 // Earlier, non-cutoff warning threshold - expected above the cutoff so it trips first.
 static NumericItem<uint32_t> lowVoltageWarningItem("Low V Warning (mV/cell)",
+                                                   "device:lowVoltageWarningPerCell_mv",
                                                    &deviceSettings.lowVoltageWarningPerCell_mv,
                                                    3000, 3800, 50);
 // Applies live via BatteryMonitor::updateCalibration(), called from runMenu()'s post-save hook.
-static FloatItem voltageCalibrationItem("Volt Calibration",
+static FloatItem voltageCalibrationItem("Volt Calibration", "device:voltageCalibrationFactor",
                                         &deviceSettings.voltageCalibrationFactor, 0.5f, 1.5f, 0.1f,
                                         3);
 

@@ -6,6 +6,11 @@
 
 #define PIN_NOT_USED 255
 
+// Highest RP2040 bank-0 GPIO. pinMode() silently ignores anything above it, so a stored pin in
+// 30..254 would be an input that never attaches with nothing to say so - PinItem::clampToBounds()
+// folds that range onto PIN_NOT_USED instead.
+constexpr uint8_t MAX_GPIO_PIN = 29;
+
 // deriving from uint32_t etc. would result in problems with function overloading (e.g. when using
 // the same function for a u8 variable and an int literal, the compiler expects a function for int
 // and one for u8)
@@ -75,7 +80,7 @@ enum homeScreenDisplayMode_t
     HOME_BOTH,
 };
 
-// What battery condition (if any) makes board.LED_DATA blink - see checkLowVoltageCutoff().
+// What battery condition (if any) makes ledDataPin blink - see checkLowVoltageCutoff().
 enum ledWarningMode_t
 {
     LED_WARNING_NONE,      // LED stays steady on regardless of battery voltage
@@ -83,60 +88,79 @@ enum ledWarningMode_t
     LED_WARNING_WARN_BATT, // blinks at the earlier, non-cutoff warning threshold
 };
 
-enum pusherDriverType_t
+// How the pusher is driven, as a stored setting. There is no "none" here on purpose: a device
+// with no wiring returns from runUnconfiguredBoot() before anything reads the pusher at all, and a
+// build with no pusher says so by leaving pusherFetPin unused.
+enum pusherDrive_t : uint8_t
 {
-    NO_DRIVER,
-    FET_DRIVER,
-    DRV_DRIVER,
-    ESC_DRIVER,
+    PUSHER_DRIVE_FET, // a gate driven directly, on deviceSettings.pusherFetPin
+    PUSHER_DRIVE_ESC, // one of the four ESC channels, picked by deviceSettings.pusherEscChannel
+    PUSHER_DRIVE_COUNT,
 };
 
-enum dshot_mode_t
+// Which ESC channel the pusher is routed through when pusherDrive is PUSHER_DRIVE_ESC. Unused on a
+// FET build, where the pusher pin is deviceSettings.pusherFetPin. See pusherPin() in main.cpp.
+enum escChannel_t : uint8_t
 {
-    DSHOT300 = 300,
-    DSHOT600 = 600,
-    DSHOT1200 = 1200
+    ESC_CH_1,
+    ESC_CH_2,
+    ESC_CH_3,
+    ESC_CH_4,
+    ESC_CH_COUNT,
 };
 
-typedef struct
+// What holding a switch down at power-on does. Persisted as an integer - APPEND ONLY.
+enum bootAction_t : uint8_t
 {
-    const char* boardName; // display-only, About screen
-    pusherDriverType_t pusherDriverType;
-    uint8_t esc1;
-    uint8_t esc2;
-    uint8_t esc3;
-    uint8_t esc4;
-    uint8_t telem;
+    BOOT_ACTION_NONE,
+    BOOT_ACTION_BOOTLOADER,      // USB mass-storage mode, for reflashing without the BOOTSEL button
+    BOOT_ACTION_ESC_PASSTHROUGH, // hand the ESC pins to a host ESC configurator
+    BOOT_ACTION_IDLE_HOLD,       // latch the flywheels at idle RPM for the rest of this session
+    BOOT_ACTION_COUNT,
+};
 
-    // I2C Pins
-    uint8_t I2C_SCL;
-    uint8_t I2C_SDA;
-    i2c_inst_t* I2C_HW_BLK;
+// Index into DeviceSettings::bootAction[]. Fixed order, and the order evaluateBootAction() checks
+// them in, so the first held switch wins. Persisted positionally - APPEND ONLY.
+enum bootButton_t : uint8_t
+{
+    BOOT_BTN_MENU,
+    BOOT_BTN_TRIGGER,
+    BOOT_BTN_REV,
+    BOOT_BTN_CYCLE,
+    BOOT_BTN_IDLE,
+    BOOT_BTN_SELECT0,
+    BOOT_BTN_SELECT1,
+    BOOT_BTN_SELECT2,
+    BOOT_BTN_COUNT,
+};
 
-    // GPIO Pins
-    uint8_t IO2;
-    uint8_t IO5;
-    uint8_t IO6;
-    uint8_t IO1;
-    uint8_t IO3;
-    uint8_t IO4;
-    //  ADC PINS
-    uint8_t batteryADC;
-    uint8_t escADC;
-    uint8_t drvADC;
-    // drv communication
-    uint8_t drvNSLEEP;
-    uint8_t drvEN;
-    uint8_t drvPH;
-    uint8_t drvMOSI;
-    uint8_t drvMISO;
-    uint8_t drvNSCS;
-    uint8_t drvSCLK;
+// "no switch", for a caller naming one. Deliberately not a member of the enum above, which is
+// persisted positionally.
+constexpr uint8_t kNoBootButton = BOOT_BTN_COUNT;
 
-    uint8_t LED_DATA;
-    uint8_t ESC_ENABLE;
+// An ordinal like every other persisted enum, so it carries a name in the config and is bounds
+// checked by the same reader. A stored value may also be a bare bit rate (DSHOT300 = 300), which
+// dshotModeFromJson() accepts. APPEND ONLY.
+enum dshot_mode_t : uint8_t
+{
+    DSHOT300,
+    DSHOT600,
+    DSHOT1200,
+    DSHOT_MODE_COUNT,
+};
 
-} boards_t;
+// The bit rate to hand BidirDShotX1. Kept next to the enum so a new mode cannot be added without
+// the rate it means being obvious.
+inline uint16_t dshotRate(dshot_mode_t mode)
+{
+    switch (mode)
+    {
+    case DSHOT600: return 600;
+    case DSHOT1200: return 1200;
+    case DSHOT300:
+    default: return 300;
+    }
+}
 
 enum class BootReason
 {

@@ -1,0 +1,38 @@
+{
+  "kind": "trifolium-wiring-preset",
+  "presetVersion": 1,
+  "id": "rp2040_zero",
+  "name": "RP2040-Zero",
+  "notes": [
+    "A bare Waveshare RP2040-Zero, with nothing assigned. Not a blaster board: it is the module a board is built around, so this preset claims no pins and leaves every one of them to you.",
+    "Every GPIO the module brings out is on the diagram - GP0-GP15 and GP26-GP29 - so the console can tell you when a pin you have picked is not one of them."
+  ],
+  "unread": {
+    "telem": 255,
+    "escADC": 255
+  },
+  "schemaVersion": 3,
+  "boardId": "rp2040_zero",
+  "wiringConfigured": true,
+  "escPins": [
+    255,
+    255,
+    255,
+    255
+  ],
+  "i2cSdaPin": 255,
+  "i2cSclPin": 255,
+  "batteryAdcPin": 255,
+  "escEnablePin": 255,
+  "menuButtonPin": 255,
+  "triggerSwitchPin": 255,
+  "revSwitchPin": 255,
+  "cycleSwitchPin": 255,
+  "idleSwitchPin": 255,
+  "select0Pin": 255,
+  "select1Pin": 255,
+  "select2Pin": 255,
+  "pusherDrive": "fet",
+  "pusherFetPin": 255,
+  "ledDataPin": 255
+}

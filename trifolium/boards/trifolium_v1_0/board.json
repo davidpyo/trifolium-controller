@@ -1,0 +1,41 @@
+{
+  "kind": "trifolium-wiring-preset",
+  "presetVersion": 1,
+  "id": "trifolium_v1_0",
+  "name": "Trifolium v1.0",
+  "aliases": [
+    "trifolium_v1_0_esc",
+    "trifolium_v1_0_fet"
+  ],
+  "notes": [
+    "An ESC-driven pusher on this PCB is this wiring with Pusher Driver set to ESC and the channel left at ESC 3, which is GPIO 2. That was never a second board."
+  ],
+  "unread": {
+    "telem": 255,
+    "escADC": 255
+  },
+  "schemaVersion": 3,
+  "boardId": "trifolium_v1_0",
+  "wiringConfigured": true,
+  "escPins": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "i2cSdaPin": 14,
+  "i2cSclPin": 15,
+  "batteryAdcPin": 255,
+  "escEnablePin": 255,
+  "menuButtonPin": 19,
+  "triggerSwitchPin": 21,
+  "revSwitchPin": 18,
+  "cycleSwitchPin": 255,
+  "idleSwitchPin": 255,
+  "select0Pin": 9,
+  "select1Pin": 255,
+  "select2Pin": 10,
+  "pusherDrive": "fet",
+  "pusherFetPin": 27,
+  "ledDataPin": 255
+}

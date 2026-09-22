@@ -1,5 +1,6 @@
 #include "displayManager.h"
 #include "bitmaps.h"
+#include "bootStatus.h"
 #include "splashStore.h"
 #include "global.h" // MAJOR_VERSION/MINOR_VERSION/PATCH_VERSION macros
 #include "firingModeBehavior.h"
@@ -11,19 +12,51 @@ void DisplayManager::setHasDisplay(bool hasDisplay)
     hasDisplay_ = hasDisplay;
 }
 
-void DisplayManager::begin(bool rotateDisplay)
+bool DisplayManager::begin(bool rotateDisplay, TwoWire* bus)
 {
     if (!hasDisplay_)
-        return;
-
-    while (!display_.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
     {
-        delay(100);
+        BootStatus::recordDisplay(false, false, "hasDisplay off");
+        return false;
+    }
+
+    // Serial, not logger: logger is a no-op on a stock device, same reason serialCommands.cpp gives.
+    if (!bus)
+    {
+        hasDisplay_ = false;
+        BootStatus::recordDisplay(true, false, "no i2c on this board");
+        Serial.println("{\"evt\":\"display\",\"ok\":false,\"err\":\"no i2c on this board\"}");
+        return false;
+    }
+
+    bus->begin();
+
+    // Adafruit_SSD1306::begin() writes its init sequence blind and reports success regardless, so
+    // ack the panel first. A 0-length write routes to Wire's bit-banged _probe(), which is bounded.
+    bus->beginTransmission(SCREEN_ADDRESS);
+    if (bus->endTransmission() != 0)
+    {
+        hasDisplay_ = false;
+        BootStatus::recordDisplay(true, false, "no ack at 0x3C");
+        Serial.println("{\"evt\":\"display\",\"ok\":false,\"err\":\"no ack at 0x3C\"}");
+        return false;
+    }
+
+    // periphBegin=false: the probe above already started the bus. One attempt - the only failure
+    // here is a framebuffer malloc, which won't succeed on a retry either.
+    if (!display_.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS, true, false))
+    {
+        hasDisplay_ = false;
+        BootStatus::recordDisplay(true, false, "framebuffer alloc");
+        Serial.println("{\"evt\":\"display\",\"ok\":false,\"err\":\"framebuffer alloc\"}");
+        return false;
     }
     display_.clearDisplay();
     display_.setTextSize(1);
     display_.setTextColor(SSD1306_WHITE);
     setRotation(rotateDisplay);
+    BootStatus::recordDisplay(true, true, "");
+    return true;
 }
 
 void DisplayManager::setRotation(bool rotateDisplay)
@@ -169,7 +202,8 @@ void DisplayManager::renderTelemetry(
     const char* fireModeString, const char* profileName, const char* blasterName,
     FlywheelMotor motorArr[4], const bool motors[4], const motorStage_t motorStage[4],
     uint32_t displayShotCounter, bool isBatteryAdcDefined, int32_t batteryVoltage_mv,
-    bool showCurrentRpm, bool batteryWarningActive, homeScreenDisplayMode_t homeScreenDisplayMode,
+    bool showCurrentRpm, bool idleHoldActive, bool batteryWarningActive,
+    homeScreenDisplayMode_t homeScreenDisplayMode,
     const FiringModeBehavior& modeBehavior, const FiringContext& fireCtx, bool showDps,
     float achievedDPS, float targetDPS)
 {
@@ -262,6 +296,11 @@ void DisplayManager::renderTelemetry(
             }
             nextRow = 2;
         }
+        else if (idleHoldActive)
+        {
+            display_.setCursor(0, 20);
+            display_.print("IDLE");
+        }
 
         if (showDps)
         {
@@ -296,6 +335,11 @@ void DisplayManager::renderTelemetry(
                 display_.print(cell);
                 nextX[row] += cell.length() * 6 + 4;
             }
+        }
+        else if (idleHoldActive)
+        {
+            display_.setCursor(0, rpmRow0Y);
+            display_.print("IDLE");
         }
         if (effectiveShowDps)
         {

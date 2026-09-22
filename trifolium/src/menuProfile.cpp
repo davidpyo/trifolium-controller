@@ -97,10 +97,22 @@ static ActionItem resetProfileConfirmItem("Yes, Reset", resetProfileConfirmed);
 static MenuItem* resetProfileItems[] = {&resetProfileConfirmItem};
 static SubmenuItem resetProfileSubmenu("Factory Reset Profile", resetProfileItems, 1);
 
+// The only two-term rule in the tree: the row needs both a select switch and variable FPS, and the
+// terms are ANDed. See VisibilityCondition in menu.h.
+static constexpr VisibilityTerm kProfileRowVisibleTerms[] = {
+    {"device:variableFPS", "true", false},
+    {"device:selectFireType", "switch", false},
+};
+static constexpr VisibilityCondition kProfileRowVisible = {kProfileRowVisibleTerms, 2};
+
 class DefaultProfileItem : public MenuItem
 {
   public:
-    DefaultProfileItem(const char* label, uint8_t* value) : MenuItem(label), value_(value) {}
+    DefaultProfileItem(const char* label, const char* key, uint8_t* value)
+        : MenuItem(label, key), value_(value)
+    {
+        setVisibleWhenData(&kProfileRowVisible);
+    }
 
     String valueText() const override { return profileNameAtIndex(currentOptionIndex()); }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
@@ -125,18 +137,31 @@ class DefaultProfileItem : public MenuItem
         return deviceSettings.variableFPS && deviceSettings.selectFireType == SWITCH_SELECT_FIRE;
     }
 
+    ItemKind kind() const override { return ItemKind::Enum; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, ProfileStore::MAX_PROFILE_COUNT - 1, 1, 0};
+        return true;
+    }
+    void clampToBounds() override { *value_ = currentOptionIndex(); }
+
   private:
     uint8_t* value_;
     uint8_t entryValue_ = 0;
 };
-static DefaultProfileItem defaultProfileIndexItem("Default Profile",
+static DefaultProfileItem defaultProfileIndexItem("Default Profile", "device:defaultProfileIndex",
                                                   &deviceSettings.defaultProfileIndex);
 
+// Edits the slot that is loaded, which is the only one whose name is in RAM - the other two are
+// read off flash by profileNameAtIndex() and are not editable from here for that reason.
+static TextEditItem profileNameItem("Profile Name", "profile:name", &activeProfile.name);
+
 static MenuItem* profileAdvancedItems[] = {
+    &profileNameItem,
     &profileSwitchSubmenu,
     &copyProfileSubmenu,
     &defaultProfileIndexItem,
     &resetProfileSubmenu,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem profileAdvancedSubmenu("Profile", profileAdvancedItems, 4);
+SubmenuItem profileAdvancedSubmenu("Profile", profileAdvancedItems, 5);

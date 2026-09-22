@@ -1,0 +1,38 @@
+{
+  "name": "trifolium-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Web Serial config console for the trifolium controller. Builds to a single self-contained HTML file.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "serve": "vite preview",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs ../serial-config.html",
+    "verify": "npm run test && npm run build && npm run smoke"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.4",
+    "@emotion/styled": "^11.11.5",
+    "@mui/material": "^9.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.0",
+    "@types/w3c-web-serial": "^1.0.6",
+    "@vitejs/plugin-react": "^6.1.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

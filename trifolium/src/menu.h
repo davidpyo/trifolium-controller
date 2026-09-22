@@ -1,6 +1,8 @@
 #pragma once
 #include <Arduino.h>
+#include <cmath> // llroundf() - FloatItem::bounds() scaling
 #include "types.h" // burstFireType_t, etc. - needed by the domain-item extern declarations below
+#include "pinCapabilities.h" // adcPinUsable() - AdcPinItem::clampToBounds()
 
 template <typename T> struct NoDeduceHelper
 {
@@ -31,6 +33,22 @@ inline int64_t steppedToGrid(int64_t value, int8_t direction, int64_t step, int6
     return next;
 }
 
+// A visibility rule stated as data, so the console can re-evaluate it as the user edits instead of
+// waiting for the next DUMP_SCHEMA. Only stored settings: a rule reading a resolved pin carries no
+// condition, which tells the console to leave that row alone.
+struct VisibilityTerm
+{
+    const char* key;   // "device:flywheelControl"
+    const char* value; // the stored id, or "true"/"false" for a bool
+    bool negate;       // true for !=
+};
+
+struct VisibilityCondition
+{
+    const VisibilityTerm* terms;
+    uint8_t count;
+};
+
 // Attach the menu button pin (no-op if menuButtonPin is PIN_NOT_USED). Call once from setup().
 void setupMenuButton();
 
@@ -56,11 +74,39 @@ enum class MenuActivation : uint8_t
     PopBack,
 };
 
+enum class ItemKind : uint8_t
+{
+    Submenu,
+    Action,
+    Bool,
+    Int,
+    Float,
+    Enum,
+    Text,
+};
+
+// What an item's value actually is, which is what says whether a missing jsonKey() is a mistake.
+enum class ItemStorage : uint8_t
+{
+    Config,  // backed by the stored field jsonKey() names - the default, and the only kind with a key
+    Derived, // an editing view over fields other items already expose (see StageRpmItem)
+    Live,    // runtime state that is never persisted (see ScreenFireModeItem)
+};
+
+// Everything needed to render and validate one editable field.
+struct ItemBounds
+{
+    int64_t lo = 0;
+    int64_t hi = 0;
+    int64_t step = 1;
+    uint8_t decimals = 0;
+};
+
 // Base class for every menu item - the engine only talks to items through this interface.
 class MenuItem
 {
   public:
-    explicit MenuItem(const char* label) : label_(label) {}
+    explicit MenuItem(const char* label, const char* key = nullptr) : label_(label), key_(key) {}
     virtual ~MenuItem() = default;
 
     // Virtual so a leaf class can return a live String's c_str() instead of a fixed pointer
@@ -98,6 +144,10 @@ class MenuItem
     virtual String optionLabel(uint8_t index) const { return String(); }
     virtual uint8_t currentOptionIndex() const { return 0; }
 
+    // The stored id for an option, emitted as `optionValues` so the console writes a name rather
+    // than an ordinal. Null means the value really is its number.
+    virtual const char* optionValue(uint8_t index) const { return nullptr; }
+
     // False for an item whose edit would be pointless right now - shows lockedMessage() instead
     // of opening the editor, rather than hiding the row.
     virtual bool isEditable() const { return !editableWhen_ || editableWhen_(); }
@@ -108,14 +158,27 @@ class MenuItem
         return "This setting can't be\nedited right now.\nany press = back";
     }
 
-    // False to skip this row entirely - not counted, not rendered, not selectable. Unlike
-    // isEditable() (which still shows the row and blocks entry with lockedMessage()), a hidden
-    // item behaves as if it weren't in the list at all. Checked by the engine's
-    // visibleCount()/visibleItemAt() helpers (menuCore.cpp), not by raw array indexing.
+    // False to skip this row entirely - not counted, not rendered, not selectable, unlike
+    // isEditable(), which still shows it. Checked by visibleCount()/visibleItemAt(), not raw indexing.
     virtual bool isVisible() const { return !visibleWhen_ || visibleWhen_(); }
 
     using VisibilityPredicate = bool (*)();
     void setVisibleWhen(VisibilityPredicate pred) { visibleWhen_ = pred; }
+
+    // Same rule, stated twice: `pred` is what the device evaluates, `cond` is what the console
+    // gets. Pass both only where the rule reads a stored setting - see VisibilityCondition.
+    void setVisibleWhen(VisibilityPredicate pred, const VisibilityCondition* cond)
+    {
+        visibleWhen_ = pred;
+        visibleWhenData_ = cond;
+    }
+
+    // For rules that live in an isVisible() override rather than a predicate.
+    void setVisibleWhenData(const VisibilityCondition* cond) { visibleWhenData_ = cond; }
+
+    // Virtual like isVisible(): ShortcutItem forwards both, and a shortcut publishing its own
+    // absent rule would tell the console not to re-evaluate a row the real item says it should.
+    virtual const VisibilityCondition* visibleWhenData() const { return visibleWhenData_; }
 
     // Keeps the row visible but refuses activation with `message` while pred() is false.
     void setEditableWhen(VisibilityPredicate pred, const char* message)
@@ -124,15 +187,45 @@ class MenuItem
         lockedMessage_ = message;
     }
 
+    // Drops the OLED row while leaving the field live in the schema and over serial. Not
+    // setEditableWhen(): that reaches the console as editable:false and disables its editor too.
+    void setOffDevice() { onDevice_ = false; }
+
     // True for settings that only take effect after a reboot.
     bool needsReboot() const { return needsReboot_; }
 
+    // Text limits for rows the on-device editor's own are wrong for. 0/null means use the editor's;
+    // a field a host writes is not bound by what fits on a 128x64 screen.
+    virtual uint16_t textMaxLen() const { return 0; }
+    virtual const char* textCharset() const { return nullptr; }
+
+    virtual ItemKind kind() const { return ItemKind::Action; }
+    virtual const char* jsonKey() const { return key_; }
+    virtual ItemStorage storage() const { return ItemStorage::Config; }
+    virtual bool bounds(ItemBounds& out) const { return false; }
+    virtual const char* displayHint() const { return nullptr; }
+    virtual void selectContext() {}
+    virtual void clampToBounds() {}
+    bool onDevice() const { return onDevice_; }
+
   protected:
     const char* label_;
+    const char* key_ = nullptr;
     bool needsReboot_ = false;
+    bool onDevice_ = true;
+
+    // Shared by every integer-backed clampToBounds() override.
+    template <typename T> static void clampInto(T* value, const ItemBounds& b)
+    {
+        if ((int64_t)*value < b.lo)
+            *value = (T)b.lo;
+        else if ((int64_t)*value > b.hi)
+            *value = (T)b.hi;
+    }
 
   private:
     VisibilityPredicate visibleWhen_ = nullptr;
+    const VisibilityCondition* visibleWhenData_ = nullptr;
     VisibilityPredicate editableWhen_ = nullptr;
     const char* lockedMessage_ = nullptr;
 };
@@ -149,6 +242,7 @@ class SubmenuItem : public MenuItem
     MenuActivation activate() override { return MenuActivation::EnterSubmenu; }
     MenuItem* const* children() const override { return children_; }
     uint8_t childCount() const override { return childCount_; }
+    ItemKind kind() const override { return ItemKind::Submenu; }
 
   private:
     MenuItem* const* children_;
@@ -192,8 +286,8 @@ class PopBackActionItem : public MenuItem
 class ToggleItem : public MenuItem
 {
   public:
-    ToggleItem(const char* label, bool* value, bool needsReboot = false)
-        : MenuItem(label), value_(value)
+    ToggleItem(const char* label, const char* key, bool* value, bool needsReboot = false)
+        : MenuItem(label, key), value_(value)
     {
         needsReboot_ = needsReboot;
     }
@@ -204,6 +298,7 @@ class ToggleItem : public MenuItem
         *value_ = !*value_;
         return MenuActivation::None;
     }
+    ItemKind kind() const override { return ItemKind::Bool; }
 
   private:
     bool* value_;
@@ -214,9 +309,9 @@ class ToggleItem : public MenuItem
 template <typename T> class NumericItem : public MenuItem
 {
   public:
-    NumericItem(const char* label, T* value, NoDeduce<T> minValue, NoDeduce<T> maxValue,
-                NoDeduce<T> step, bool needsReboot = false)
-        : MenuItem(label), value_(value), min_(minValue), max_(maxValue), step_(step)
+    NumericItem(const char* label, const char* key, T* value, NoDeduce<T> minValue,
+                NoDeduce<T> maxValue, NoDeduce<T> step, bool needsReboot = false)
+        : MenuItem(label, key), value_(value), min_(minValue), max_(maxValue), step_(step)
     {
         needsReboot_ = needsReboot;
     }
@@ -230,6 +325,19 @@ template <typename T> class NumericItem : public MenuItem
     }
     void cancelEdit() override { *value_ = entryValue_; }
 
+    ItemKind kind() const override { return ItemKind::Int; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {(int64_t)min_, (int64_t)max_, (int64_t)step_, 0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        ItemBounds b;
+        bounds(b);
+        clampInto(value_, b);
+    }
+
   private:
     T* value_;
     T min_;
@@ -238,12 +346,78 @@ template <typename T> class NumericItem : public MenuItem
     T entryValue_{};
 };
 
+// A GPIO number, or PIN_NOT_USED. Always off-device: a pin set from the OLED could take away the
+// button being used to set it. The range is the chip's, not the board's - clampAllSettings() runs
+// after every LOAD_*, so a board-dependent range would clear a stored pin and persist the loss.
+class PinItem : public MenuItem
+{
+  public:
+    PinItem(const char* label, const char* key, uint8_t* value)
+        : MenuItem(label, key), value_(value)
+    {
+        needsReboot_ = true; // pins are attached once, in setup()
+        setOffDevice();
+    }
+
+    String valueText() const override
+    {
+        return pinDefinedValue() ? String(*value_) : String("unused");
+    }
+    MenuActivation activate() override { return MenuActivation::EnterEdit; }
+    void beginEdit() override { entryValue_ = *value_; }
+    void adjust(int8_t direction, bool wrap) override
+    {
+        // "unused" sits one past the last GPIO so it is reachable by stepping rather than being a
+        // value the editor would have to skip 225 of.
+        const int64_t slot = pinDefinedValue() ? *value_ : kUnusedSlot;
+        const int64_t next = steppedToGrid(slot, direction, 1, 0, kUnusedSlot, wrap);
+        *value_ = (next >= kUnusedSlot) ? PIN_NOT_USED : (uint8_t)next;
+    }
+    void cancelEdit() override { *value_ = entryValue_; }
+
+    ItemKind kind() const override { return ItemKind::Int; }
+    const char* displayHint() const override { return "pin"; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, PIN_NOT_USED, 1, 0};
+        return true;
+    }
+    // 30..254 is the dangerous range: in bounds for the schema, but silently ignored by pinMode,
+    // so it must not survive a load.
+    void clampToBounds() override
+    {
+        if (*value_ > MAX_GPIO_PIN)
+            *value_ = PIN_NOT_USED;
+    }
+
+  protected:
+    static const int64_t kUnusedSlot = MAX_GPIO_PIN + 1;
+    bool pinDefinedValue() const { return *value_ <= MAX_GPIO_PIN; }
+    uint8_t* value_;
+    uint8_t entryValue_ = PIN_NOT_USED;
+};
+
+// A pin that has to be an ADC input - the one place a capability narrows a stored pin, and it may
+// because ADC is GPIO 26-29 in silicon. The fold is to unused rather than the nearest ADC pin: a
+// voltage read off a pin with no ADC channel is noise, and the low-voltage cutoff acts on it.
+class AdcPinItem : public PinItem
+{
+  public:
+    AdcPinItem(const char* label, const char* key, uint8_t* value) : PinItem(label, key, value) {}
+
+    void clampToBounds() override
+    {
+        if (*value_ > MAX_GPIO_PIN || !adcPinUsable(*value_))
+            *value_ = PIN_NOT_USED;
+    }
+};
+
 class FloatItem : public MenuItem
 {
   public:
-    FloatItem(const char* label, float* value, float minValue, float maxValue, float step,
-              uint8_t decimals = 2, bool needsReboot = false)
-        : MenuItem(label), value_(value), min_(minValue), max_(maxValue), step_(step),
+    FloatItem(const char* label, const char* key, float* value, float minValue, float maxValue,
+              float step, uint8_t decimals = 2, bool needsReboot = false)
+        : MenuItem(label, key), value_(value), min_(minValue), max_(maxValue), step_(step),
           decimals_(decimals)
     {
         needsReboot_ = needsReboot;
@@ -263,6 +437,24 @@ class FloatItem : public MenuItem
     }
     void cancelEdit() override { *value_ = entryValue_; }
 
+    ItemKind kind() const override { return ItemKind::Float; }
+    bool bounds(ItemBounds& out) const override
+    {
+        int64_t scale = 1;
+        for (uint8_t i = 0; i < decimals_; i++)
+            scale *= 10;
+        out = {(int64_t)llroundf(min_ * scale), (int64_t)llroundf(max_ * scale),
+               (int64_t)llroundf(step_ * scale), decimals_};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        if (*value_ < min_)
+            *value_ = min_;
+        else if (*value_ > max_)
+            *value_ = max_;
+    }
+
   private:
     float* value_;
     float min_;
@@ -275,9 +467,9 @@ class FloatItem : public MenuItem
 template <typename E> class EnumItem : public MenuItem
 {
   public:
-    EnumItem(const char* label, E* value, const char* const* labels, uint8_t count,
-             bool needsReboot = false)
-        : MenuItem(label), value_(value), labels_(labels), count_(count)
+    EnumItem(const char* label, const char* key, E* value, const char* const* labels,
+             const char* const* ids, uint8_t count, bool needsReboot = false)
+        : MenuItem(label, key), value_(value), labels_(labels), ids_(ids), count_(count)
     {
         needsReboot_ = needsReboot;
     }
@@ -311,9 +503,23 @@ template <typename E> class EnumItem : public MenuItem
         return (uint8_t)idx;
     }
 
-  private:
+    const char* optionValue(uint8_t index) const override
+    {
+        return (ids_ && index < count_) ? ids_[index] : nullptr;
+    }
+
+    ItemKind kind() const override { return ItemKind::Enum; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, (int64_t)count_ - 1, 1, 0};
+        return true;
+    }
+    void clampToBounds() override { *value_ = (E)currentOptionIndex(); }
+
+  protected:
     E* value_;
     const char* const* labels_;
+    const char* const* ids_;
     uint8_t count_;
     E entryValue_{};
 };

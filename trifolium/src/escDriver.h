@@ -5,7 +5,9 @@
 class EscDriver : public Driver
 {
   public:
-    EscDriver(uint8_t escPin);
+    // Takes the DShot rate rather than assuming one: the pusher shares the bus discipline of the
+    // flywheel ESCs, so it has to run at the rate deviceSettings.dshotMode selected for them.
+    EscDriver(uint8_t escPin, uint16_t dshotRate);
     void drive(float dutyCycle, bool reverseDirection);
     void coast();
     void update() override;

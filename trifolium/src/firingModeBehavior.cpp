@@ -121,9 +121,19 @@ class SafeMode : public FiringModeBehavior
     void update(FiringContext& ctx, TriggerEvent) const override { ctx.shotsToFire = 0; }
 
     void render(DisplayManager& display, int16_t x, int16_t y, int16_t w, int16_t h,
-                const FiringContext&) const override
+                const FiringContext& ctx) const override
     {
         display.drawDartBelt(x, y, w, h, 0);
+        if (!ctx.safetyEngaged)
+            return;
+        // Says why: the mode row already reads SAFE either way, and a user who did not select it
+        // needs to know a switch did.
+        static const char kLabel[] = "SAFETY SWITCH";
+        const int16_t textW = (int16_t)(sizeof(kLabel) - 1) * 6;
+        Adafruit_SSD1306& raw = display.raw();
+        raw.setTextSize(1);
+        raw.setCursor(x + (w - textW) / 2, y + (h - 8) / 2);
+        raw.print(kLabel);
     }
 };
 

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 635 1127" preserveAspectRatio="xMidYMid meet">
+  <!-- Marker overlay for trifolium_v1_2.board.svg. The viewBox is that file's coordinate space, so a
+       marker's cx/cy is just the coordinate the art uses.
+
+       These sit on the connectors, not on the silkscreen numbers beside them - what you want to know
+       holding the board is which plug a control is on. Most come from the pad dots in the board
+       render, found by picking the small round marks out of it rather than by eye. -->
+
+  <metadata>
+    <!-- Pins the board wires itself rather than bringing out to a header. They have no place on the
+         render - there is no pad to point at - so they are declared here instead: the console counts
+         them as available, notes them under the diagram, and says so if the setting each is wired to
+         moves off it. data-internal names that setting, spelled as the firmware spells it.
+
+         UNCONFIRMED: both pairings are assumptions and want checking against the schematic. -->
+    <pin data-gpio="24" data-internal="pusherFetPin" />
+    <pin data-gpio="28" data-internal="batteryAdcPin" />
+  </metadata>
+
+  <g fill="rgba(0,229,255,0.25)" stroke="#00e5ff" stroke-width="2">
+    <!-- Ribbon header, top right: 8 pads along the bottom edge of the connector body, numbered
+         26 4 3 2 1 0 + G on the silkscreen below them. The power pair carries no control. -->
+    <g data-connector="ESC connector">
+      <circle cx="404" cy="125" r="9" data-gpio="26" />
+      <circle cx="425" cy="125" r="9" data-gpio="4" />
+      <circle cx="446" cy="125" r="9" data-gpio="3" />
+      <circle cx="467" cy="125" r="9" data-gpio="2" />
+      <circle cx="488" cy="125" r="9" data-gpio="1" />
+      <circle cx="509" cy="125" r="9" data-gpio="0" />
+      <circle cx="531" cy="125" r="9" data-pin="VCC" data-label="VCC from ESC" />
+      <circle cx="552" cy="125" r="9" data-pin="GND" data-label="GND from ESC" />
+    </g>
+
+    <!-- I2C connector, left edge: one column at 21px pitch, bottom to top C=15, D=14, +, G. -->
+    <g data-connector="I2C connector">
+      <circle cx="106" cy="449" r="9" data-gpio="15" />
+      <circle cx="106" cy="428" r="9" data-gpio="14" />
+      <circle cx="106" cy="407" r="9" data-pin="VCC" data-label="VCC to I2C" />
+      <circle cx="106" cy="386" r="9" data-pin="GND" data-label="GND to I2C" />
+    </g>
+
+    <!-- Select connector: one row at 21px pitch, 10 9 8 and a ground on the pin-1 end. -->
+    <g data-connector="Select connector">
+      <circle cx="190" cy="436" r="9" data-gpio="10" />
+      <circle cx="211" cy="436" r="9" data-gpio="9" />
+      <circle cx="232" cy="436" r="9" data-gpio="8" />
+      <circle cx="253" cy="436" r="9" data-pin="GND" />
+    </g>
+
+    <!-- The two-pad connectors across the lower half. Each pair straddles the middle of its own
+         connector at the same 21px pitch, signal to the left of it and ground to the right. -->
+    <g data-connector="GP18 connector">
+      <circle cx="193" cy="730.5" r="9" data-gpio="18" />
+      <circle cx="193" cy="709.5" r="9" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP21 connector">
+      <circle cx="285" cy="740.5" r="9" data-gpio="21" />
+      <circle cx="285" cy="719.5" r="9" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP27 connector">
+      <circle cx="373.5" cy="802" r="9" data-gpio="27" />
+      <circle cx="394.5" cy="802" r="9" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP20 connector">
+      <circle cx="265.5" cy="799" r="9" data-gpio="20" />
+      <circle cx="286.5" cy="799" r="9" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP19 connector">
+      <circle cx="140" cy="832.5" r="9" data-gpio="19" />
+      <circle cx="140" cy="811.5" r="9" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP17 connector">
+      <circle cx="56" cy="832.5" r="9" data-gpio="17" />
+      <circle cx="56" cy="811.5" r="9" data-pin="GND" />
+    </g>
+
+    <!-- The two XT30 terminals, IN on the left and OUT on the right. Each outline is the connector
+         body; the pads sit inside it, on the two rows the - and + in the margin mark. -->
+    <g data-connector="XT30 IN">
+      <circle cx="131" cy="935" r="20" data-pin="GND" data-label="- From Battery" />
+      <circle cx="131" cy="1039" r="20" data-pin="VCC" data-label="+ From Battery" />
+    </g>
+
+    <g data-connector="XT30 OUT">
+      <circle cx="495" cy="935" r="20" data-pin="GND" data-label="- To Solenoid" />
+      <circle cx="495" cy="1039" r="20" data-pin="VCC" data-label="+ To Solenoid" />
+    </g>
+  </g>
+</svg>

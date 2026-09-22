@@ -26,7 +26,15 @@ struct FiringContext
     int16_t& buzzPulsesRequested; // consumed and cleared by handlePlasmaBuzzPulse()
 
     bool atSpeed; // flywheels have reached what the mode is asking for - a shot would fire now
+
+    // The safety switch is holding the mode at SAFE. Only SafeMode reads it, to say which of the
+    // two reasons it is showing - a mode the user picked, or one a switch imposed.
+    bool safetyEngaged;
 };
+
+// SAFE while the safety switch is engaged, `selected` otherwise. Defined in main.cpp; every
+// reader of the live mode goes through it so the override has one implementation.
+burstFireType_t effectiveBurstMode(burstFireType_t selected);
 
 class FiringModeBehavior
 {

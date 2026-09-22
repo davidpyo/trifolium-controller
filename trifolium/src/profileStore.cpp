@@ -1,8 +1,10 @@
 #include "profileStore.h"
+#include "enumIds.h"
 #include <LittleFS.h>
 #include "global.h" // extern BootReason rebootReason - set before the profile-switch reboot
 #include "CONFIGURATION.h"
 #include "logging.h"
+#include "bootStatus.h"
 
 namespace
 {
@@ -120,7 +122,7 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
     writeArray(doc, "idleRPM", settings.idleRPM, 4);
     doc["spindownSpeed"] = settings.spindownSpeed;
     doc["revSafetyTimeout_ms"] = settings.revSafetyTimeout_ms;
-    doc["rpmMode"] = (int)settings.rpmMode;
+    doc["rpmMode"] = enumIdOf(settings.rpmMode, kRpmModeIds, kRpmModeIdCount);
 
     doc["activeModeCount"] = settings.activeModeCount;
     JsonArray fireModes = doc["fireModes"].to<JsonArray>();
@@ -129,7 +131,8 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
         JsonObject mode = fireModes.add<JsonObject>();
         mode["name"] = settings.fireModes[i].name;
         mode["burstLength"] = settings.fireModes[i].burstLength;
-        mode["burstMode"] = (int)settings.fireModes[i].burstMode;
+        mode["burstMode"] =
+            enumIdOf(settings.fireModes[i].burstMode, kBurstModeIds, kBurstModeIdCount);
         mode["targetDPS"] = settings.fireModes[i].targetDPS;
         mode["reversible"] = settings.fireModes[i].reversible;
         mode["binaryTriggerTimeout_ms"] = settings.fireModes[i].binaryTriggerTimeout_ms;
@@ -139,15 +142,22 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
     writeArray(doc, "switchPositionAssignment", settings.switchPositionAssignment, 3);
 }
 
-void fromJson(JsonDocument& doc, ShotProfile& out)
+void fromJson(JsonDocument& doc, ShotProfile& out, Source source, uint8_t slot)
 {
     uint16_t loadedVersion = doc["schemaVersion"] | (uint16_t)0; // 0 = predates versioning
-    if (loadedVersion != CURRENT_SCHEMA_VERSION)
+    if (loadedVersion != CURRENT_SCHEMA_VERSION &&
+        (loadedVersion < OLDEST_MIGRATABLE_VERSION || loadedVersion > CURRENT_SCHEMA_VERSION))
     {
         logger.error("Profile schema version ", loadedVersion, " != ", CURRENT_SCHEMA_VERSION,
-                     " - ignoring saved data, keeping defaults");
+                     " and not migratable - ignoring saved data, keeping defaults");
+        if (source == Source::Flash)
+            BootStatus::recordConfigFault(BootStatus::ConfigFault::ProfileVersionRefused,
+                                          (String("slot ") + slot).c_str());
         return;
     }
+
+    // Anything from OLDEST_MIGRATABLE_VERSION up is applied as-is, and the `|` overlay below leaves
+    // a key it never wrote at whatever `out` holds. Discarding would reset every saved profile.
 
     out.name = doc["name"] | out.name;
 
@@ -157,7 +167,7 @@ void fromJson(JsonDocument& doc, ShotProfile& out)
     readArray(doc, "idleRPM", out.idleRPM, 4);
     out.spindownSpeed = doc["spindownSpeed"] | out.spindownSpeed;
     out.revSafetyTimeout_ms = doc["revSafetyTimeout_ms"] | out.revSafetyTimeout_ms;
-    out.rpmMode = (rpmModeType_t)(doc["rpmMode"] | (int)out.rpmMode);
+    out.rpmMode = enumFromJson(doc["rpmMode"], kRpmModeIds, kRpmModeIdCount, out.rpmMode);
 
     uint8_t loadedModeCount = doc["activeModeCount"] | out.activeModeCount;
     if (loadedModeCount < 1)
@@ -176,8 +186,9 @@ void fromJson(JsonDocument& doc, ShotProfile& out)
                 continue;
             out.fireModes[i].name = mode["name"] | out.fireModes[i].name;
             out.fireModes[i].burstLength = mode["burstLength"] | out.fireModes[i].burstLength;
-            out.fireModes[i].burstMode =
-                (burstFireType_t)(mode["burstMode"] | (int)out.fireModes[i].burstMode);
+            out.fireModes[i].burstMode = enumFromJson(mode["burstMode"], kBurstModeIds,
+                                                      kBurstModeIdCount,
+                                                      out.fireModes[i].burstMode);
             out.fireModes[i].targetDPS = mode["targetDPS"] | out.fireModes[i].targetDPS;
             out.fireModes[i].reversible = mode["reversible"] | out.fireModes[i].reversible;
             out.fireModes[i].binaryTriggerTimeout_ms =
@@ -207,7 +218,7 @@ bool loadProfile(uint8_t index, ShotProfile& out)
     if (err)
         return true; // corrupt file - fall back to defaults already in `out`
 
-    fromJson(doc, out);
+    fromJson(doc, out, Source::Flash, index);
     return true;
 }
 

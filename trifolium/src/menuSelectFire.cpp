@@ -1,21 +1,35 @@
 #include "menuCore.h"
+#include "enumIds.h"
 
 static const char* const selectFireTypeLabels[] = {"Off", "Switch", "Button", "Screen"};
-static EnumItem<selectFireType_t> selectFireTypeItem("Select-Fire Type",
+static_assert(sizeof(selectFireTypeLabels) / sizeof(selectFireTypeLabels[0]) == kSelectFireTypeIdCount, "selectFireTypeLabels is out of step");
+static EnumItem<selectFireType_t> selectFireTypeItem("Select-Fire Type", "device:selectFireType",
                                                      &deviceSettings.selectFireType,
-                                                     selectFireTypeLabels, 4, true);
+                                                     selectFireTypeLabels, kSelectFireTypeIds,
+                                                     kSelectFireTypeIdCount, true);
 
 static const char* const burstModeLabels[] = {"AUTO", "BURST",    "BINARY", "SAFE",
                                               "SEMI", "DEVOTION", "PLASMA"};
-// DEVOTION/PLASMA stay out of the menu (count 5, not 7) until their animations are finished -
-// behaviorFor()/the enum are untouched, so this is just a selection-count change. Bump back to 7
-// to re-expose them.
 static const uint8_t kSelectableBurstModeCount = 7;
+static_assert(sizeof(burstModeLabels) / sizeof(burstModeLabels[0]) == kBurstModeIdCount,
+              "burstModeLabels is out of step");
+static_assert(kSelectableBurstModeCount == kBurstModeIdCount,
+              "every selectable burst mode needs a stored id");
+
+// Up here rather than beside selectFireTypeIsSwitch() near the bottom, because DefaultModeItem
+// below is the first of the two users and a condition has to be declared before it is pointed at.
+static constexpr VisibilityTerm kSelectFireIsSwitchTerms[] = {
+    {"device:selectFireType", "switch", false}};
+static constexpr VisibilityCondition kSelectFireIsSwitch = {kSelectFireIsSwitchTerms, 1};
 
 class DefaultModeItem : public MenuItem
 {
   public:
-    DefaultModeItem(const char* label, uint8_t* value) : MenuItem(label), value_(value) {}
+    DefaultModeItem(const char* label, const char* key, uint8_t* value)
+        : MenuItem(label, key), value_(value)
+    {
+        setVisibleWhenData(&kSelectFireIsSwitch);
+    }
 
     String valueText() const override
     {
@@ -48,22 +62,46 @@ class DefaultModeItem : public MenuItem
 
     bool isVisible() const override { return deviceSettings.selectFireType == SWITCH_SELECT_FIRE; }
 
+    ItemKind kind() const override { return ItemKind::Enum; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, lastIndex(), 1, 0};
+        return true;
+    }
+    void clampToBounds() override { *value_ = currentOptionIndex(); }
+
   private:
     static uint8_t lastIndex() { return activeProfile.activeModeCount - 1; }
     uint8_t* value_;
     uint8_t entryValue_ = 0;
 };
-static DefaultModeItem defaultModeItem("Default Mode", &activeProfile.defaultFiringMode);
+static DefaultModeItem defaultModeItem("Default Mode", "profile:defaultFiringMode",
+                                       &activeProfile.defaultFiringMode);
 
 class ScreenFireModeItem : public MenuItem
 {
   public:
+    // No jsonKey: `firingMode` is the live selection, not a persisted setting.
     ScreenFireModeItem(const char* label, int8_t* value) : MenuItem(label), value_(value) {}
 
+    // Names the effective mode, not the selection, because this row is what a person reads to
+    // find out what the blaster will do. The selection underneath is untouched and comes back the
+    // moment the switch releases.
     String valueText() const override
     {
+        if (safetyEngaged)
+            return String("SAFE (switch)");
         return activeProfile.fireModes[currentOptionIndex()].effectiveName();
     }
+
+    // Locked rather than hidden: picking a mode that the switch would immediately override reads
+    // as the blaster ignoring the panel. isEditable(), so the console disables its editor too.
+    bool isEditable() const override { return !safetyEngaged; }
+    String lockedMessage() const override
+    {
+        return "Safety switch engaged.\nRelease it to choose\na firing mode.";
+    }
+
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
     void beginEdit() override { entryValue_ = *value_; }
     void adjust(int8_t direction, bool wrap) override
@@ -94,10 +132,21 @@ class ScreenFireModeItem : public MenuItem
         return *value_ > lastIndex() ? lastIndex() : (uint8_t)*value_;
     }
 
+    ItemKind kind() const override { return ItemKind::Enum; }
+    ItemStorage storage() const override { return ItemStorage::Live; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, lastIndex(), 1, 0};
+        return true;
+    }
+
   private:
     static uint8_t lastIndex() { return activeProfile.activeModeCount - 1; }
     void syncOverride()
     {
+        // On a switch build the switch owns the mode; this is a temporary override that
+        // updateFiringMode() discards when the switch next moves. Nothing to do otherwise -
+        // persistFiringModeWhenIdle() already stores the live selection to /modeN.cfg.
         if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE)
             screenOverrideMode = *value_;
     }
@@ -113,6 +162,15 @@ MenuItem* screenFireModeTarget()
 }
 
 static uint8_t editingFireModeIndex = 0;
+
+uint8_t fireModeEditorIndex()
+{
+    return editingFireModeIndex;
+}
+void setFireModeEditorIndex(uint8_t index)
+{
+    editingFireModeIndex = index < MAX_FIRE_MODES ? index : 0;
+}
 
 static FireModeConfig& editingFireMode()
 {
@@ -136,6 +194,14 @@ class FireModeBurstModeItem : public MenuItem
 {
   public:
     using MenuItem::MenuItem;
+
+    ItemKind kind() const override { return ItemKind::Enum; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, (int64_t)kSelectableBurstModeCount - 1, 1, 0};
+        return true;
+    }
+    void clampToBounds() override { editingFireMode().burstMode = (burstFireType_t)currentOptionIndex(); }
 
     String valueText() const override { return burstModeLabels[currentOptionIndex()]; }
     MenuActivation activate() override { return MenuActivation::EnterEdit; }
@@ -165,11 +231,15 @@ class FireModeBurstModeItem : public MenuItem
             idx = kSelectableBurstModeCount - 1;
         return (uint8_t)idx;
     }
+    const char* optionValue(uint8_t index) const override
+    {
+        return index < kBurstModeIdCount ? kBurstModeIds[index] : nullptr;
+    }
 
   private:
     burstFireType_t entryValue_ = AUTO;
 };
-static FireModeBurstModeItem fireModeBurstModeItem("Firing Mode");
+static FireModeBurstModeItem fireModeBurstModeItem("Firing Mode", "profile:fireModes[*].burstMode");
 
 class FireModeBurstLengthItem : public MenuItem
 {
@@ -181,22 +251,37 @@ class FireModeBurstLengthItem : public MenuItem
     void beginEdit() override { entryValue_ = editingFireMode().burstLength; }
     void adjust(int8_t direction, bool wrap) override
     {
-        bool isAuto = editingFireMode().burstMode == AUTO;
-        uint32_t minBound = isAuto ? 1 : (editingFireMode().burstMode == BINARY ? 1 : 2);
-        uint32_t maxBound = isAuto ? 500 : 10;
+        ItemBounds b;
+        bounds(b);
         int64_t next = (int64_t)editingFireMode().burstLength + direction;
-        if (next > (int64_t)maxBound)
-            next = wrap ? (int64_t)minBound : (int64_t)maxBound;
-        if (next < (int64_t)minBound)
-            next = wrap ? (int64_t)maxBound : (int64_t)minBound;
+        if (next > b.hi)
+            next = wrap ? b.lo : b.hi;
+        if (next < b.lo)
+            next = wrap ? b.hi : b.lo;
         editingFireMode().burstLength = (uint32_t)next;
     }
     void cancelEdit() override { editingFireMode().burstLength = entryValue_; }
 
+    ItemKind kind() const override { return ItemKind::Int; }
+    bool bounds(ItemBounds& out) const override
+    {
+        const burstFireType_t mode = editingFireMode().burstMode;
+        const bool isAuto = mode == AUTO;
+        out = {isAuto || mode == BINARY ? 1 : 2, isAuto ? 500 : 10, 1, 0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        ItemBounds b;
+        bounds(b);
+        clampInto(&editingFireMode().burstLength, b);
+    }
+
   private:
     uint32_t entryValue_ = 1;
 };
-static FireModeBurstLengthItem fireModeBurstLengthItem("Burst Length");
+static FireModeBurstLengthItem fireModeBurstLengthItem("Burst Length",
+                                                       "profile:fireModes[*].burstLength");
 
 class FireModeTargetDpsItem : public MenuItem
 {
@@ -228,10 +313,20 @@ class FireModeTargetDpsItem : public MenuItem
     }
     void cancelEdit() override { editingFireMode().targetDPS = entryValue_; }
 
+    ItemKind kind() const override { return ItemKind::Int; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {1, (int64_t)floorf(maxAchievableDPS), 1, 0};
+        if (out.hi < out.lo)
+            out.hi = out.lo;
+        return true;
+    }
+    void clampToBounds() override {}
+
   private:
     float entryValue_ = 0;
 };
-static FireModeTargetDpsItem fireModeTargetDpsItem("Target DPS");
+static FireModeTargetDpsItem fireModeTargetDpsItem("Target DPS", "profile:fireModes[*].targetDPS");
 
 class FireModeReversibleItem : public MenuItem
 {
@@ -244,8 +339,10 @@ class FireModeReversibleItem : public MenuItem
         editingFireMode().reversible = !editingFireMode().reversible;
         return MenuActivation::None;
     }
+    ItemKind kind() const override { return ItemKind::Bool; }
 };
-static FireModeReversibleItem fireModeReversibleItem("Reversible");
+static FireModeReversibleItem fireModeReversibleItem("Reversible",
+                                                     "profile:fireModes[*].reversible");
 
 static bool editingFireModeIsBinary()
 {
@@ -274,10 +371,25 @@ class FireModeBinaryTimeoutItem : public MenuItem
     }
     void cancelEdit() override { editingFireMode().binaryTriggerTimeout_ms = entryValue_; }
 
+    ItemKind kind() const override { return ItemKind::Int; }
+    const char* displayHint() const override { return "seconds"; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {0, 5000, 1000, 0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        ItemBounds b;
+        bounds(b);
+        clampInto(&editingFireMode().binaryTriggerTimeout_ms, b);
+    }
+
   private:
     uint32_t entryValue_ = 2000;
 };
-static FireModeBinaryTimeoutItem fireModeBinaryTimeoutItem("Binary Timeout");
+static FireModeBinaryTimeoutItem
+    fireModeBinaryTimeoutItem("Binary Timeout", "profile:fireModes[*].binaryTriggerTimeout_ms");
 
 class FireModeIncludeInCycleItem : public MenuItem
 {
@@ -290,8 +402,10 @@ class FireModeIncludeInCycleItem : public MenuItem
         editingFireMode().includeInCycle = !editingFireMode().includeInCycle;
         return MenuActivation::None;
     }
+    ItemKind kind() const override { return ItemKind::Bool; }
 };
-static FireModeIncludeInCycleItem fireModeIncludeInCycleItem("Include In Cycle");
+static FireModeIncludeInCycleItem
+    fireModeIncludeInCycleItem("Include In Cycle", "profile:fireModes[*].includeInCycle");
 
 class FireModeNameItem : public MenuItem
 {
@@ -304,8 +418,9 @@ class FireModeNameItem : public MenuItem
         runTextEditor(label(), editingFireMode().name);
         return MenuActivation::None;
     }
+    ItemKind kind() const override { return ItemKind::Text; }
 };
-static FireModeNameItem fireModeNameItem("Name Override");
+static FireModeNameItem fireModeNameItem("Name Override", "profile:fireModes[*].name");
 
 static void duplicateFireMode()
 {
@@ -356,6 +471,9 @@ static bool selectFireTypeIsButton()
 {
     return deviceSettings.selectFireType == BUTTON_SELECT_FIRE;
 }
+static constexpr VisibilityTerm kSelectFireIsButtonTerms[] = {
+    {"device:selectFireType", "button", false}};
+static constexpr VisibilityCondition kSelectFireIsButton = {kSelectFireIsButtonTerms, 1};
 
 static MenuItem* fireModeEditorItems[] = {
     &fireModeBurstModeItem,  &fireModeBurstLengthItem,   &fireModeTargetDpsItem,
@@ -370,11 +488,24 @@ struct FireModeEditorInit
         fireModeTargetDpsItem.setVisibleWhen(editingFireModeSupportsTargetDps);
         fireModeReversibleItem.setVisibleWhen(editingFireModeSupportsReversible);
         fireModeBinaryTimeoutItem.setVisibleWhen(editingFireModeIsBinary);
-        fireModeIncludeInCycleItem.setVisibleWhen(selectFireTypeIsButton);
+        fireModeIncludeInCycleItem.setVisibleWhen(selectFireTypeIsButton, &kSelectFireIsButton);
     }
 } fireModeEditorInit;
 static const uint8_t fireModeEditorItemsCount =
     sizeof(fireModeEditorItems) / sizeof(fireModeEditorItems[0]);
+
+uint8_t fireModeEditorFieldCount()
+{
+    return fireModeEditorItemsCount;
+}
+MenuItem* fireModeEditorField(uint8_t index)
+{
+    return index < fireModeEditorItemsCount ? fireModeEditorItems[index] : nullptr;
+}
+uint8_t selectableBurstModeCount()
+{
+    return kSelectableBurstModeCount;
+}
 
 class FireModeRowItem : public MenuItem
 {
@@ -391,6 +522,9 @@ class FireModeRowItem : public MenuItem
     }
     MenuItem* const* children() const override { return fireModeEditorItems; }
     uint8_t childCount() const override { return fireModeEditorItemsCount; }
+    // Every Mode N row shares fireModeEditorItems, so pointing the editor at this row is what makes
+    // the children read and write this mode. activate() does the same for the on-device path.
+    void selectContext() override { editingFireModeIndex = index_; }
 
   private:
     uint8_t index_;
@@ -440,7 +574,8 @@ MenuItem* activeFireModeTargetDpsTarget()
 class SwitchPositionItem : public MenuItem
 {
   public:
-    SwitchPositionItem(const char* label, uint8_t position) : MenuItem(label), position_(position)
+    SwitchPositionItem(const char* label, const char* key, uint8_t position)
+        : MenuItem(label, key), position_(position)
     {
     }
 
@@ -478,6 +613,19 @@ class SwitchPositionItem : public MenuItem
 
     bool isVisible() const override { return pinDefined(selectPins[position_]); }
 
+    ItemKind kind() const override { return ItemKind::Enum; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {NO_FIRE_MODE, (int64_t)activeProfile.activeModeCount - 1, 1, 0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        int8_t& assigned = activeProfile.switchPositionAssignment[position_];
+        if (!isUsable(assigned))
+            assigned = NO_FIRE_MODE;
+    }
+
   private:
     static bool isUsable(int8_t modeIndex)
     {
@@ -492,9 +640,12 @@ class SwitchPositionItem : public MenuItem
     uint8_t position_;
     int8_t entryValue_ = NO_FIRE_MODE;
 };
-static SwitchPositionItem switchPosition0Item("Position 1", 0);
-static SwitchPositionItem switchPosition1Item("Position 2", 1);
-static SwitchPositionItem switchPosition2Item("Position 3", 2);
+static SwitchPositionItem switchPosition0Item("Position 1", "profile:switchPositionAssignment[0]",
+                                              0);
+static SwitchPositionItem switchPosition1Item("Position 2", "profile:switchPositionAssignment[1]",
+                                              1);
+static SwitchPositionItem switchPosition2Item("Position 3", "profile:switchPositionAssignment[2]",
+                                              2);
 
 static MenuItem* switchPositionItems[] = {
     &switchPosition0Item,
@@ -511,7 +662,11 @@ static bool selectFireTypeIsSwitch()
 }
 struct SwitchPositionsInit
 {
-    SwitchPositionsInit() { switchPositionsSubmenu.setVisibleWhen(selectFireTypeIsSwitch); }
+    SwitchPositionsInit()
+    {
+        switchPositionsSubmenu.setVisibleWhen(selectFireTypeIsSwitch, &kSelectFireIsSwitch);
+    }
+
 } switchPositionsInit;
 
 static MenuItem* selectFireItems[] = {

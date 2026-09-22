@@ -66,7 +66,7 @@ class RpmLogger
                 len += snprintf(rowBuf + len, sizeof(rowBuf) - len,
                                 "Motor %d,TargetRPM %d,Throttle %d,value %d,", j, j, j, j);
         }
-        println(rowBuf);
+        Serial.println(rowBuf);
 
         for (uint32_t i = 0; i < length_; i++)
         {
@@ -83,7 +83,7 @@ class RpmLogger
                                     valueStr);
                 }
             }
-            println(rowBuf);
+            Serial.println(rowBuf);
         }
         cacheIndex_++; // prevent re-dumping
         freeBuffers(); // capture complete - release the buffer

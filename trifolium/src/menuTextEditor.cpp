@@ -1,10 +1,10 @@
 #include "menuCore.h"
 #include <cstring> // strchr() - textEditCharIndex(), the on-device text editor's charset lookup
 
-// Character set for the on-device text editor
-static const char* const textEditCharset =
-    " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-static const uint8_t textEditCharsetLen = 66; // strlen(textEditCharset)
+// Charset and length live in menuCore.h so TextEditItem::clampToBounds() enforces the same limits
+// on a value arriving over serial that this editor imposes on one typed here.
+static const char* const textEditCharset = kTextEditCharset;
+static const uint8_t textEditCharsetLen = 66; // strlen(kTextEditCharset)
 
 static int8_t textEditCharIndex(char c)
 {
@@ -40,7 +40,7 @@ struct CharEditPressDetector
     }
 };
 
-static const uint8_t TEXT_EDIT_LENGTH = 14;
+static const uint8_t TEXT_EDIT_LENGTH = kTextEditLength;
 
 bool runTextEditor(const char* title, String& value)
 {
