@@ -5,8 +5,9 @@
 // so there is never more than one consumer pulling from the stream.
 //
 // One deliberate change from the original: reply framing no longer guesses. The old client treated
-// "any line starting with {" as the payload, which could not tell a config dump from an error. Every
-// command now answers with a JSON object carrying a `cmd` field, so replies are matched on that.
+// "any line starting with {" as the payload, which could not tell a config dump from an error.
+// Every reply carries a `cmd` naming the command it answers, and a slot where there is one, so
+// replies are matched on that rather than on shape - see repliesTo().
 
 export type LogKind = "out" | "in" | "ok" | "err";
 
@@ -50,17 +51,42 @@ export const isReply = (line: string): boolean =>
   line.startsWith("{") && !line.includes('"evt"');
 
 /**
- * A line that answers *this* command, matched on the `cmd` field it carries.
+ * A line that answers *this* command, matched on the `cmd` field every reply carries - the config
+ * dumps included, which is what lets them be told apart from an ack rather than guessed at by shape.
  *
  * Shape alone is not enough: a timed-out command's reply still arrives, and the next request would
  * take it as its own - a late DUMP_BOOT ack read as the schema reply, reported as "no schema from
  * this firmware" on a healthy board. Whitespace is tolerated because DUMP_SCHEMA emits
  * `"cmd": "..."` while the acks emit `"cmd":"..."`.
+ *
+ * A command naming a profile slot is matched on the slot too, since every slot answers with the same
+ * `cmd`: reading the three slots in a row, a late `DUMP_PROFILE 0` would otherwise be taken for
+ * slot 1's and show one slot's settings under another's name.
  */
 export const repliesTo = (command: string): ((line: string) => boolean) => {
-  const name = command.trim().split(/\s+/)[0];
+  const [name, arg] = command.trim().split(/\s+/);
   const pattern = new RegExp(`"cmd"\\s*:\\s*"${name}"`);
-  return (line) => isReply(line) && pattern.test(line);
+  // \b so that slot 1 does not match the 1 leading "index":12 - there is no such slot today, but the
+  // matcher should not be the reason for that.
+  const slot = /^\d+$/.test(arg ?? "") ? new RegExp(`"index"\\s*:\\s*${arg}\\b`) : null;
+  return (line) => isReply(line) && pattern.test(line) && (slot === null || slot.test(line));
+};
+
+/** The reply framing, which every dump carries and no store holds. */
+const FRAMING_KEYS = ["cmd", "index"] as const;
+
+/**
+ * A config dump with the reply framing peeled off.
+ *
+ * What comes back on the wire is framing plus config; what the console edits, bundles and sends back
+ * is config alone. Dropping the framing here, where a reply becomes state, is what keeps `cmd` out
+ * of a saved backup and out of the payload a profile copy pushes to the device.
+ */
+export const configFrom = (reply: unknown): unknown => {
+  if (reply === null || typeof reply !== "object" || Array.isArray(reply)) return reply;
+  const rest = { ...(reply as Record<string, unknown>) };
+  for (const key of FRAMING_KEYS) delete rest[key];
+  return rest;
 };
 
 /** Splits the decoded byte stream into lines, holding the partial tail between chunks. */
@@ -338,8 +364,7 @@ export class SerialTransport {
   /**
    * Sends a command and returns the parsed JSON object it replies with.
    *
-   * Matched on the leading `{` rather than the `cmd` field, because DUMP_DEVICE / DUMP_PROFILE reply
-   * with the bare config object and carry no `cmd`. Anything with a `cmd` is checked by the caller.
+   * The reply is picked out by repliesTo(). Anything carrying a `cmd` is checked by the caller.
    *
    * Unsolicited `evt` lines are stepped over. An unconfigured device announces itself every three
    * seconds until it sees a command, so on the first connection to a freshly flashed board that

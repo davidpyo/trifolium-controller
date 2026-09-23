@@ -22,7 +22,7 @@ import { diagramForBoardId } from "./schema/wiringDiagrams";
 import { buildPatch, getByKey, setByKey } from "./schema/keyPath";
 import { walk, type BootStatus, type Schema, type SchemaNode } from "./schema/types";
 import { resolveVisibility } from "./schema/visibility";
-import { SerialTransport, TIMEOUT_SCHEMA_MS, type LogLine } from "./serial/transport";
+import { configFrom, SerialTransport, TIMEOUT_SCHEMA_MS, type LogLine } from "./serial/transport";
 import { bundleFilename, buildBundle, checkBundle, diffKeys, downloadJson } from "./config/bundle";
 import { LOG_LINE_CAP } from "./rpm/parse";
 import { applyLayout } from "./ui/applyLayout";
@@ -227,9 +227,9 @@ export function App() {
     const dev = await transport.request<unknown>("DUMP_DEVICE");
     const loaded: unknown[] = [];
     for (let i = 0; i < schema.profileCount; i++) {
-      loaded.push((await transport.request<unknown>(`DUMP_PROFILE ${i}`)) ?? {});
+      loaded.push(configFrom((await transport.request<unknown>(`DUMP_PROFILE ${i}`)) ?? {}));
     }
-    if (dev) setDevice(dev);
+    if (dev) setDevice(configFrom(dev));
     setProfiles(loaded);
     setDirty(new Set());
   };
@@ -254,7 +254,7 @@ export function App() {
     const dev = await transport.request<unknown>("DUMP_DEVICE");
     const loaded: unknown[] = [];
     for (let i = 0; i < next.profileCount; i++) {
-      loaded.push((await transport.request<unknown>(`DUMP_PROFILE ${i}`)) ?? {});
+      loaded.push(configFrom((await transport.request<unknown>(`DUMP_PROFILE ${i}`)) ?? {}));
     }
 
     // Cheap, and the only way to learn what this boot discarded: the faults print before a host
@@ -262,7 +262,7 @@ export function App() {
     setBoot(await transport.request<BootStatus>("DUMP_BOOT"));
 
     setSchema(next);
-    setDevice(dev ?? {});
+    setDevice(configFrom(dev ?? {}));
     setProfiles(loaded);
     setSlot(next.activeProfileIndex);
     setDirty(new Set());

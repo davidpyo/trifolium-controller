@@ -18,6 +18,7 @@
 
 // Owned by main.cpp - the live config these commands read and write.
 extern ShotProfile activeProfile;
+extern uint8_t activeProfileIndex; // the slot activeProfile came from, named in its dump
 extern DeviceSettings deviceSettings;
 extern bool wiringLive; // this boot's copy of the boot gate, for the refusal in ESC_PASSTHROUGH
 
@@ -235,6 +236,7 @@ void handleSerialCommands()
     else if (command == "DUMP_PROFILE")
     {
         ShotProfile settings;
+        uint8_t dumpedIndex;
         if (hasIndex)
         {
             if (explicitIndex < 0 || explicitIndex >= ProfileStore::MAX_PROFILE_COUNT)
@@ -242,13 +244,22 @@ void handleSerialCommands()
                 logger.error("DUMP_PROFILE: index out of range");
                 return;
             }
-            ProfileStore::loadProfile((uint8_t)explicitIndex, settings);
+            dumpedIndex = (uint8_t)explicitIndex;
+            ProfileStore::loadProfile(dumpedIndex, settings);
         }
         else
         {
+            dumpedIndex = activeProfileIndex;
             settings = activeProfile;
         }
         JsonDocument doc;
+        // Framing goes in before the config so it leads the object, and here rather than in
+        // toJson() - that doc is also what saveProfile() writes to flash, which holds config and
+        // nothing else. `index` names the slot that was read: every slot answers with the same
+        // `cmd`, so without it a reply that arrives after its reader gave up cannot be told from
+        // another slot's.
+        doc["cmd"] = "DUMP_PROFILE";
+        doc["index"] = dumpedIndex;
         ProfileStore::toJson(settings, doc);
         serializeJson(doc, Serial);
         Serial.println();
@@ -363,6 +374,8 @@ void handleSerialCommands()
     else if (command == "DUMP_DEVICE")
     {
         JsonDocument doc;
+        // Framing before the config, and here rather than in toJson() - see DUMP_PROFILE.
+        doc["cmd"] = "DUMP_DEVICE";
         DeviceStore::toJson(deviceSettings, doc);
         serializeJson(doc, Serial);
         Serial.println();
