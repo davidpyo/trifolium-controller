@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configFrom, isReply, repliesTo } from "./transport";
+import { configFrom, isReply, rebootAnnouncement, repliesTo } from "./transport";
 import deviceJson from "../fixtures/device.json";
 import profile0 from "../fixtures/profile0.json";
 
@@ -48,6 +48,20 @@ describe("repliesTo", () => {
     // Bare DUMP_PROFILE dumps whichever slot is active, which the caller does not know up front.
     expect(repliesTo("DUMP_PROFILE")(profileDump(2))).toBe(true);
     expect(repliesTo("  DUMP_BOOT  ")('{"cmd":"DUMP_BOOT","ok":true}')).toBe(true);
+  });
+});
+
+describe("rebootAnnouncement", () => {
+  it("names the reason a device gives for rebooting by itself", () => {
+    expect(rebootAnnouncement('{"evt":"rebooting","reason":"rpmLog"}')).toBe("rpmLog");
+    expect(rebootAnnouncement('{"evt":"rebooting"}')).toBe("");
+  });
+
+  it("ignores every other line, a rebooting ack included", () => {
+    expect(rebootAnnouncement('{"cmd":"REBOOT","ok":true,"rebooting":true}')).toBe(null);
+    expect(rebootAnnouncement('{"evt":"unconfigured"}')).toBe(null);
+    expect(rebootAnnouncement("16390,0,30000,7143,0.00,")).toBe(null);
+    expect(rebootAnnouncement('{"evt":"rebooting"')).toBe(null);
   });
 });
 

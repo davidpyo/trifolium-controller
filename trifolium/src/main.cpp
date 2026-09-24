@@ -1204,9 +1204,9 @@ void handlePlasmaBuzzPulse()
     }
 }
 
-// The battery reading, floored at the configured cutoff. The divider reads far below the real pack
-// for seconds after power-on and sits in a denominator, so a low reading inflates the open-loop kick
-// - low enough and it clamps at maxThrottle, full throttle on a boot that asked for idle.
+// The battery reading, floored at the configured cutoff, for every throttle calculation. The divider
+// reads far below the real pack for seconds after power-on, and 0 on USB power alone, and it sits in
+// a denominator - a low reading inflates the throttle, and a zero one divides by it.
 static int32_t throttleReferenceVoltage_mv()
 {
     const int32_t floor_mv =
@@ -1304,7 +1304,7 @@ bool fwControlLoop()
                         // for optimal rev let's set throttle to max until first crossing
                         motorArr[i].PIDOutput =
                             max(min(maxThrottle, (maxThrottle * motorArr[i].targetRPM /
-                                                  batteryMonitor->getVoltage_mv() * 1000 /
+                                                  throttleReferenceVoltage_mv() * 1000 /
                                                   motorArr[i].m_config->m_motorKv) +
                                                      deviceSettings.throttleCap),
                                 0);
@@ -1312,7 +1312,7 @@ bool fwControlLoop()
                         motorArr[i].PIDIntegral =
                             (2 *
                              map(((motorArr[i].targetRPM * 1000) / motorArr[i].m_config->m_motorKv),
-                                 0, batteryMonitor->getVoltage_mv(), 0, maxThrottle)) -
+                                 0, throttleReferenceVoltage_mv(), 0, maxThrottle)) -
                             motorArr[i].PIDOutput;
                     }
                 }
@@ -1521,7 +1521,7 @@ bool fwControlLoop()
             {
                 if (motorsEnabled[i])
                 {
-                    motorArr[i].updatePID(batteryMonitor->getVoltage_mv(), loopTime_us, maxThrottle,
+                    motorArr[i].updatePID(throttleReferenceVoltage_mv(), loopTime_us, maxThrottle,
                                           deviceSettings.EMAFilter, half, deviceSettings.iThreshold,
                                           deviceSettings.batteryType);
                 }
@@ -1532,7 +1532,7 @@ bool fwControlLoop()
             {
                 if (motorsEnabled[i])
                 {
-                    motorArr[i].updateTBH(batteryMonitor->getVoltage_mv(), flywheelState,
+                    motorArr[i].updateTBH(throttleReferenceVoltage_mv(), flywheelState,
                                           maxThrottle);
                 }
             }
@@ -1546,7 +1546,7 @@ bool fwControlLoop()
         {
             if (motorsEnabled[i])
             {
-                motorArr[i].updateOpenLoop(batteryMonitor->getVoltage_mv(), maxThrottle);
+                motorArr[i].updateOpenLoop(throttleReferenceVoltage_mv(), maxThrottle);
             }
         }
     }
@@ -1559,6 +1559,7 @@ bool fwControlLoop()
     {
         logger.info("RPM log dump complete, rebooting now as part of normal RPM logging - this is "
                     "expected");
+        Serial.println("{\"evt\":\"rebooting\",\"reason\":\"rpmLog\"}");
         Serial.flush();
         rp2040.reboot();
     }
@@ -1727,7 +1728,7 @@ void setup1()
     {
         delay(1);
     }
-    displayManager.begin(deviceSettings.rotateDisplay, displayBus);
+    displayManager.begin(deviceSettings.rotateDisplay, deviceSettings.displayBrightness, displayBus);
 }
 
 static bool serviceMenuButton()

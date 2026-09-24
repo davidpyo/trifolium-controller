@@ -99,7 +99,7 @@ class ScreenFireModeItem : public MenuItem
     bool isEditable() const override { return !safetyEngaged; }
     String lockedMessage() const override
     {
-        return "Safety switch engaged.\nRelease it to choose\na firing mode.";
+        return "Safety switch is on.\nRelease it to choose\na firing mode.";
     }
 
     MenuActivation activate() override { return MenuActivation::EnterEdit; }

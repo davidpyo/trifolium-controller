@@ -72,6 +72,22 @@ export const repliesTo = (command: string): ((line: string) => boolean) => {
   return (line) => isReply(line) && pattern.test(line) && (slot === null || slot.test(line));
 };
 
+/**
+ * Why the device says it is about to reboot by itself, or null for any other line.
+ *
+ * A reboot a command asked for is acked with `rebooting`; one nobody asked for over serial - the RPM
+ * log's, after its dump - is announced as `{"evt":"rebooting","reason":...}` instead.
+ */
+export const rebootAnnouncement = (line: string): string | null => {
+  if (!line.startsWith("{") || !line.includes('"rebooting"')) return null;
+  try {
+    const parsed = JSON.parse(line) as { evt?: unknown; reason?: unknown };
+    return parsed.evt === "rebooting" ? String(parsed.reason ?? "") : null;
+  } catch {
+    return null;
+  }
+};
+
 /** The reply framing, which every dump carries and no store holds. */
 const FRAMING_KEYS = ["cmd", "index"] as const;
 
@@ -108,6 +124,8 @@ class LineBreakTransformer implements Transformer<string, string> {
 export interface TransportEvents {
   onLog?: (line: LogLine) => void;
   onDisconnect?: (reason: string) => void;
+  /** After an announced reboot has torn the connection down, keeping the port to reopen. */
+  onRebooting?: (reason: string) => void;
 }
 
 export class SerialTransport {
@@ -302,6 +320,15 @@ export class SerialTransport {
           resolve(line);
           return false;
         });
+
+        const reason = rebootAnnouncement(line);
+        if (reason !== null) {
+          // The same teardown a rebooting ack gets, so reopenAfterReboot() has the port to retry.
+          void this.disconnect("Device is rebooting.", true).then(() =>
+            this.events.onRebooting?.(reason),
+          );
+          return;
+        }
       }
     } catch {
       // Expected on disconnect() cancelling the reader, or the device rebooting mid-session.

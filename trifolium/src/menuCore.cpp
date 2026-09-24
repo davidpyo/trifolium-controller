@@ -4,6 +4,8 @@
 #include "profileStore.h"
 #include "deviceStore.h"
 
+static const char kEditHint[] = "short=set long=cancel";
+
 // Reboot-elimination apply*() functions - defined in main.cpp, called from runMenu()'s
 // post-save hook below so these settings apply immediately rather than requiring a reboot.
 void applyMotorConfig();
@@ -191,7 +193,7 @@ static void renderEdit(const MenuItem& item, bool reversedDirection)
 
     display.setTextSize(1);
     display.setCursor(0, 56);
-    display.print("short=save long=cancel");
+    display.print(kEditHint);
     display.display();
 }
 
@@ -242,7 +244,7 @@ static void renderEditOptions(const MenuItem& item, uint8_t& scrollOffset)
     }
 
     display.setCursor(0, 56);
-    display.print("short=save long=cancel");
+    display.print(kEditHint);
     display.display();
 }
 

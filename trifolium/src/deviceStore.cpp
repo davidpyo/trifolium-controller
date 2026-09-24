@@ -441,7 +441,6 @@ bool saveDeviceSettings(const DeviceSettings& settings)
     serializeJson(doc, f);
     f.close();
 
-    LittleFS.remove(DEVICE_PATH);
     return LittleFS.rename(tmpPath, DEVICE_PATH);
 }
 } // namespace DeviceStore

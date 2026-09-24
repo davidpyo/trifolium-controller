@@ -39,7 +39,7 @@ class DisplayManager
     // Caller (setup1()) must wait on main.cpp's bootSettingsLoaded first: it orders core 0's
     // deviceSettings load and selectDisplayBus() ahead of the bus->begin() here. Null bus = run
     // headless. Returns whether a panel came up.
-    bool begin(bool rotateDisplay, TwoWire* bus);
+    bool begin(bool rotateDisplay, uint8_t brightness, TwoWire* bus);
 
     void setRotation(bool rotateDisplay);
 

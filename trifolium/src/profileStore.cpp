@@ -238,8 +238,8 @@ bool saveProfile(uint8_t index, const ShotProfile& settings)
     f.close();
 
     // Temp-file-then-rename: this is flash storage on a device with no clean shutdown
-    // path (batteries, motors) - a power loss mid-write must not corrupt the real file.
-    LittleFS.remove(profilePath(index));
+    // path (batteries, motors) - a power loss mid-write must not corrupt the real file. The rename
+    // replaces it in one step, so the old file stays whole until the new one takes its place.
     return LittleFS.rename(tmpPath, profilePath(index));
 }
 

@@ -140,6 +140,8 @@ export function App() {
   // null closed; {to: null} open with nothing picked yet.
   const [copyTo, setCopyTo] = React.useState<{ to: number | null } | null>(null);
 
+  // The transport is built once, so it reaches afterReboot() - rebuilt every render - through this.
+  const onRebooting = React.useRef<(reason: string) => void>(() => {});
   const transport = React.useMemo(
     () =>
       new SerialTransport({
@@ -150,6 +152,7 @@ export function App() {
           // Faults describe the boot of a device that is no longer attached.
           setBoot(null);
         },
+        onRebooting: (reason) => onRebooting.current(reason),
       }),
     [],
   );
@@ -372,6 +375,8 @@ export function App() {
     }
     note("err", `${label}, but the device did not come back. Reconnect when it has restarted.`);
   };
+  onRebooting.current = (reason) =>
+    void afterReboot(reason === "rpmLog" ? "RPM capture finished" : "The device restarted");
 
   /**
    * Only a plain reboot comes back to us. The other two hand the device to something else, and the

@@ -271,7 +271,7 @@ void handleSerialCommands()
             ackError("LOAD_PROFILE", "index out of range");
             return;
         }
-        uint8_t activeIndex = ProfileStore::loadActiveProfileIndex();
+        const uint8_t activeIndex = activeProfileIndex;
         uint8_t targetIndex = hasIndex ? (uint8_t)explicitIndex : activeIndex;
 
         JsonDocument doc;

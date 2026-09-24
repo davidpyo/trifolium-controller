@@ -12,7 +12,7 @@ void DisplayManager::setHasDisplay(bool hasDisplay)
     hasDisplay_ = hasDisplay;
 }
 
-bool DisplayManager::begin(bool rotateDisplay, TwoWire* bus)
+bool DisplayManager::begin(bool rotateDisplay, uint8_t brightness, TwoWire* bus)
 {
     if (!hasDisplay_)
     {
@@ -55,6 +55,8 @@ bool DisplayManager::begin(bool rotateDisplay, TwoWire* bus)
     display_.setTextSize(1);
     display_.setTextColor(SSD1306_WHITE);
     setRotation(rotateDisplay);
+    display_.ssd1306_command(SSD1306_SETCONTRAST);
+    display_.ssd1306_command(brightness);
     BootStatus::recordDisplay(true, true, "");
     return true;
 }
