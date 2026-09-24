@@ -1063,7 +1063,12 @@ export function App() {
                           sx={{ alignItems: "flex-start" }}
                         >
                           <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <WiringTable schema={view} device={device} onEdit={onEdit} />
+                            <WiringTable
+                              schema={view}
+                              device={device}
+                              onEdit={onEdit}
+                              profileNames={profiles.map((p) => (p as { name?: string } | undefined)?.name)}
+                            />
                           </Box>
                           {wiringDiagram && (
                             <WiringDiagram schema={view} device={device} diagram={wiringDiagram} />

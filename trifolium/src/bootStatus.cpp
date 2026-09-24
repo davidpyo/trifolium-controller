@@ -11,6 +11,7 @@ const char* displayErr_ = "";
 char boardId_[24] = "";
 bool wiringConfigured_ = false;
 bool idleHoldEngaged_ = false;
+int8_t bootProfile_ = -1;
 bool passthroughExited_ = false;
 
 int32_t escAnsweredAt_ms_[4] = {-1, -1, -1, -1};
@@ -71,6 +72,12 @@ void recordIdleHold(bool engaged)
     idleHoldEngaged_ = engaged;
 }
 
+// Written on core 0 during setup(), before bootSettingsLoaded releases core 1.
+void recordBootProfile(int8_t slot)
+{
+    bootProfile_ = slot;
+}
+
 // Written on core 0, after bootSettingsLoaded has released core 1 - unavoidably, since the session
 // it reports ends long after that. A single bool store, and absent means "no session this boot".
 void recordPassthroughExit()
@@ -115,6 +122,8 @@ void writeJson(Print& out)
     out.print(wiringConfigured_ ? "true" : "false");
     out.print("},\"idleHold\":");
     out.print(idleHoldEngaged_ ? "true" : "false");
+    out.print(",\"bootProfile\":");
+    out.print(bootProfile_);
     out.print(",\"passthroughExited\":");
     out.print(passthroughExited_ ? "true" : "false");
     out.print(",\"escArming\":{\"ran\":");

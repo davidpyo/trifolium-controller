@@ -272,6 +272,7 @@ class PlasmaMode : public FiringModeBehavior
     mutable uint32_t lockoutUntilMs_ = 0;
     mutable int16_t lastPhase_ = 0;
     mutable bool holdActive_ = false;
+    mutable bool lockedOut_ = false; // the overheated hold was released; the lockout is running
 
     // cyclePos in [0,1) -> [-kPluckUndershoot, 1]. Decay asymptotes to -kPluckUndershoot so the
     // cycle end meets the next cycle's start without a discontinuity.
@@ -332,6 +333,7 @@ class PlasmaMode : public FiringModeBehavior
                 break; // still locked out from the last overheat
             chargeStartMs_ = ctx.time_ms;
             holdActive_ = true;
+            lockedOut_ = false;
             lastPhase_ = 0;
             ctx.requestRev = true;
             ctx.shotsToFire = 0;
@@ -366,6 +368,17 @@ class PlasmaMode : public FiringModeBehavior
             if (!holdActive_)
                 break;
             ctx.requestRev = false;
+            if (lockedOut_)
+            {
+                // A pull made during the lockout neither fires nor moves the lockout's end.
+                if (ctx.time_ms >= lockoutUntilMs_)
+                {
+                    holdActive_ = false;
+                    lockedOut_ = false;
+                    ctx.rpmScale = -1.0f;
+                }
+                break;
+            }
             uint32_t heldMs = ctx.time_ms - chargeStartMs_;
             bool overheated = isOverheating(heldMs);
             int16_t slots = readySlots(heldMs);
@@ -377,6 +390,7 @@ class PlasmaMode : public FiringModeBehavior
             if (overheated)
             {
                 lockoutUntilMs_ = ctx.time_ms + kOverheatLockoutMs;
+                lockedOut_ = true;
             }
             else
             {
@@ -389,6 +403,7 @@ class PlasmaMode : public FiringModeBehavior
             if (holdActive_ && ctx.time_ms >= lockoutUntilMs_)
             {
                 holdActive_ = false;
+                lockedOut_ = false;
                 ctx.rpmScale = -1.0f;
             }
             break;

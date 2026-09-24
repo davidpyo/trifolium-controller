@@ -13,6 +13,7 @@ void recordWiring(const char* id, bool configured);
 
 // Live rather than a boot-time fact: the root menu's Idle Mode toggle flips it mid-session.
 void recordIdleHold(bool engaged);
+void recordBootProfile(int8_t slot); // -1: no boot action chose one
 
 // A plain global, so a reboot clears it and a true here means the fall-through really happened.
 void recordPassthroughExit();

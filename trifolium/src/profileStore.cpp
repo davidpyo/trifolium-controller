@@ -65,6 +65,7 @@ uint8_t loadActiveProfileIndex()
     File f = LittleFS.open(ACTIVE_INDEX_PATH, "r");
     if (!f)
         return 0;
+    f.setTimeout(0); // Stream's 1 s default waits out the end of the file for another digit
     int index = f.parseInt();
     f.close();
     if (index < 0 || index >= MAX_PROFILE_COUNT)
@@ -91,6 +92,7 @@ int8_t loadLastFiringMode(uint8_t index)
     File f = LittleFS.open(firingModePath(index), "r");
     if (!f)
         return -1; // never stored one for this profile
+    f.setTimeout(0);
     int mode = f.parseInt();
     f.close();
     if (mode < 0 || mode >= MAX_FIRE_MODES)

@@ -8,6 +8,7 @@ import TableRow from "@mui/material/TableRow";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
+import { withSlotNames } from "../schema/enumValue";
 import { getByKey } from "../schema/keyPath";
 import { isVisible, walk, type Schema, type SchemaNode } from "../schema/types";
 import { WIRING_CONFIGURED_KEY } from "../schema/presets";
@@ -98,9 +99,11 @@ export interface WiringTableProps {
   schema: Schema;
   device: unknown;
   onEdit: (key: string, value: unknown) => void;
+  /** Each slot's profile name as staged, so a boot action that loads a slot says which profile. */
+  profileNames: readonly (string | undefined)[];
 }
 
-export function WiringTable({ schema, device, onEdit }: WiringTableProps) {
+export function WiringTable({ schema, device, onEdit, profileNames }: WiringTableProps) {
   const rows = collectWiring(schema);
   // The boot gate, rendered here rather than as a loose checkbox in the form: what it arms is the
   // table above it, and it is the last thing done on the custom-wiring path.
@@ -188,7 +191,8 @@ export function WiringTable({ schema, device, onEdit }: WiringTableProps) {
                 </TableCell>
                 {cell(row.pin, 150)}
                 {anyPolarity && cell(row.polarity, 60)}
-                {anyBootAction && cell(row.bootAction, 160)}
+                {anyBootAction &&
+                  cell(row.bootAction && withSlotNames(row.bootAction, profileNames), 160)}
               </TableRow>
               );
             })}

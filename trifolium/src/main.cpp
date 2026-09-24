@@ -670,12 +670,22 @@ void setup()
     validatePusherAndMotors();
     PinConflicts::resolve();
 
-    // Headless entry into the bootloader or ESC passthrough, from whichever switch the user mapped
-    // it to. Runs before the pins below are attached, so it reads them raw.
+    // Active-high, and ahead of ESC passthrough and arming, which both need the ESCs powered. The pin
+    // floats until here, so a board wiring it pulls it down. The low-voltage cutoff drops it again.
+    if (pinDefined(escEnablePin))
+    {
+        pinMode(escEnablePin, OUTPUT);
+        digitalWrite(escEnablePin, HIGH);
+    }
+
+    // The action mapped to whichever switch is held at power-on. Runs before the pins below are
+    // attached, so it reads them raw.
+    int8_t bootProfile = -1;
     if (bootReason == BootReason::POR)
     {
         uint8_t firedButton = kNoBootButton;
-        switch (evaluateBootAction(firedButton))
+        const bootAction_t action = evaluateBootAction(firedButton);
+        switch (action)
         {
         case BOOT_ACTION_BOOTLOADER:
             rp2040.rebootToBootloader();
@@ -688,10 +698,17 @@ void setup()
             rp2040.reboot();
             break;
         case BOOT_ACTION_IDLE_HOLD:
-            // The only action here that doesn't reboot - loop()'s flywheel state machine reads this
-            // latch for the rest of the session instead.
+            // No reboot - loop()'s flywheel state machine reads this latch for the rest of the
+            // session instead.
             idleHoldActive = true;
             BootStatus::recordIdleHold(true);
+            break;
+        case BOOT_ACTION_PROFILE_0:
+        case BOOT_ACTION_PROFILE_1:
+        case BOOT_ACTION_PROFILE_2:
+            // For this boot only: /active.cfg is left alone, so the next plain power-on is back on
+            // the stored profile.
+            bootProfile = (int8_t)(action - BOOT_ACTION_PROFILE_0);
             break;
         default:
             break;
@@ -762,6 +779,11 @@ void setup()
     {
         activeProfileIndex = selectShotProfileAtBoot();
     }
+    if (bootProfile >= 0)
+    {
+        activeProfileIndex = (uint8_t)bootProfile; // mapping the action outranks the selector
+    }
+    BootStatus::recordBootProfile(bootProfile);
     ProfileStore::loadProfile(activeProfileIndex, activeProfile);
 
     bootSettingsLoaded = true;
@@ -902,13 +924,6 @@ void setup()
                                         deviceSettings.voltageAveragingWindow,
                                         cellCount(deviceSettings.batteryType));
     batteryMonitor->begin();
-
-    // Held low from boot, which is what the low-voltage cutoff drops it to again.
-    if (pinDefined(escEnablePin))
-    {
-        pinMode(escEnablePin, OUTPUT);
-        digitalWrite(escEnablePin, LOW);
-    }
 
     if (pinDefined(ledDataPin))
     {
@@ -1706,15 +1721,6 @@ uint8_t selectShotProfileAtBoot()
             if (select0.isPressed())
             {
                 return 1;
-            }
-        }
-
-        if (pinDefined(revSwitchPin))
-        {
-            revSwitch.update();
-            if (revSwitch.isPressed())
-            {
-                return 2;
             }
         }
     }

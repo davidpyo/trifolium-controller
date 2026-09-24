@@ -28,6 +28,28 @@ export function optionIndexFor(node: SchemaNode, value: unknown): number {
   return Math.min(Math.max(stored - base, 0), Math.max(options.length - 1, 0));
 }
 
+/**
+ * The node with each profile-slot option (id `profile_<n>`) followed by the name of the profile in
+ * that slot - "Slot 1 · Low". The firmware's labels stop at the slot number, which is all an OLED row
+ * has room for. A slot whose profile has no name, or has not been read, keeps its label.
+ */
+export function withSlotNames(
+  node: SchemaNode,
+  names: readonly (string | undefined)[],
+): SchemaNode {
+  const ids = node.optionValues;
+  if (!ids || !node.options) return node;
+  let named = false;
+  const options = node.options.map((label, i) => {
+    const slot = /^profile_(\d+)$/.exec(ids[i] ?? "");
+    const name = slot ? names[Number(slot[1])]?.trim() : undefined;
+    if (!name) return label;
+    named = true;
+    return `${label} · ${name}`;
+  });
+  return named ? { ...node, options } : node;
+}
+
 /** What to write for the option at `index` - an id for an id-valued node, a number otherwise. */
 export function optionValueAt(node: SchemaNode, index: number): string | number {
   const ids = node.optionValues;

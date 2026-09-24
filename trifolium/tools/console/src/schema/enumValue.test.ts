@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { optionIndexFor, optionValueAt } from "./enumValue";
+import { optionIndexFor, optionValueAt, withSlotNames } from "./enumValue";
 import type { SchemaNode } from "./types";
 
 const idValued: SchemaNode = {
@@ -70,5 +70,47 @@ describe("index-valued enums", () => {
   it("clamps a value outside the span", () => {
     expect(optionIndexFor(indexValued, 99)).toBe(3);
     expect(optionIndexFor(indexValued, -99)).toBe(0);
+  });
+});
+
+const bootAction: SchemaNode = {
+  label: "Rev Switch",
+  kind: "enum",
+  key: "device:bootAction[2]",
+  lo: 0,
+  hi: 6,
+  step: 1,
+  options: ["None", "Bootloader", "ESC Passthrough", "Idle Hold", "Slot 1", "Slot 2", "Slot 3"],
+  optionValues: ["none", "bootloader", "esc_passthrough", "idle_hold", "profile_0", "profile_1",
+    "profile_2"],
+};
+
+describe("profile slots named in the options", () => {
+  it("follows each slot with the name of the profile in it", () => {
+    expect(withSlotNames(bootAction, ["Low", "Medium", "High"]).options).toEqual([
+      "None", "Bootloader", "ESC Passthrough", "Idle Hold", "Slot 1 · Low", "Slot 2 · Medium",
+      "Slot 3 · High",
+    ]);
+  });
+
+  it("leaves a slot as the firmware labels it when its profile has no name or is not read yet", () => {
+    expect(withSlotNames(bootAction, ["", "  ", undefined]).options?.slice(4)).toEqual([
+      "Slot 1", "Slot 2", "Slot 3",
+    ]);
+    expect(withSlotNames(bootAction, []).options?.slice(4)).toEqual(["Slot 1", "Slot 2", "Slot 3"]);
+  });
+
+  it("keeps two slots holding profiles of the same name apart", () => {
+    const named = withSlotNames(bootAction, ["Low", "Low", " High "]).options?.slice(4);
+    expect(named).toEqual(["Slot 1 · Low", "Slot 2 · Low", "Slot 3 · High"]);
+  });
+
+  it("changes only the labels, and nothing on a node without slots", () => {
+    const named = withSlotNames(bootAction, ["Low"]);
+    expect(named.optionValues).toEqual(bootAction.optionValues);
+    expect(optionValueAt(named, 4)).toBe("profile_0");
+    expect(optionIndexFor(named, "profile_0")).toBe(4);
+    expect(withSlotNames(idValued, ["Low"])).toBe(idValued);
+    expect(withSlotNames(indexValued, ["Low"])).toBe(indexValued);
   });
 });

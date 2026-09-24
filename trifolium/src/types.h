@@ -116,6 +116,9 @@ enum bootAction_t : uint8_t
     BOOT_ACTION_BOOTLOADER,      // USB mass-storage mode, for reflashing without the BOOTSEL button
     BOOT_ACTION_ESC_PASSTHROUGH, // hand the ESC pins to a host ESC configurator
     BOOT_ACTION_IDLE_HOLD,       // latch the flywheels at idle RPM for the rest of this session
+    BOOT_ACTION_PROFILE_0,       // boot this profile slot, for this power-on only
+    BOOT_ACTION_PROFILE_1,
+    BOOT_ACTION_PROFILE_2,
     BOOT_ACTION_COUNT,
 };
 

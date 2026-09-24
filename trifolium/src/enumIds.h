@@ -15,7 +15,8 @@
 //     stored config that used it to fall back to its default.
 // Display labels stay next to their menu items; only the wire names live here.
 
-inline const char* const kBootActionIds[] = {"none", "bootloader", "esc_passthrough", "idle_hold"};
+inline const char* const kBootActionIds[] = {"none",      "bootloader", "esc_passthrough", "idle_hold",
+                                             "profile_0", "profile_1",  "profile_2"};
 inline const char* const kPusherTypeIds[] = {"none", "solenoid_openloop"};
 inline const char* const kEscChannelIds[] = {"esc1", "esc2", "esc3", "esc4"};
 inline const char* const kPusherDriveIds[] = {"fet", "esc"};

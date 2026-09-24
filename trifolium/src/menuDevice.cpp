@@ -317,7 +317,8 @@ struct RpmLoggingItemsInit
 
 // What each switch does when held at power-on. Rows are indexed by bootButton_t and each is hidden
 // unless its pin is wired, so a build with no menu button or no cycle switch doesn't show them.
-static const char* const bootActionLabels[] = {"None", "Bootloader", "ESC Passthrough", "Idle Hold"};
+static const char* const bootActionLabels[] = {"None",   "Bootloader", "ESC Passthrough", "Idle Hold",
+                                               "Slot 1", "Slot 2",     "Slot 3"};
 static_assert(sizeof(bootActionLabels) / sizeof(bootActionLabels[0]) == kBootActionIdCount, "bootActionLabels is out of step");
 #define BOOT_ACTION_ITEM(name, label, key, index)                                                  \
     static EnumItem<bootAction_t> name(label, key, &deviceSettings.bootAction[index],              \
