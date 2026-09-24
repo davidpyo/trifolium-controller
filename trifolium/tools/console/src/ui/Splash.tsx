@@ -203,7 +203,7 @@ export function Splash({ live, onUpload, onClear }: SplashProps) {
             </Typography>
           )}
           <Typography variant="caption" color="text.disabled">
-            The firmware has no way to send a splash back, so the only confirmation is rebooting and
+            The console does not read a splash back from the device, so the check is rebooting and
             looking at it.
           </Typography>
         </Stack>

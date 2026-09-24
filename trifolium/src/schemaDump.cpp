@@ -352,16 +352,33 @@ void clampSubtree(MenuItem* item, uint8_t depth)
         clampSubtree(children[i], depth + 1);
 }
 
+// Everything clamping can move, as the stores would save it. The profile is in it because some of
+// its bounds come from device settings.
+String settingsSnapshot()
+{
+    JsonDocument device;
+    JsonDocument profile;
+    DeviceStore::toJson(deviceSettings, device);
+    ProfileStore::toJson(activeProfile, profile);
+    String deviceText;
+    String profileText;
+    serializeJson(device, deviceText);
+    serializeJson(profile, profileText);
+    return deviceText + profileText;
+}
+
 } // namespace
 
-void clampAllSettings()
+bool clampAllSettings()
 {
+    const String before = settingsSnapshot();
     const uint8_t savedFireModeIndex = fireModeEditorIndex();
 
     for (uint8_t i = 0; i < rootItemsCount; i++)
         clampSubtree(rootItems[i], 0);
 
     setFireModeEditorIndex(savedFireModeIndex);
+    return settingsSnapshot() != before;
 }
 
 void dumpSchema()

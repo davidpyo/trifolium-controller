@@ -3,7 +3,8 @@
 
 void dumpSchema();
 
-void clampAllSettings();
+// True if it moved any value into its bounds.
+bool clampAllSettings();
 
 class MenuItem;
 uint8_t fireModeEditorIndex();

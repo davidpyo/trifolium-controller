@@ -435,10 +435,11 @@ export class SerialTransport {
   /**
    * Polls until the firmware is actually servicing commands again.
    *
-   * Reopening the port is not the same as the device being ready: USB CDC enumerates early in
-   * setup(), but nothing answers until loop1() runs - after the splash delay and the ESC arm loop -
-   * and a command sent into that gap is swallowed rather than queued. DUMP_BOOT is the cheapest
-   * command that proves loop1() is running and it touches nothing.
+   * Reopening the port is not the same as the device being ready: USB is up before setup() runs,
+   * but nothing answers until loop1() does. A command sent before then waits in the device's buffer
+   * and is answered late, possibly after this attempt's timeout. DUMP_BOOT is the cheapest command
+   * that proves loop1() is running and it touches nothing, so a late answer to an earlier attempt
+   * is only a duplicate.
    */
   async waitReady(attempts = 10, timeoutMs = 1500): Promise<boolean> {
     for (let i = 0; i < attempts; i++) {

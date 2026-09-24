@@ -201,7 +201,14 @@ function PinField({ node, value, onChange }: FieldProps) {
         placeholder="unused"
         disabled={!isEditable(node) || unused}
         slotProps={{
-          htmlInput: { min: node.lo ?? 0, max: unusedValue - 1, step: 1, style: denseInput },
+          // Named for the pin: with no label, a screen reader falls back to the placeholder.
+          htmlInput: {
+            min: node.lo ?? 0,
+            max: unusedValue - 1,
+            step: 1,
+            style: denseInput,
+            "aria-label": node.label,
+          },
         }}
         onFocus={() => setEditing(true)}
         onChange={(e) => {

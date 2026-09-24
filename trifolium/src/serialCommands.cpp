@@ -66,6 +66,12 @@ static void ackError(const char* command, const char* reason)
     Serial.println("\"}");
 }
 
+// A body too big for the heap fails as NoMemory, which is not malformed JSON.
+static const char* parseError(DeserializationError err)
+{
+    return err == DeserializationError::NoMemory ? "too large" : "invalid JSON";
+}
+
 // `index` is the profile slot, or -1 where the command has no slot.
 static void ackOk(const char* command, int index, bool clamped, bool rebooting)
 {
@@ -278,7 +284,7 @@ void handleSerialCommands()
         DeserializationError err = deserializeJson(doc, Serial);
         if (err)
         {
-            ackError("LOAD_PROFILE", "invalid JSON");
+            ackError("LOAD_PROFILE", parseError(err));
             return;
         }
         if (!schemaVersionOk("LOAD_PROFILE", doc, ProfileStore::CURRENT_SCHEMA_VERSION))
@@ -299,9 +305,9 @@ void handleSerialCommands()
         if (targetIndex == activeIndex)
         {
             activeProfile = newSettings;
-            clampAllSettings();
+            const bool clamped = clampAllSettings();
             ProfileStore::saveProfile(targetIndex, activeProfile);
-            ackOk("LOAD_PROFILE", targetIndex, true, true);
+            ackOk("LOAD_PROFILE", targetIndex, clamped, true);
             Serial.flush();
             delay(100);
             rebootReason = BootReason::MENU;
@@ -388,7 +394,7 @@ void handleSerialCommands()
         DeserializationError err = deserializeJson(doc, Serial);
         if (err)
         {
-            ackError("LOAD_DEVICE", "invalid JSON");
+            ackError("LOAD_DEVICE", parseError(err));
             return;
         }
         if (!schemaVersionOk("LOAD_DEVICE", doc, DeviceStore::CURRENT_SCHEMA_VERSION))
@@ -397,9 +403,9 @@ void handleSerialCommands()
         DeviceStore::fromJson(doc, newSettings);
         // Publish before clamping, same reason as LOAD_PROFILE - and this path always reboots.
         deviceSettings = newSettings;
-        clampAllSettings();
+        const bool clamped = clampAllSettings();
         DeviceStore::saveDeviceSettings(deviceSettings);
-        ackOk("LOAD_DEVICE", -1, true, true);
+        ackOk("LOAD_DEVICE", -1, clamped, true);
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;
