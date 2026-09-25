@@ -1,10 +1,9 @@
 
 
 trifolium-controller
-
-> Based on `rune-firmware` and the Dettlaff codebase as well as passthrough from the Stinger codebase.  
-
-> Designed for the `trifolium` controller or a generic `RP2040` target with FET drive.
+ 
+ Open source brushless firmware for foam dart blasters based on `rune-firmware` and the Dettlaff codebase as well as passthrough from the Stinger codebase.  
+ Designed for the `trifolium` controller or a generic `RP2040` target with FET drive.
 
 ## Features
 
