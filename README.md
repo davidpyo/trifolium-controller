@@ -17,3 +17,7 @@ trifolium-controller
 ## Releases
 
  See https://github.com/davidpyo/trifolium-controller/releases for latest releases
+
+## See the wiki for more details about settings and development!
+
+ https://github.com/davidpyo/trifolium-controller/wiki
