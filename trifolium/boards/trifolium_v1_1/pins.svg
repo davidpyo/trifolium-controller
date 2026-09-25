@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 711 1024" preserveAspectRatio="xMidYMid meet">
+  <!-- Marker overlay for trifolium_v1_1.board.svg. The viewBox is that file's coordinate space, so a
+       marker's cx/cy is just the coordinate the art uses.
+
+       UNVERIFIED. Read off the v1.1 render alone - there is no photograph of this board to check
+       against, and v1.2's sheet needed several passes with one. The top header is measured and
+       confident; the rest is a best reading of the silkscreen and wants going over. The lower
+       connectors (17, 18, 19, 20, 21, 27) are not placed at all rather than placed wrongly. -->
+
+  <metadata>
+    <!-- v1.1 runs the pusher gate on GPIO 27, which the preset notes is a header pin here rather
+         than the internal gate v1.2 uses - so nothing is declared internal on this board yet.
+         batteryAdcPin (28) is wired on the board and wants a declaration once confirmed. -->
+  </metadata>
+
+  <g fill="rgba(0,229,255,0.25)" stroke="#00e5ff" stroke-width="2">
+    <!-- Ribbon header, top right: seven pads at 25.5 pitch, numbered 26 4 3 2 1 0 + G below them.
+         Measured: the label pitch matches the pad pitch exactly. -->
+    <g data-connector="ESC connector">
+      <circle cx="461" cy="130" r="10" data-gpio="26" />
+      <circle cx="486" cy="130" r="10" data-gpio="4" />
+      <circle cx="513" cy="130" r="10" data-gpio="3" />
+      <circle cx="538" cy="130" r="10" data-gpio="2" />
+      <circle cx="563" cy="130" r="10" data-gpio="1" />
+      <circle cx="588" cy="130" r="10" data-gpio="0" />
+      <circle cx="614" cy="130" r="10" data-pin="VCC" data-label="VCC from ESC" />
+      <circle cx="639" cy="130" r="10" data-pin="GND" data-label="GND from ESC" />
+    </g>
+
+    <!-- I2C connector, left edge: one column at ~25 pitch, top to bottom G, +, D=14, C=15. -->
+    <g data-connector="I2C connector">
+      <circle cx="108" cy="447" r="10" data-pin="GND" data-label="GND to I2C" />
+      <circle cx="108" cy="472" r="10" data-pin="VCC" data-label="VCC to I2C" />
+      <circle cx="108" cy="497" r="10" data-gpio="14" />
+      <circle cx="108" cy="522" r="10" data-gpio="15" />
+    </g>
+
+    <!-- Select connector: one row at ~25 pitch, numbered 10 9 8 with a ground beyond them. -->
+    <g data-connector="Select connector">
+      <circle cx="208" cy="501" r="10" data-gpio="10" />
+      <circle cx="233" cy="501" r="10" data-gpio="9" />
+      <circle cx="257" cy="501" r="10" data-gpio="8" />
+      <circle cx="282" cy="501" r="10" data-pin="GND" />
+    </g>
+
+    <!-- The two-pad connectors across the lower half. v1.1 carries the same pins as v1.2 in almost
+         the same places; what v1.2 added below them - the XT30 terminals and that bottom section -
+         has no counterpart here, so nothing is marked for it.
+
+         Each signal sits on a pad measured off this board's own render. Each ground is v1.2's
+         offset from its signal, scaled by the 1.19 between the two boards' coordinate spaces, so
+         the grounds are the half that wants checking. -->
+    <g data-connector="GP18 connector">
+      <circle cx="200" cy="821.3" r="10" data-gpio="18" />
+      <circle cx="200" cy="846.4" r="10" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP21 connector">
+      <circle cx="310" cy="837.3" r="10" data-gpio="21" />
+      <circle cx="310" cy="862.4" r="10" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP27 connector">
+      <circle cx="449.6" cy="935" r="10" data-gpio="27" />
+      <circle cx="425.5" cy="935" r="10" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP20 connector">
+      <circle cx="321.5" cy="935" r="10" data-gpio="20" />
+      <circle cx="297.4" cy="935" r="10" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP19 connector">
+      <circle cx="148" cy="947" r="10" data-gpio="19" />
+      <circle cx="148" cy="972" r="10" data-pin="GND" />
+    </g>
+
+    <g data-connector="GP17 connector">
+      <circle cx="50" cy="947" r="10" data-gpio="17" />
+      <circle cx="50" cy="972" r="10" data-pin="GND" />
+    </g>
+  </g>
+</svg>

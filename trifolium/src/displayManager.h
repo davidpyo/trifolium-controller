@@ -2,10 +2,27 @@
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Wire.h>
 #include "flywheelMotor.h"
 
 struct FiringContext;
 class FiringModeBehavior;
+
+// Rebinds Adafruit_SSD1306's protected `wire` after the board is known, so `display` can stay a
+// plain global and every display.foo() call site stays as it is.
+class BoardDisplay : public Adafruit_SSD1306
+{
+  public:
+    BoardDisplay(uint8_t w, uint8_t h) : Adafruit_SSD1306(w, h, nullptr, -1) {}
+
+    // Before begin(), never after. Null keeps the base default (&Wire, never begun), which leaves
+    // the menu's unguarded display.foo() calls inert instead of faulting.
+    void bindWire(TwoWire* bus)
+    {
+        if (bus)
+            wire = bus;
+    }
+};
 
 class DisplayManager
 {
@@ -14,9 +31,15 @@ class DisplayManager
 
     void setHasDisplay(bool hasDisplay);
 
-    // Caller (setup1()) must wait for core 0 to finish loading deviceSettings first - see
-    // main.cpp's bootSettingsLoaded flag.
-    void begin(bool rotateDisplay);
+    // Whether a panel is actually usable. Starts as the stored hasDisplay setting and is cleared by
+    // begin() if the panel doesn't come up, so callers driving frames should gate on this rather
+    // than on deviceSettings.hasDisplay.
+    bool hasDisplay() const { return hasDisplay_; }
+
+    // Caller (setup1()) must wait on main.cpp's bootSettingsLoaded first: it orders core 0's
+    // deviceSettings load and selectDisplayBus() ahead of the bus->begin() here. Null bus = run
+    // headless. Returns whether a panel came up.
+    bool begin(bool rotateDisplay, uint8_t brightness, TwoWire* bus);
 
     void setRotation(bool rotateDisplay);
 
@@ -32,7 +55,8 @@ class DisplayManager
                          const char* blasterName, FlywheelMotor motorArr[4], const bool motors[4],
                          const motorStage_t motorStage[4], uint32_t displayShotCounter,
                          bool isBatteryAdcDefined, int32_t batteryVoltage_mv, bool showCurrentRpm,
-                         bool batteryWarningActive, homeScreenDisplayMode_t homeScreenDisplayMode,
+                         bool idleHoldActive, bool batteryWarningActive,
+                         homeScreenDisplayMode_t homeScreenDisplayMode,
                          const FiringModeBehavior& modeBehavior, const FiringContext& fireCtx,
                          bool showDps, float achievedDPS, float targetDPS);
 

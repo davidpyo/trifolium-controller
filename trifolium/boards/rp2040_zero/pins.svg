@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 718.7689 981.1702"
+     preserveAspectRatio="xMidYMid meet">
+  <!-- Marker overlay for rp2040_zero.board.svg. The viewBox is that file's coordinate space, so a
+       marker's cx/cy is just the coordinate the art uses.
+
+       Unlike the hand-placed Trifolium sheets, every coordinate here is exact: both files are
+       generated from the same PCB export, so each marker sits on the pad centre the footprint
+       declares rather than on a reading of a render. Nothing here wants moving.
+
+       What it does not have is names. A bare RP2040-Zero has no connectors - it is two rows of
+       castellations, and which of them is a plug depends on what you solder to it - so the plugs
+       and their labels are yours to add. See the README for data-label and data-connector.
+
+       One correction worth knowing: the breadboard SVG labels the second pad along the bottom edge
+       "15", which is also what it calls the eighth pad down the left edge. The bottom one is GP13 -
+       left to right that edge runs 14, 13, 12, 11, 10, 9, 8 - and that is what is marked here. -->
+
+  <g fill="rgba(0,229,255,0.25)" stroke="#00e5ff" stroke-width="2">
+    <circle cx="60" cy="114" r="26" data-pin="5V" />
+    <circle cx="60" cy="214" r="26" data-pin="GND" />
+    <circle cx="60" cy="314" r="26" data-pin="3V3" />
+    <circle cx="60" cy="414" r="26" data-gpio="29" />
+    <circle cx="60" cy="514" r="26" data-gpio="28" />
+    <circle cx="60" cy="614" r="26" data-gpio="27" />
+    <circle cx="60" cy="714" r="26" data-gpio="26" />
+    <circle cx="60" cy="814" r="26" data-gpio="15" />
+    <circle cx="60" cy="914" r="26" data-gpio="14" />
+    <circle cx="160" cy="914" r="26" data-gpio="13" />
+    <circle cx="260" cy="914" r="26" data-gpio="12" />
+    <circle cx="360" cy="914" r="26" data-gpio="11" />
+    <circle cx="460" cy="914" r="26" data-gpio="10" />
+    <circle cx="560" cy="914" r="26" data-gpio="9" />
+    <circle cx="660" cy="914" r="26" data-gpio="8" />
+    <circle cx="660" cy="814" r="26" data-gpio="7" />
+    <circle cx="660" cy="714" r="26" data-gpio="6" />
+    <circle cx="660" cy="614" r="26" data-gpio="5" />
+    <circle cx="660" cy="514" r="26" data-gpio="4" />
+    <circle cx="660" cy="414" r="26" data-gpio="3" />
+    <circle cx="659" cy="314" r="26" data-gpio="2" />
+    <circle cx="660" cy="214" r="26" data-gpio="1" />
+    <circle cx="660" cy="114" r="26" data-gpio="0" />
+  </g>
+</svg>

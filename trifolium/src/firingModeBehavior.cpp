@@ -121,9 +121,19 @@ class SafeMode : public FiringModeBehavior
     void update(FiringContext& ctx, TriggerEvent) const override { ctx.shotsToFire = 0; }
 
     void render(DisplayManager& display, int16_t x, int16_t y, int16_t w, int16_t h,
-                const FiringContext&) const override
+                const FiringContext& ctx) const override
     {
         display.drawDartBelt(x, y, w, h, 0);
+        if (!ctx.safetyEngaged)
+            return;
+        // Says why: the mode row already reads SAFE either way, and a user who did not select it
+        // needs to know a switch did.
+        static const char kLabel[] = "SAFETY SWITCH";
+        const int16_t textW = (int16_t)(sizeof(kLabel) - 1) * 6;
+        Adafruit_SSD1306& raw = display.raw();
+        raw.setTextSize(1);
+        raw.setCursor(x + (w - textW) / 2, y + (h - 8) / 2);
+        raw.print(kLabel);
     }
 };
 
@@ -262,6 +272,7 @@ class PlasmaMode : public FiringModeBehavior
     mutable uint32_t lockoutUntilMs_ = 0;
     mutable int16_t lastPhase_ = 0;
     mutable bool holdActive_ = false;
+    mutable bool lockedOut_ = false; // the overheated hold was released; the lockout is running
 
     // cyclePos in [0,1) -> [-kPluckUndershoot, 1]. Decay asymptotes to -kPluckUndershoot so the
     // cycle end meets the next cycle's start without a discontinuity.
@@ -322,6 +333,7 @@ class PlasmaMode : public FiringModeBehavior
                 break; // still locked out from the last overheat
             chargeStartMs_ = ctx.time_ms;
             holdActive_ = true;
+            lockedOut_ = false;
             lastPhase_ = 0;
             ctx.requestRev = true;
             ctx.shotsToFire = 0;
@@ -356,6 +368,17 @@ class PlasmaMode : public FiringModeBehavior
             if (!holdActive_)
                 break;
             ctx.requestRev = false;
+            if (lockedOut_)
+            {
+                // A pull made during the lockout neither fires nor moves the lockout's end.
+                if (ctx.time_ms >= lockoutUntilMs_)
+                {
+                    holdActive_ = false;
+                    lockedOut_ = false;
+                    ctx.rpmScale = -1.0f;
+                }
+                break;
+            }
             uint32_t heldMs = ctx.time_ms - chargeStartMs_;
             bool overheated = isOverheating(heldMs);
             int16_t slots = readySlots(heldMs);
@@ -367,6 +390,7 @@ class PlasmaMode : public FiringModeBehavior
             if (overheated)
             {
                 lockoutUntilMs_ = ctx.time_ms + kOverheatLockoutMs;
+                lockedOut_ = true;
             }
             else
             {
@@ -379,6 +403,7 @@ class PlasmaMode : public FiringModeBehavior
             if (holdActive_ && ctx.time_ms >= lockoutUntilMs_)
             {
                 holdActive_ = false;
+                lockedOut_ = false;
                 ctx.rpmScale = -1.0f;
             }
             break;

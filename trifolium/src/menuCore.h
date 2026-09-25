@@ -4,24 +4,34 @@
 #include "../lib/Bounce2/src/Bounce2.h"
 #include <Adafruit_SSD1306.h>
 #include <cmath>
+#include <cstring> // strchr() - TextEditItem::clampToBounds()'s charset check
 #include "shotProfile.h"
 #include "deviceSettings.h"
 #include "batteryMonitor.h"
 #include "displayManager.h"
 #include "flywheelMotor.h"
+// Every blocking menu screen polls handleSerialCommands() so the console stays answerable.
+#include "serialCommands.h"
 
 // Shared engine pieces every menu.cpp domain file needs: hardware/global externs, blocking-action
 // helpers, and the reusable non-domain-specific MenuItem subclasses. The navigation engine itself
 // lives in menuCore.cpp.
 
+// The nine pins as resolved for this boot - see the definitions in main.cpp. Read these, not
+// deviceSettings, for anything that attaches or polls hardware: a pin the conflict engine detached
+// is PIN_NOT_USED here while deviceSettings still carries what the user asked for.
 extern uint8_t menuButtonPin;
-extern bool menuButtonNormallyClosed;
-extern uint16_t debounceTime_ms;
 extern uint8_t triggerSwitchPin;
 extern uint8_t revSwitchPin;
+extern uint8_t cycleSwitchPin;
+extern uint8_t idleSwitchPin;
+extern uint8_t safetySwitchPin;
 extern uint8_t selectPins[3];
 
-extern Adafruit_SSD1306 display;
+extern bool menuButtonNormallyClosed;
+extern uint16_t debounceTime_ms;
+
+extern BoardDisplay display;
 extern Bounce2::Button triggerSwitch;
 extern Bounce2::Button revSwitch;
 
@@ -30,6 +40,8 @@ extern DeviceSettings deviceSettings;
 extern uint8_t activeProfileIndex; // which of the 3 named profiles activeProfile came from
 extern int8_t firingMode;          // which Firing Mode (1-3) is live-selected right now
 extern int8_t screenOverrideMode;
+extern bool idleHoldActive; // idle-hold's standing request - boot-latched or menu-toggled, live
+extern bool safetyEngaged;  // the safety switch is held - the effective firing mode is SAFE
 extern float solenoidVoltageTimeSlope;       // applySolenoidTimingCurve()'s output
 extern int16_t solenoidVoltageTimeIntercept; // ditto
 extern float maxAchievableDPS;               // applyMaxAchievableDps()'s output
@@ -41,7 +53,6 @@ extern bool escDashboardOpen;                  // lets Rev spin flywheels while 
 
 bool pinDefined(uint8_t pin);
 bool isPusherEscChannel(uint8_t motorIndex);
-void handleSerialCommands();
 
 // Shared list-layout constants - menuCore.cpp's renderList() and menuTextEditor.cpp's
 // Save/Cancel screen both use these to keep the same list-row look.
@@ -132,16 +143,39 @@ bool waitForTrapdoorPress();
 // > Mode N > Display Name.
 bool runTextEditor(const char* title, String& value);
 
+inline constexpr uint8_t kTextEditLength = 14;
+inline constexpr const char* kTextEditCharset =
+    " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
 // Like ActionItem, but shows the live String value inline and opens runTextEditor() when selected.
 class TextEditItem : public MenuItem
 {
   public:
-    TextEditItem(const char* label, String* value) : MenuItem(label), value_(value) {}
+    TextEditItem(const char* label, const char* key, String* value)
+        : MenuItem(label, key), value_(value)
+    {
+    }
     String valueText() const override { return *value_; }
     MenuActivation activate() override
     {
         runTextEditor(label(), *value_);
         return MenuActivation::None;
+    }
+
+    ItemKind kind() const override { return ItemKind::Text; }
+    // Truncates past the editor's length and drops characters it can't represent, rather than
+    // keeping a value the on-device editor could never reproduce.
+    void clampToBounds() override
+    {
+        String out;
+        for (uint16_t i = 0; i < value_->length() && out.length() < kTextEditLength; i++)
+        {
+            char c = value_->charAt(i);
+            if (strchr(kTextEditCharset, c) && c != '\0')
+                out += c;
+        }
+        out.trim();
+        *value_ = out;
     }
 
   private:
@@ -165,9 +199,23 @@ class ShortcutItem : public MenuItem
     uint8_t optionCount() const override { return resolver_()->optionCount(); }
     String optionLabel(uint8_t index) const override { return resolver_()->optionLabel(index); }
     uint8_t currentOptionIndex() const override { return resolver_()->currentOptionIndex(); }
+    const char* optionValue(uint8_t index) const override { return resolver_()->optionValue(index); }
     bool isEditable() const override { return resolver_()->isEditable(); }
     String lockedMessage() const override { return resolver_()->lockedMessage(); }
     bool isVisible() const override { return resolver_()->isVisible(); }
+    const VisibilityCondition* visibleWhenData() const override
+    {
+        return resolver_()->visibleWhenData();
+    }
+    uint16_t textMaxLen() const override { return resolver_()->textMaxLen(); }
+    const char* textCharset() const override { return resolver_()->textCharset(); }
+    ItemKind kind() const override { return resolver_()->kind(); }
+    const char* jsonKey() const override { return resolver_()->jsonKey(); }
+    bool bounds(ItemBounds& out) const override { return resolver_()->bounds(out); }
+    void clampToBounds() override { resolver_()->clampToBounds(); }
+    const char* displayHint() const override { return resolver_()->displayHint(); }
+    void selectContext() override { resolver_()->selectContext(); }
+    ItemStorage storage() const override { return resolver_()->storage(); }
 
   private:
     Resolver resolver_;
@@ -217,9 +265,9 @@ inline int8_t highestKvEnabledMotor(const uint8_t* candidates, uint8_t count)
 class RpmTargetItem : public MenuItem
 {
   public:
-    RpmTargetItem(const char* label, int32_t* value, uint8_t motorIndex, int32_t step,
-                  rpmFloorType_t floorType, bool needsReboot = false)
-        : MenuItem(label), value_(value), motorIndex_(motorIndex), step_(step),
+    RpmTargetItem(const char* label, const char* key, int32_t* value, uint8_t motorIndex,
+                  int32_t step, rpmFloorType_t floorType, bool needsReboot = false)
+        : MenuItem(label, key), value_(value), motorIndex_(motorIndex), step_(step),
           floorType_(floorType)
     {
         needsReboot_ = needsReboot;
@@ -229,12 +277,28 @@ class RpmTargetItem : public MenuItem
     void beginEdit() override { entryValue_ = *value_; }
     void adjust(int8_t direction, bool wrap) override
     {
-        int8_t ref = referenceMotor();
-        int32_t floor = (floorType_ == RPM_FLOOR_ZERO) ? 0 : motorRpmFloor(ref);
-        *value_ =
-            (int32_t)steppedToGrid(*value_, direction, step_, floor, motorRpmCeiling(ref), wrap);
+        ItemBounds b;
+        bounds(b);
+        *value_ = (int32_t)steppedToGrid(*value_, direction, b.step, b.lo, b.hi, wrap);
     }
     void cancelEdit() override { *value_ = entryValue_; }
+
+    ItemKind kind() const override { return ItemKind::Int; }
+    // Derived per motor from that motor's Kv and the pack's cell count, so it moves when either
+    // does - which is why bounds() is computed here rather than stored at construction.
+    bool bounds(ItemBounds& out) const override
+    {
+        int8_t ref = referenceMotor();
+        out = {(floorType_ == RPM_FLOOR_ZERO) ? 0 : motorRpmFloor(ref), motorRpmCeiling(ref), step_,
+               0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        ItemBounds b;
+        bounds(b);
+        clampInto(value_, b);
+    }
 
   private:
     int8_t referenceMotor() const
@@ -262,9 +326,10 @@ inline String formatSecondsMs(uint32_t valueMs, uint32_t granularityMs)
 class SecondsDisplayItem : public MenuItem
 {
   public:
-    SecondsDisplayItem(const char* label, uint32_t* value_ms, uint32_t minMs, uint32_t maxMs,
-                       uint32_t granularityMs, bool needsReboot = false)
-        : MenuItem(label), value_(value_ms), min_(minMs), max_(maxMs), granularity_(granularityMs)
+    SecondsDisplayItem(const char* label, const char* key, uint32_t* value_ms, uint32_t minMs,
+                       uint32_t maxMs, uint32_t granularityMs, bool needsReboot = false)
+        : MenuItem(label, key), value_(value_ms), min_(minMs), max_(maxMs),
+          granularity_(granularityMs)
     {
         needsReboot_ = needsReboot;
     }
@@ -277,6 +342,22 @@ class SecondsDisplayItem : public MenuItem
         *value_ = (uint32_t)steppedToGrid(*value_, direction, granularity_, min_, max_, wrap);
     }
     void cancelEdit() override { *value_ = entryValue_; }
+
+    ItemKind kind() const override { return ItemKind::Int; }
+    const char* displayHint() const override { return "seconds"; }
+    // Bounds are in stored milliseconds; `step` doubles as the display granularity, so a consumer
+    // showing seconds divides all three by 1000.
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {(int64_t)min_, (int64_t)max_, (int64_t)granularity_, 0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        ItemBounds b;
+        bounds(b);
+        clampInto(value_, b);
+    }
 
   private:
     uint32_t* value_;

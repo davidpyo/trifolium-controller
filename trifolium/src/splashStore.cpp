@@ -33,7 +33,6 @@ bool saveCustomSplash(const uint8_t* data)
     }
 
     // Temp-file-then-rename: same power-loss-safety reasoning as ProfileStore::saveProfile.
-    LittleFS.remove(SPLASH_PATH);
     return LittleFS.rename(tmpPath, SPLASH_PATH);
 }
 

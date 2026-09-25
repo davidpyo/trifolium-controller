@@ -1,0 +1,38 @@
+{
+  "kind": "trifolium-wiring-preset",
+  "presetVersion": 1,
+  "id": "diana_v1_2",
+  "name": "Diana v1.2",
+  "notes": [
+    "Two motors, no menu button. The idle switch and a third select line sit where a Trifolium puts rev and menu.",
+    "Adds the I2C pads v1.0 did not bring out, on the same GP14/GP15 pair a Trifolium uses. Set Display Attached to use one."
+  ],
+  "unread": {
+    "telem": 255,
+    "escADC": 255
+  },
+  "schemaVersion": 3,
+  "boardId": "diana_v1_2",
+  "wiringConfigured": true,
+  "escPins": [
+    1,
+    2,
+    255,
+    255
+  ],
+  "i2cSdaPin": 14,
+  "i2cSclPin": 15,
+  "batteryAdcPin": 28,
+  "escEnablePin": 255,
+  "menuButtonPin": 255,
+  "triggerSwitchPin": 6,
+  "revSwitchPin": 255,
+  "cycleSwitchPin": 255,
+  "idleSwitchPin": 7,
+  "select0Pin": 3,
+  "select1Pin": 4,
+  "select2Pin": 5,
+  "pusherDrive": "fet",
+  "pusherFetPin": 0,
+  "ledDataPin": 27
+}

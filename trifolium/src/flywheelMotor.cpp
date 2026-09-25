@@ -35,6 +35,7 @@ bool FlywheelMotor::readTelemetry(uint32_t& erpmOut)
     {
     case BidirDshotTelemetryType::ERPM:
         erpmOut = value;
+        telemetryErpmSeen = true;
         return true;
     case BidirDshotTelemetryType::VOLTAGE:
         telemetryVoltageRaw = value;
@@ -56,6 +57,13 @@ bool FlywheelMotor::readTelemetry(uint32_t& erpmOut)
         break; // NO_PACKET/CHECKSUM_ERROR/STATUS/DEBUG_FRAME_*
     }
     return false;
+}
+
+bool FlywheelMotor::pumpTelemetry()
+{
+    uint32_t erpm;
+    readTelemetry(erpm); // one call drains the queue - getTelemetryRaw() keeps only the newest frame
+    return telemetryErpmSeen;
 }
 
 void FlywheelMotor::refreshFilteredRpm(uint8_t EMAFilter, uint32_t half, int batteryType)
@@ -88,8 +96,11 @@ void FlywheelMotor::updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, in
     refreshFilteredRpm(EMAFilter, half, batteryType);
 
     PIDError = targetRPM - motorRPM;
+    // An error identical to last tick's means no new eRPM frame arrived, which trivially satisfies
+    // the iThreshold test - without the inequality the integral winds up mid-ramp on stale telemetry.
     if ((signbit(PIDError) ||
-         ((abs(PIDErrorPrior - PIDError) < iThreshold) && motorRPM > (targetRPM / 2) && (PIDErrorPrior != PIDError))) &&
+         ((abs(PIDErrorPrior - PIDError) < iThreshold) && motorRPM > (targetRPM / 2) &&
+          PIDErrorPrior != PIDError)) &&
         !firstCrossing)
     {
         firstCrossing = true;

@@ -1,9 +1,9 @@
 #include "escDriver.h"
 
-EscDriver::EscDriver(uint8_t escPin)
+EscDriver::EscDriver(uint8_t escPin, uint16_t dshotRate)
 {
     isForward = true;
-    esc = new BidirDShotX1(escPin, 300);
+    esc = new BidirDShotX1(escPin, dshotRate);
     throttleValue = DSHOT_CMD_MOTOR_STOP;
 }
 

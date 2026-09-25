@@ -4,6 +4,8 @@
 #include "profileStore.h"
 #include "deviceStore.h"
 
+static const char kEditHint[] = "short=set long=cancel";
+
 // Reboot-elimination apply*() functions - defined in main.cpp, called from runMenu()'s
 // post-save hook below so these settings apply immediately rather than requiring a reboot.
 void applyMotorConfig();
@@ -49,11 +51,19 @@ static void pushLevel(const char* title, MenuItem* const* items, uint8_t count)
     level.scrollOffset = 0;
 }
 
+// A row the OLED shows. onDevice() is separate from isVisible(): visibility is a runtime
+// condition, onDevice is a property of the field - it reaches the schema and the console but has
+// no sensible on-device editor. Board identity is the first of these; the pin rows are the rest.
+static bool showsOnOled(const MenuItem* item)
+{
+    return item->onDevice() && item->isVisible();
+}
+
 static uint8_t visibleCount(const MenuLevel& level)
 {
     uint8_t n = 0;
     for (uint8_t i = 0; i < level.count; i++)
-        if (level.items[i]->isVisible())
+        if (showsOnOled(level.items[i]))
             n++;
     return n;
 }
@@ -62,7 +72,7 @@ static MenuItem* visibleItemAt(const MenuLevel& level, uint8_t pos)
 {
     for (uint8_t i = 0; i < level.count; i++)
     {
-        if (!level.items[i]->isVisible())
+        if (!showsOnOled(level.items[i]))
             continue;
         if (pos == 0)
             return level.items[i];
@@ -183,7 +193,7 @@ static void renderEdit(const MenuItem& item, bool reversedDirection)
 
     display.setTextSize(1);
     display.setCursor(0, 56);
-    display.print("short=save long=cancel");
+    display.print(kEditHint);
     display.display();
 }
 
@@ -234,7 +244,7 @@ static void renderEditOptions(const MenuItem& item, uint8_t& scrollOffset)
     }
 
     display.setCursor(0, 56);
-    display.print("short=save long=cancel");
+    display.print(kEditHint);
     display.display();
 }
 
@@ -285,7 +295,7 @@ void setupMenuButton()
 {
     modeCycleOnMenuButton = deviceSettings.selectFireType == BUTTON_SELECT_FIRE &&
                             pinDefined(menuButtonPin) &&
-                            menuButtonPin == deviceSettings.select0Pin;
+                            menuButtonPin == selectPins[0];
 
     if (pinDefined(menuButtonPin))
     {

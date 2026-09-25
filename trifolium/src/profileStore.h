@@ -8,10 +8,17 @@ namespace ProfileStore
 constexpr uint8_t MAX_PROFILE_COUNT = 3;
 
 // Bump whenever a breaking change is made to ShotProfile's on-disk shape (field moved/removed,
-// enum reordered/repurposed, etc). fromJson() resets to defaults on a mismatch instead of
-// silently overlaying fields that may no longer mean what they used to. Independent from
-// DeviceStore::CURRENT_SCHEMA_VERSION - the two structs evolve separately.
-constexpr uint16_t CURRENT_SCHEMA_VERSION = 1;
+// enum repurposed, etc). Independent from DeviceStore::CURRENT_SCHEMA_VERSION - the two structs
+// evolve separately.
+constexpr uint16_t CURRENT_SCHEMA_VERSION = 2;
+
+// Versions fromJson() will migrate a file found on flash up from, rather than discarding, on the
+// same terms as DeviceStore::OLDEST_MIGRATABLE_VERSION: only add a version here when every key it
+// wrote still means the same thing now, so the `|` defaulting leaves new keys at factory values.
+//
+//   v1 -> v2: rpmMode and fireModes[].burstMode became id strings instead of ordinals. A v1 file
+//             carries the ordinals, which enumFromJson() still accepts, so nothing is lost.
+constexpr uint16_t OLDEST_MIGRATABLE_VERSION = 1;
 
 // Mounts LittleFS, formatting on first boot / mount failure. Call once from setup().
 bool begin();
@@ -41,5 +48,14 @@ void switchActiveProfile(uint8_t newIndex);
 // Shared (de)serialization - also used by the DUMP_PROFILE/LOAD_PROFILE Serial commands.
 void toJson(const ShotProfile& settings, JsonDocument& doc);
 
-void fromJson(JsonDocument& doc, ShotProfile& out);
+// Where the document came from - see DeviceStore::Source. `slot` names which file, so the boot
+// record can say which profile lost its saved data rather than just that one did.
+enum class Source : uint8_t
+{
+    Flash,
+    Host,
+};
+
+void fromJson(JsonDocument& doc, ShotProfile& out, Source source = Source::Host,
+              uint8_t slot = 0);
 } // namespace ProfileStore

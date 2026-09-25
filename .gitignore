@@ -32,3 +32,5 @@
 *.app
 *.log
 *.csv
+
+__pycache__/

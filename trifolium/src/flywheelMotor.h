@@ -23,6 +23,11 @@ class FlywheelMotor
     bool firstCrossing = false;
     uint16_t shotsUnderThreshold = 0;
 
+    // Sticky, set by the first decodable eRPM frame. Means the ESC is powered and listening, which
+    // is not the same as armed - a disarmed ESC answers telemetry perfectly well. The boot arm loop
+    // waits on it before it starts counting the zero-throttle dwell that does the arming.
+    bool telemetryErpmSeen = false;
+
     // Extended DShot Telemetry beyond eRPM - raw values, read by the menu's ESC dashboard. The
     // *Seen flags stay false until a frame of that type actually arrives.
     uint32_t telemetryVoltageRaw = 0;
@@ -44,6 +49,10 @@ class FlywheelMotor
     void updateOpenLoop(int32_t batteryVoltage_mv, int32_t maxThrottle);
     void resetControl(flywheelControlType_t mode);
     void sendThrottle(int32_t value);
+
+    // Consumes one telemetry frame and reports telemetryErpmSeen, for callers driving throttle
+    // directly with no control loop running to drain the FIFO.
+    bool pumpTelemetry();
 
     // EMA-filters current RPM into motorRPM without touching PIDOutput/throttle - extracted from
     // updatePID() so other code can poll live RPM while driving throttle directly.

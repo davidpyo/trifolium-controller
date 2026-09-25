@@ -3,11 +3,12 @@
 #include <PIO_DShot.h>
 #include "../lib/Bounce2/src/Bounce2.h"
 #include "fetDriver.h"
-#include "drvDriver.h"
 #include "escDriver.h"
 #include "elapsedMillis.h"
 #include "pico/stdlib.h"
 #include "CONFIGURATION.h"
+#include "schemaDump.h"
+#include "serialCommands.h"
 #include "esc_passthrough.h"
 #include "global.h"
 #include "logging.h"
@@ -17,14 +18,16 @@
 #include "profileStore.h"
 #include "deviceSettings.h"
 #include "deviceStore.h"
-#include "splashStore.h"
 #include "batteryMonitor.h"
 #include "rpmLogger.h"
 #include "displayManager.h"
 #include "firingModeBehavior.h"
+#include "bootStatus.h"
+#include "pinConflicts.h"
+#include "pinCapabilities.h"
 
 #include <SPI.h>
-// #include <Wire.h>
+#include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "bitmaps.h"
@@ -50,14 +53,36 @@ DeviceSettings deviceSettings;
 // it can't race that load and skip DisplayManager::begin().
 volatile bool bootSettingsLoaded = false;
 
-TwoWire myI2C(board.I2C_HW_BLK, board.I2C_SCL, board.I2C_SDA);
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &myI2C, -1); // menu.cpp externs this directly
+BoardDisplay display(SCREEN_WIDTH, SCREEN_HEIGHT); // menu.cpp externs this directly
 DisplayManager displayManager(display);
 
-uint8_t menuButtonPin;
+// Written once by setup() before bootSettingsLoaded, read by setup1() on core 1.
+TwoWire* displayBus = nullptr;
+
+// The pins actually attached this boot. PinConflicts::resolve() is the only writer and never writes
+// deviceSettings back. PIN_NOT_USED, not the implicit zero, which pinDefined() calls wired.
+uint8_t menuButtonPin = PIN_NOT_USED;
+uint8_t triggerSwitchPin = PIN_NOT_USED;
+uint8_t revSwitchPin = PIN_NOT_USED;
+uint8_t cycleSwitchPin = PIN_NOT_USED;
+uint8_t idleSwitchPin = PIN_NOT_USED;
+uint8_t safetySwitchPin = PIN_NOT_USED;
+
+// Whether this boot armed the device. NOT deviceSettings.wiringConfigured, which a LOAD_DEVICE can
+// flip mid-run: loop() would then enter fwControlLoop() with no pusher and fault. Written once on
+// core 0 before bootSettingsLoaded releases core 1, which is what makes it lock-free.
+bool wiringLive = false;
+
+// Same for the outputs: resolve() takes a pin away in RAM, leaving the stored config as written.
+uint8_t ledDataPin = PIN_NOT_USED;
+uint8_t batteryAdcPin = PIN_NOT_USED;
+uint8_t escEnablePin = PIN_NOT_USED;
+
+// deviceSettings.hasDisplay after the I2C pair has been judged. selectDisplayBus() re-checks, since
+// setSDA must not be reached on an illegal pin whatever this says.
+bool displayAllowed = false;
+
 bool menuButtonNormallyClosed;
-uint8_t triggerSwitchPin;
-uint8_t revSwitchPin;
 uint16_t debounceTime_ms;
 // show runtime info
 bool showRuntimeInfo = false;
@@ -70,6 +95,9 @@ static const uint32_t kShotDetectionGraceMs = 250;
 // rebooting stuff
 BootReason bootReason;
 BootReason __uninitialized_ram(rebootReason);
+// Rides the same powerOnResetMagicNumber check as rebootReason: which switch ends the passthrough
+// session being rebooted into, since the reason alone cannot say which of the three ways in it was.
+u8 __uninitialized_ram(rebootPassthroughExit);
 u64 __uninitialized_ram(powerOnResetMagicNumber);
 
 uint32_t lastRevTime_ms = 0; // for calculating idling
@@ -88,6 +116,8 @@ static float lastMeasuredDPS = 0; // last extend-to-extend rate, read by loop1()
 uint32_t dwellTime_ms;
 uint32_t idleTime_ms;
 uint32_t currentSpindownSpeed = 0;
+// The mode the blaster runs this tick. The override never writes the selection, so releasing the
+// safety switch restores it with nothing to re-select.
 burstFireType_t burstMode;
 int8_t firingMode = 0;
 static int8_t persistedFiringMode = 0;
@@ -119,24 +149,48 @@ volatile bool directMotorControlActive = false;
 
 bool escDashboardOpen = false;
 
+// SAFE beats everything here, the ESC dashboard included: a switch that stops the pusher but leaves
+// the wheels turning is worse than none. Menu motor tests bypass this via directMotorControlActive.
 bool revControlAllowed()
 {
-    return !menuIsOpen() || escDashboardOpen;
+    return (!menuIsOpen() || escDashboardOpen) && burstMode != SAFE;
 }
 
 bool revSafetyLatched = false;
 
 bool batteryWarningActive = false;
 
+// Idle-hold's standing request: set by the BOOT_ACTION_IDLE_HOLD dispatch at power-on or the root
+// menu's Idle Mode toggle. Neither persists it - any reboot starts false.
+bool idleHoldActive = false;
+
+// The safety switch, debounced. Written on core 0 - seeded in setup() before bootSettingsLoaded so
+// core 1's first frame is already right - and read on either core through effectiveBurstMode().
+bool safetyEngaged = false;
+
+// SAFE while the switch is held, the selected mode otherwise. Every reader of the live mode goes
+// through this, so the override reaches firing, the flywheels and the panel from one place.
+burstFireType_t effectiveBurstMode(burstFireType_t selected)
+{
+    return safetyEngaged ? SAFE : selected;
+}
+
+// SAFE always spins fully down regardless, and the menu needs motors stopped for bench testing.
+bool idleHoldWanted()
+{
+    return idleHoldActive && burstMode != SAFE && !menuIsOpen();
+}
+
 Bounce2::Button revSwitch = Bounce2::Button();
 Bounce2::Button triggerSwitch = Bounce2::Button();
 Bounce2::Button cycleSwitch = Bounce2::Button();
 Bounce2::Button idleSwitch = Bounce2::Button();
+Bounce2::Button safetySwitch = Bounce2::Button();
 Bounce2::Button select0 = Bounce2::Button();
 Bounce2::Button select1 = Bounce2::Button();
 Bounce2::Button select2 = Bounce2::Button();
 Bounce2::Button* selectSwitches[3] = {&select0, &select1, &select2};
-uint8_t selectPins[3]; // populated in setup() from deviceSettings.select0/1/2Pin
+uint8_t selectPins[3] = {PIN_NOT_USED, PIN_NOT_USED, PIN_NOT_USED}; // same as above
 
 bool revRequestedNow()
 {
@@ -147,8 +201,13 @@ bool revRequestedNow()
 
 Motor motorsObj[4] = {Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0)};
 
+// Runtime resolution of motorConfig[].enabled: validatePusherAndMotors() clears entries whose ESC
+// channel this wiring cannot drive. The stored config is left alone.
 bool motorsEnabled[4];
 motorStage_t motorStages[4];
+
+// Same idea for the pusher: cleared when the configured pusher channel can't be driven.
+bool pusherValid = true;
 
 // per-motor runtime state - one instance per motors[]/motorsObj[] slot
 FlywheelMotor motorArr[4] = {FlywheelMotor(&motorsObj[0]), FlywheelMotor(&motorsObj[1]),
@@ -163,7 +222,6 @@ bool fwControlLoop();
 void mainFiringLogic();
 void resetFWControl();
 void registerShot();
-void handleSerialCommands();
 void applyMotorConfig();
 void applyEmaFilterConstant();
 void applySolenoidTimingCurve();
@@ -183,15 +241,37 @@ bool pinDefined(uint8_t pin)
     return pin != PIN_NOT_USED;
 }
 
+// Wire or Wire1 repointed at the stored I2C pins, or null when none can serve them. setSDA/setSCL
+// panic() on an illegal pin - an unrecoverable boot loop - so the legality test cannot be deferred.
+static TwoWire* selectDisplayBus()
+{
+    if (!i2cPairUsable(deviceSettings.i2cSdaPin, deviceSettings.i2cSclPin))
+        return nullptr; // no I2C wired, or the pair straddles both blocks
+
+    TwoWire* bus = i2cUsesBlock0(deviceSettings.i2cSdaPin) ? &Wire : &Wire1;
+    bus->setSDA(deviceSettings.i2cSdaPin);
+    bus->setSCL(deviceSettings.i2cSclPin);
+    bus->setTimeout(25, true); // bound a stuck bus; Stream's default is 1000 ms per transaction
+    return bus;
+}
+
 uint8_t escPin(uint8_t motorIndex)
 {
-    const uint8_t pins[4] = {board.esc1, board.esc2, board.esc3, board.esc4};
-    return pins[motorIndex];
+    return deviceSettings.escPins[motorIndex];
+}
+
+// Both halves are stored settings: how a pusher is wired is a fact about the build, not the PCB.
+uint8_t pusherPin()
+{
+    if (deviceSettings.pusherDrive != PUSHER_DRIVE_ESC)
+        return deviceSettings.pusherFetPin;
+    return escPin(deviceSettings.pusherEscChannel);
 }
 
 bool isPusherEscChannel(uint8_t motorIndex)
 {
-    return board.pusherDriverType == ESC_DRIVER && board.drvEN == escPin(motorIndex);
+    return deviceSettings.pusherDrive == PUSHER_DRIVE_ESC &&
+           motorIndex == deviceSettings.pusherEscChannel;
 }
 
 int32_t atSpeedRpm(uint8_t motorIndex)
@@ -235,7 +315,7 @@ void applyEmaFilterConstant()
 {
     if (deviceSettings.EMAFilter == 0)
     {
-        logger.error("Profile EMAFilter is 0, clamping to 1");
+        logger.warn("Profile EMAFilter is 0, clamping to 1");
         deviceSettings.EMAFilter = 1;
     }
     half = uint32_t{1} << (deviceSettings.EMAFilter - 1);
@@ -298,14 +378,16 @@ void applyDebounceInterval()
         revSwitch.interval(debounceTime_ms);
     if (pinDefined(triggerSwitchPin))
         triggerSwitch.interval(debounceTime_ms);
-    if (pinDefined(deviceSettings.idleSwitchPin))
+    if (pinDefined(idleSwitchPin))
         idleSwitch.interval(debounceTime_ms);
+    if (pinDefined(safetySwitchPin))
+        safetySwitch.interval(debounceTime_ms);
     for (int i = 0; i < 3; i++)
     {
         if (pinDefined(selectPins[i]))
             selectSwitches[i]->interval(debounceTime_ms);
     }
-    if (pinDefined(deviceSettings.cycleSwitchPin))
+    if (pinDefined(cycleSwitchPin))
         cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms);
 }
 
@@ -315,21 +397,252 @@ void applyPrintTelemetry()
     printTelemetry = deviceSettings.printTelemetry;
 }
 
+// True if `pin` is held in its pressed state right now. Raw reads, because this runs before the
+// Bounce2 instances are attached.
+static bool heldAtBoot(uint8_t pin, bool normallyClosed)
+{
+    if (!pinDefined(pin))
+        return false;
+    pinMode(pin, INPUT_PULLUP);
+    bool pressedLevel = normallyClosed ? HIGH : LOW;
+    if (digitalRead(pin) != pressedLevel)
+        return false;
+    delay(50); // reject power-on electrical noise - must still read held after a beat
+    return digitalRead(pin) == pressedLevel;
+}
+
+struct BootSwitch
+{
+    uint8_t pin;
+    bool normallyClosed;
+};
+
+// The switch a bootButton_t names, with its own polarity. The select lines are attached with
+// setPressedState(false) everywhere else, so they have no normally-closed option here either.
+static BootSwitch bootSwitch(uint8_t button)
+{
+    const BootSwitch switches[BOOT_BTN_COUNT] = {
+        {menuButtonPin, deviceSettings.menuButtonNormallyClosed},
+        {triggerSwitchPin, deviceSettings.triggerSwitchNormallyClosed},
+        {revSwitchPin, deviceSettings.revSwitchNormallyClosed},
+        {cycleSwitchPin, deviceSettings.cycleSwitchNormallyClosed},
+        {idleSwitchPin, deviceSettings.idleSwitchNormallyClosed},
+        {selectPins[0], false},
+        {selectPins[1], false},
+        {selectPins[2], false},
+    };
+    if (button >= BOOT_BTN_COUNT)
+        return {PIN_NOT_USED, false};
+    return switches[button];
+}
+
+// The name the panel uses for a boot switch. Abbreviated from the boot-action row labels in
+// menuDevice.cpp: one 128 px line has less room than a menu row.
+static const char* bootSwitchName(uint8_t button)
+{
+    static const char* const names[BOOT_BTN_COUNT] = {
+        "MENU", "TRIGGER", "REV", "CYCLE", "IDLE", "SELECT 0", "SELECT 1", "SELECT 2",
+    };
+    return button < BOOT_BTN_COUNT ? names[button] : "the switch";
+}
+
+// Which switch was held at power-on, and what the user mapped it to; first match wins. Only the
+// caller's POR check makes this safe: a permanently-held pin would re-trigger every boot, and for
+// ESC passthrough that is a lockout with BOOTSEL the only way out. Keep new actions inside it.
+static bootAction_t evaluateBootAction(uint8_t& firedButton)
+{
+    firedButton = kNoBootButton;
+    for (uint8_t i = 0; i < BOOT_BTN_COUNT; i++)
+    {
+        if (deviceSettings.bootAction[i] == BOOT_ACTION_NONE)
+            continue;
+        // With a dual-stage trigger, rev is the trigger's first stage, so pulling the trigger holds
+        // rev too. Honouring rev's action would shadow the trigger's own.
+        if (i == BOOT_BTN_REV && deviceSettings.dualStageTrigger)
+            continue;
+        const BootSwitch sw = bootSwitch(i);
+        if (heldAtBoot(sw.pin, sw.normallyClosed))
+        {
+            firedButton = i;
+            return deviceSettings.bootAction[i];
+        }
+    }
+    return BOOT_ACTION_NONE;
+}
+
+// Pusher and motor channels this wiring can't drive, resolved before anything reads motorsEnabled[].
+// An enabled motor on an undefined channel is undefined behaviour: BidirDShotX1 leaves pio/sm
+// unassigned for an out-of-range pin and sendRaw12Bit() never checks iError.
+static void validatePusherAndMotors()
+{
+    if (deviceSettings.pusherDrive == PUSHER_DRIVE_ESC && !pinDefined(pusherPin()))
+    {
+        pusherValid = false;
+        PinConflicts::record("pusher", PIN_NOT_USED, "unwired",
+                             PinConflicts::Action::PusherDisabled);
+        logger.error("Pusher ESC channel ", (int)deviceSettings.pusherEscChannel + 1,
+                     " has no pin in this wiring - pusher disabled");
+    }
+    else if (deviceSettings.pusherDrive == PUSHER_DRIVE_FET && !pinDefined(pusherPin()))
+    {
+        // Said, but not recorded as a conflict: an unset gate pin is an answer - a build with no
+        // pusher - rather than something taken away, and the conflicts array means "these collided".
+        logger.warn("Pusher gate pin is unused - no pusher on this build");
+    }
+
+    // The motor gives way, not the pusher: a blaster down one flywheel still fires.
+    static const char* const motorFields[4] = {"motor1", "motor2", "motor3", "motor4"};
+    for (int i = 0; i < 4; i++)
+    {
+        if (!motorsEnabled[i])
+            continue;
+        if (isPusherEscChannel(i))
+        {
+            motorsEnabled[i] = false;
+            PinConflicts::record(motorFields[i], escPin(i), "pusher",
+                                 PinConflicts::Action::MotorDisabled);
+            logger.error("Motor ", i + 1, " is the pusher ESC channel - motor disabled. Change the "
+                                          "pusher channel or disable this motor.");
+        }
+        else if (!pinDefined(escPin(i)))
+        {
+            motorsEnabled[i] = false;
+            PinConflicts::record(motorFields[i], PIN_NOT_USED, "unwired",
+                                 PinConflicts::Action::MotorDisabled);
+            logger.error("Motor ", i + 1, " has no ESC pin in this wiring - motor disabled");
+        }
+    }
+}
+
+// ESC startup: zero throttle until every enabled ESC answers, then the EDT request. An ESC still in
+// its own power-on init can miss a fixed number of frames entirely - one board measures 336 ms and
+// 1545 ms for its two. An eRPM frame means listening, not armed; the dwell after it is what arms.
+static bool escStartupComplete()
+{
+    enum Phase : uint8_t
+    {
+        ARMING,
+        REQUESTING_EDT,
+        DONE
+    };
+    static Phase phase = ARMING;
+    if (phase == DONE)
+        return true;
+
+    const uint32_t kArmDwell_ms = 1500;   // zero throttle held after the last ESC answers
+    const uint32_t kArmTimeout_ms = 6000; // ceiling, for an ESC that never reports eRPM
+
+    static uint32_t start_ms = 0;
+    static uint32_t dwellStart_ms = 0;
+    static bool dwelling = false;
+    static int32_t answeredAt_ms[4] = {-1, -1, -1, -1};
+    static int8_t edtRepeatsLeft = 10;
+
+    if (start_ms == 0)
+        start_ms = time_ms;
+
+    if (phase == ARMING)
+    {
+        bool allAnswered = true;
+        for (int i = 0; i < 4; i++)
+        {
+            if (!motorsEnabled[i])
+                continue;
+            motorArr[i].sendThrottle(0);
+            if (answeredAt_ms[i] < 0 && motorArr[i].pumpTelemetry())
+            {
+                answeredAt_ms[i] = (int32_t)(time_ms - start_ms);
+                logger.info("Motor ", i + 1, " ESC answered after ", answeredAt_ms[i], "ms");
+            }
+            allAnswered = allAnswered && answeredAt_ms[i] >= 0;
+        }
+
+        if (allAnswered && !dwelling)
+        {
+            dwelling = true;
+            dwellStart_ms = time_ms;
+        }
+
+        const bool dwelt = dwelling && time_ms - dwellStart_ms >= kArmDwell_ms;
+        const bool timedOut = time_ms - start_ms >= kArmTimeout_ms;
+        if (!dwelt && !timedOut)
+            return false;
+
+        if (timedOut && !dwelt)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                if (motorsEnabled[i] && answeredAt_ms[i] < 0)
+                    logger.warn("Motor ", i + 1, " ESC never reported eRPM - arming blind");
+            }
+        }
+        BootStatus::recordEscArming(answeredAt_ms, time_ms - start_ms, timedOut && !dwelt);
+        phase = REQUESTING_EDT;
+        return false;
+    }
+
+    // One command per tick, in place of that tick's throttle, so no motor gets two frames in one
+    // loop. After arming, not in setup(): an ESC still in its own init never hears a request there.
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i])
+            motorArr[i].esc->sendRaw11Bit(DSHOT_CMD_EXTENDED_TELEMETRY_ENABLE);
+    }
+    if (--edtRepeatsLeft <= 0)
+        phase = DONE;
+    return false;
+}
+
+// Everything a device can do without knowing which GPIOs are safe to drive. No pinMode call is made
+// anywhere on this path, so every GPIO stays in its reset state.
+static void runUnconfiguredBoot()
+{
+    // Seeds the resolved pins and stops there: with no wiring nothing claims a GPIO. Makes no
+    // pinMode call, which is the property this path exists to keep.
+    PinConflicts::resolve();
+
+    ProfileStore::loadProfile(activeProfileIndex, activeProfile);
+
+    // PIN_NOT_USED makes begin() skip the ADC and report a nominal cellCount * 3500 mV, so the paths
+    // that dereference batteryMonitor stay safe and the DPS bounds aren't degenerate.
+    batteryMonitor = new BatteryMonitor(PIN_NOT_USED, deviceSettings.voltageCalibrationFactor,
+                                        deviceSettings.voltageAveragingWindow,
+                                        cellCount(deviceSettings.batteryType));
+    batteryMonitor->begin();
+    applySolenoidTimingCurve();
+    applyMaxAchievableDps();
+    clampAllSettings();
+
+    displayManager.setHasDisplay(false);
+    bootSettingsLoaded = true; // release core 1 so loop1() can serve the console
+}
+
 void setup()
 {
+    uint8_t passthroughExit = kNoBootButton;
     if (powerOnResetMagicNumber == 0xdeadbeefdeadbeef)
+    {
         bootReason = rebootReason;
+        passthroughExit = rebootPassthroughExit;
+    }
     else
+    {
         bootReason = BootReason::POR;
+    }
     powerOnResetMagicNumber = 0xdeadbeefdeadbeef;
     rebootReason = BootReason::WATCHDOG;
-    Serial.begin(115200);
-    Serial.ignoreFlowControl(true);
+    rebootPassthroughExit = kNoBootButton;
+    serialCommandsBegin();
 
     ProfileStore::begin();
     activeProfileIndex = ProfileStore::loadActiveProfileIndex();
-    DeviceStore::loadDeviceSettings(deviceSettings);
+    DeviceStore::LoadResult loaded = DeviceStore::loadDeviceSettings(deviceSettings);
     applyPrintTelemetry(); // as early as possible so logging behaves correctly for the rest of boot
+
+    // Recorded because the boot line announcing it is gone from the port before a host can attach.
+    (void)loaded;
+    wiringLive = deviceSettings.wiringConfigured;
+    BootStatus::recordWiring(deviceSettings.boardId.c_str(), wiringLive);
 
     for (int i = 0; i < 4; i++)
     {
@@ -337,133 +650,82 @@ void setup()
         motorStages[i] = deviceSettings.motorConfig[i].stage;
     }
 
-    // Headless BOOTSEL entry: hold Menu or Rev at power-on to jump into the USB bootloader
+    // The gate. Everything below this drives GPIO or builds something that does, and none of it
+    // knows which pins are safe until a wiring exists.
+    if (!wiringLive)
+    {
+        // Before core 1 is released: handleSerialCommands() gates on TO_ESC_PASSTHROUGH, so leaving
+        // the latch set would mute serial for the rest of the boot.
+        if (bootReason == BootReason::TO_ESC_PASSTHROUGH)
+        {
+            logger.info("ESC passthrough asked for on an unwired device - booting normally");
+            bootReason = BootReason::FROM_ESC_PASSTHROUGH;
+        }
+        runUnconfiguredBoot();
+        return;
+    }
+
+    // Both before evaluateBootAction(), which reaches pinMode() through heldAtBoot(). resolve()
+    // builds its claimed-pin set from motorsEnabled[], so undrivable motors have to leave it first.
+    validatePusherAndMotors();
+    PinConflicts::resolve();
+
+    // Active-high, and ahead of ESC passthrough and arming, which both need the ESCs powered. The pin
+    // floats until here, so a board wiring it pulls it down. The low-voltage cutoff drops it again.
+    if (pinDefined(escEnablePin))
+    {
+        pinMode(escEnablePin, OUTPUT);
+        digitalWrite(escEnablePin, HIGH);
+    }
+
+    // The action mapped to whichever switch is held at power-on. Runs before the pins below are
+    // attached, so it reads them raw.
+    int8_t bootProfile = -1;
     if (bootReason == BootReason::POR)
     {
-        auto heldAtBoot = [](uint8_t pin, bool normallyClosed) -> bool
+        uint8_t firedButton = kNoBootButton;
+        const bootAction_t action = evaluateBootAction(firedButton);
+        switch (action)
         {
-            if (!pinDefined(pin))
-                return false;
-            pinMode(pin, INPUT_PULLUP);
-            bool pressedLevel = normallyClosed ? HIGH : LOW;
-            if (digitalRead(pin) != pressedLevel)
-                return false;
-            delay(50); // reject power-on electrical noise - must still read held after a beat
-            return digitalRead(pin) == pressedLevel;
-        };
-
-        bool revBootHold =
-            !deviceSettings.dualStageTrigger &&
-            heldAtBoot(deviceSettings.revSwitchPin, deviceSettings.revSwitchNormallyClosed);
-        if (heldAtBoot(deviceSettings.menuButtonPin, deviceSettings.menuButtonNormallyClosed) ||
-            revBootHold)
-        {
+        case BOOT_ACTION_BOOTLOADER:
             rp2040.rebootToBootloader();
+            break;
+        case BOOT_ACTION_ESC_PASSTHROUGH:
+            // The switch that asked for the session is the one that ends it.
+            rebootPassthroughExit = firedButton;
+            rebootReason = BootReason::TO_ESC_PASSTHROUGH;
+            delay(100);
+            rp2040.reboot();
+            break;
+        case BOOT_ACTION_IDLE_HOLD:
+            // No reboot - loop()'s flywheel state machine reads this latch for the rest of the
+            // session instead.
+            idleHoldActive = true;
+            BootStatus::recordIdleHold(true);
+            break;
+        case BOOT_ACTION_PROFILE_0:
+        case BOOT_ACTION_PROFILE_1:
+        case BOOT_ACTION_PROFILE_2:
+            // For this boot only: /active.cfg is left alone, so the next plain power-on is back on
+            // the stored profile.
+            bootProfile = (int8_t)(action - BOOT_ACTION_PROFILE_0);
+            break;
+        default:
+            break;
         }
     }
 
-    menuButtonPin = deviceSettings.menuButtonPin;
     menuButtonNormallyClosed = deviceSettings.menuButtonNormallyClosed;
-    triggerSwitchPin = deviceSettings.triggerSwitchPin;
-    revSwitchPin = deviceSettings.revSwitchPin;
     debounceTime_ms = deviceSettings.debounceTime_ms;
-    selectPins[0] = deviceSettings.select0Pin;
-    selectPins[1] = deviceSettings.select1Pin;
-    selectPins[2] = deviceSettings.select2Pin;
 
-    displayManager.setHasDisplay(deviceSettings.hasDisplay);
+    // Before bootSettingsLoaded: setSDA/setSCL panic once the bus is running, and core 1 starts it.
+    // displayAllowed too - the conflict engine may have taken the panel away already.
+    displayBus = displayAllowed ? selectDisplayBus() : nullptr;
+    display.bindWire(displayBus);
+    displayManager.setHasDisplay(displayAllowed);
 
-    bootSettingsLoaded = true;
-
-    applyEmaFilterConstant();
-    applyMotorConfig();
-
-    // need to do some checking for valid motor/esc driver pins here
-    for (int i = 0; i < 4; i++)
-    {
-        if (motorsEnabled[i])
-        {
-            if (isPusherEscChannel(i))
-            {
-                while (1)
-                {
-                    logger.error("Motor conflict with solenoid drive pin");
-                    logger.error("Either change pusher type, or disable motor");
-                    delay(1000);
-                }
-            }
-        }
-    }
-
-    // esc passthrough requires a trigger pin
-    if (bootReason == BootReason::TO_ESC_PASSTHROUGH && pinDefined(triggerSwitchPin))
-    {
-        // setup the trigger pin to exit passthrough
-
-        triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
-        triggerSwitch.interval(debounceTime_ms);
-        triggerSwitch.setPressedState(deviceSettings.triggerSwitchNormallyClosed);
-
-        // only do esc passthrough for the motors that are defined and esc driver pin if defined
-        u8 numPassthrough = 0;
-        for (int i = 0; i < 4; i++)
-        {
-            if (motorsEnabled[i])
-            {
-                numPassthrough++;
-            }
-        }
-        if (board.pusherDriverType == ESC_DRIVER)
-        {
-            numPassthrough++;
-        }
-        u8 pins[numPassthrough] = {0};
-        u8 currentPin = 0;
-        for (int i = 0; i < 4; i++)
-        {
-            if (motorsEnabled[i])
-            {
-                pins[currentPin] = escPin(i);
-                currentPin++;
-            }
-        }
-        if (board.pusherDriverType == ESC_DRIVER)
-        {
-            pins[currentPin] = board.drvEN;
-        }
-
-        displayManager.showText("ESC Passthrough, hold trigger to exit", 0, 0, true);
-
-        beginPassthrough(pins, numPassthrough);
-        unsigned long currentTime = millis();
-        while (processPassthrough())
-        {
-            triggerSwitch.update();
-            if (!triggerSwitch.isPressed())
-            {
-                currentTime = millis();
-            }
-            if (millis() - currentTime > 3000)
-            {
-                // exit passthrough after 3 secs of trigger
-                break;
-            }
-        }
-        bootReason = BootReason::FROM_ESC_PASSTHROUGH;
-        delay(100);
-        rp2040.reboot();
-    }
-    // display bootup screen if available
-    displayManager.requestBootupSplash();
-    logger.info("Booting");
-    // delay to allow gpio to stabilize
-    delay(1000);
-
-    batteryMonitor = new BatteryMonitor(board.batteryADC, deviceSettings.voltageCalibrationFactor,
-                                        deviceSettings.voltageAveragingWindow,
-                                        cellCount(deviceSettings.batteryType));
-    batteryMonitor->begin();
-
+    // The selector has to be readable before the profile is chosen, which has to happen before core 1
+    // is released. Still after evaluateBootAction(), which reads the same pins raw.
     if (pinDefined(revSwitchPin))
     {
         revSwitch.attach(revSwitchPin, INPUT_PULLUP);
@@ -474,16 +736,25 @@ void setup()
         triggerSwitch.attach(triggerSwitchPin, INPUT_PULLUP);
         triggerSwitch.setPressedState(deviceSettings.triggerSwitchNormallyClosed);
     }
-    if (pinDefined(deviceSettings.cycleSwitchPin))
+    if (pinDefined(cycleSwitchPin))
     {
-        cycleSwitch.attach(deviceSettings.cycleSwitchPin, INPUT_PULLUP);
+        cycleSwitch.attach(cycleSwitchPin, INPUT_PULLUP);
         cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms);
         cycleSwitch.setPressedState(deviceSettings.cycleSwitchNormallyClosed);
     }
-    if (pinDefined(deviceSettings.idleSwitchPin))
+    if (pinDefined(idleSwitchPin))
     {
-        idleSwitch.attach(deviceSettings.idleSwitchPin, INPUT_PULLUP);
+        idleSwitch.attach(idleSwitchPin, INPUT_PULLUP);
         idleSwitch.setPressedState(deviceSettings.idleSwitchNormallyClosed);
+    }
+    if (pinDefined(safetySwitchPin))
+    {
+        safetySwitch.attach(safetySwitchPin, INPUT_PULLUP);
+        safetySwitch.setPressedState(deviceSettings.safetySwitchNormallyClosed);
+        // Seeded here, not left to the first loop() tick: core 1 reads it, and everything core 1
+        // reads is written before bootSettingsLoaded below.
+        safetySwitch.update();
+        safetyEngaged = safetySwitch.isPressed();
     }
     setupMenuButton();
     if (deviceSettings.selectFireType != NO_SELECT_FIRE)
@@ -501,51 +772,192 @@ void setup()
     }
     applyDebounceInterval();
 
-    if (pinDefined(board.ESC_ENABLE))
+    // Settled before core 1 can be asked: everything core 1 reads is written before
+    // bootSettingsLoaded. The release cannot move later - the splash and the conflict banner are
+    // drawn from core 0 through a display core 1 has not yet brought up.
+    if (deviceSettings.variableFPS)
     {
-        pinMode(board.ESC_ENABLE, OUTPUT);
-        digitalWrite(board.ESC_ENABLE, LOW);
+        activeProfileIndex = selectShotProfileAtBoot();
+    }
+    if (bootProfile >= 0)
+    {
+        activeProfileIndex = (uint8_t)bootProfile; // mapping the action outranks the selector
+    }
+    BootStatus::recordBootProfile(bootProfile);
+    ProfileStore::loadProfile(activeProfileIndex, activeProfile);
+
+    bootSettingsLoaded = true;
+
+    applyEmaFilterConstant();
+    applyMotorConfig();
+
+    // only do esc passthrough for the motors that are defined and esc driver pin if defined
+    u8 numPassthrough = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i])
+        {
+            numPassthrough++;
+        }
+    }
+    if (deviceSettings.pusherDrive == PUSHER_DRIVE_ESC && pusherValid)
+    {
+        numPassthrough++;
     }
 
-    if (pinDefined(board.LED_DATA))
+    // beginPassthrough() clamps a zero count up to 1 and then reads pins[0], so passthrough needs
+    // at least one ESC pin to hand over. No switch required - a host asked for it.
+    if (bootReason == BootReason::TO_ESC_PASSTHROUGH && numPassthrough == 0)
     {
-        pinMode(board.LED_DATA, OUTPUT);
-        digitalWrite(board.LED_DATA, HIGH); // steady on = armed, blinks on low-voltage cutoff
+        logger.error("ESC passthrough has no ESC pin to hand over - skipping");
+        bootReason = BootReason::FROM_ESC_PASSTHROUGH;
     }
 
-    // if trigger is pulled on boot, enter esc passthrough mode
-    triggerSwitch.update();
-    if (triggerSwitch.isPressed())
+    if (bootReason == BootReason::TO_ESC_PASSTHROUGH)
     {
-        rebootReason = BootReason::TO_ESC_PASSTHROUGH;
-        delay(100);
-        rp2040.reboot();
+        // The switch that asked for the session is the one that ends it. Serial entry names none,
+        // because the host that asked closes the port instead.
+        const BootSwitch exit = bootSwitch(passthroughExit);
+        const bool exitBySwitch = pinDefined(exit.pin);
+        Bounce2::Button exitSwitch = Bounce2::Button();
+        if (exitBySwitch)
+        {
+            exitSwitch.attach(exit.pin, INPUT_PULLUP);
+            exitSwitch.interval(debounceTime_ms);
+            exitSwitch.setPressedState(exit.normallyClosed);
+        }
+
+        u8 pins[numPassthrough] = {0};
+        u8 currentPin = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            if (motorsEnabled[i])
+            {
+                pins[currentPin] = escPin(i);
+                currentPin++;
+            }
+        }
+        if (deviceSettings.pusherDrive == PUSHER_DRIVE_ESC && pusherValid)
+        {
+            pins[currentPin] = pusherPin();
+        }
+
+        char exitLine[48];
+        if (exitBySwitch)
+            snprintf(exitLine, sizeof(exitLine), "ESC Passthrough, hold %s to exit",
+                     bootSwitchName(passthroughExit));
+        else
+            snprintf(exitLine, sizeof(exitLine), "ESC Passthrough, disconnect to exit");
+        displayManager.showText(exitLine, 0, 0, true);
+
+        static const unsigned long kExitHold_ms = 3000;
+        // Only while nothing has ever connected: after that the port close is the exit, and a cap
+        // firing mid-write during an ESC flash would be worse than a long session.
+        static const unsigned long kNoHostTimeout_ms = 5UL * 60UL * 1000UL;
+
+        const uint32_t clockBefore_hz = clock_get_hz(clk_sys);
+        beginPassthrough(pins, numPassthrough);
+        unsigned long sessionStart = millis();
+        unsigned long currentTime = sessionStart;
+        bool exitEverReleased = false;
+        bool hostSeen = false;
+        while (processPassthrough())
+        {
+            if (Serial)
+                hostSeen = true;
+            if (exitBySwitch)
+            {
+                exitSwitch.update();
+                if (!exitSwitch.isPressed())
+                {
+                    exitEverReleased = true;
+                    currentTime = millis();
+                }
+                // A switch pressed from the moment passthrough opened is one still held from
+                // power-on, not an exit gesture. Without a release first, the session exits at once.
+                if (exitEverReleased && millis() - currentTime > kExitHold_ms)
+                {
+                    break;
+                }
+            }
+            if (!hostSeen && millis() - sessionStart > kNoHostTimeout_ms)
+            {
+                logger.error("ESC passthrough timed out after 5 min - nothing ever connected");
+                break;
+            }
+        }
+
+        // Falls through into a normal boot rather than rebooting out: nothing below has driven a
+        // pin or claimed a PIO block yet, so there is nothing a reboot would be tidying up.
+        endPassthrough();
+        if (clock_get_hz(clk_sys) != clockBefore_hz)
+        {
+            // endPassthrough() restores the clock with required = false, so this is the only thing
+            // standing between a failed restore and a boot that runs DShot, I2C and SPI 5.6% fast.
+            logger.error("ESC passthrough left clk_sys at ", clock_get_hz(clk_sys),
+                         " Hz - rebooting instead of booting on it");
+            rebootReason = BootReason::FROM_ESC_PASSTHROUGH;
+            delay(100);
+            rp2040.reboot();
+        }
+        bootReason = BootReason::FROM_ESC_PASSTHROUGH;
+        BootStatus::recordPassthroughExit();
+    }
+    // display bootup screen if available
+    displayManager.requestBootupSplash();
+    logger.info("Booting");
+    // delay to allow gpio to stabilize
+    delay(1000);
+
+    // losses(), not count(): an advisory takes nothing away, and a banner on a correctly wired
+    // blaster would train people to ignore the one that matters.
+    if (PinConflicts::losses())
+    {
+        String note = String(PinConflicts::losses()) + " pin conflict" +
+                      (PinConflicts::losses() == 1 ? "" : "s") + "\nresolved for this boot.\n" +
+                      (PinConflicts::menuButtonLost() ? "MENU BUTTON LOST" : "Check the console.");
+        displayManager.showText(note, 0, 0, true);
+        delay(2500);
     }
 
-    switch (board.pusherDriverType)
+    batteryMonitor = new BatteryMonitor(batteryAdcPin, deviceSettings.voltageCalibrationFactor,
+                                        deviceSettings.voltageAveragingWindow,
+                                        cellCount(deviceSettings.batteryType));
+    batteryMonitor->begin();
+
+    if (pinDefined(ledDataPin))
     {
-    case DRV_DRIVER:
-        pusher = new Drv(board.drvPH, board.drvEN, board.drvNSLEEP, board.drvMOSI, board.drvMISO,
-                         board.drvNSCS, board.drvSCLK);
-        break;
-    case FET_DRIVER:
-        pusher = new Fet(board.drvEN);
-        break;
-    case ESC_DRIVER:
-        pusher = new EscDriver(board.drvEN);
-        break;
-    default:
-        break;
+        pinMode(ledDataPin, OUTPUT);
+        digitalWrite(ledDataPin, HIGH); // steady on = armed, blinks on low-voltage cutoff
+    }
+
+    // Every branch has to leave `pusher` non-null: fwControlLoop() calls pusher->update()
+    // unconditionally. Fet on PIN_NOT_USED is the inert stand-in.
+    if (!pusherValid)
+    {
+        pusher = new Fet(PIN_NOT_USED);
+    }
+    else
+    {
+        switch (deviceSettings.pusherDrive)
+        {
+        case PUSHER_DRIVE_ESC:
+            pusher = new EscDriver(pusherPin(), dshotRate(deviceSettings.dshotMode));
+            break;
+        case PUSHER_DRIVE_FET:
+        default:
+            pusher = new Fet(pusherPin());
+            break;
+        }
     }
 
     applySolenoidTimingCurve();
     applyMaxAchievableDps();
 
-    if (deviceSettings.variableFPS)
-    {
-        activeProfileIndex = selectShotProfileAtBoot();
-    }
-    ProfileStore::loadProfile(activeProfileIndex, activeProfile);
+    // Clamps whatever is in flash into the range the menu enforces. Stays here: the bounds derive
+    // from batteryMonitor and the two calls above, and firingMode below is read after the clamp.
+    clampAllSettings();
+    firingMode = (int8_t)activeProfile.defaultFiringMode;
     logger.info("activeProfileIndex: ", activeProfileIndex);
 
     if (firingModePersists())
@@ -562,49 +974,25 @@ void setup()
         if (motorsEnabled[i])
         {
             motorArr[i].revRPM = activeProfile.revRPM[i];
-            motorArr[i].attachEsc(new BidirDShotX1(escPin(i), deviceSettings.dshotMode));
+            motorArr[i].attachEsc(new BidirDShotX1(escPin(i), dshotRate(deviceSettings.dshotMode)));
         }
     }
     dwellTime_ms = activeProfile.dwellTime_ms;
     idleTime_ms = activeProfile.idleTime_ms;
-
-    // make sure to send neutral throttle to arm esc's
-    for (int j = 0; j < 15000; j++)
-    {
-        // if pusher is esc driver, do the startup loop for the esc driver too
-        if (board.pusherDriverType == ESC_DRIVER)
-        {
-            pusher->update();
-        }
-        // do neutral throttle for all motors
-        for (int i = 0; i < 4; i++)
-        {
-            if (motorsEnabled[i])
-            {
-                motorArr[i].sendThrottle(0);
-            }
-        }
-        delayMicroseconds(100);
-    }
-
-    // Request Extended DShot Telemetry from ESCs that support it
-    for (int i = 0; i < 4; i++)
-    {
-        if (motorsEnabled[i])
-        {
-            for (int rep = 0; rep < 10; rep++)
-            {
-                motorArr[i].esc->sendRaw11Bit(DSHOT_CMD_EXTENDED_TELEMETRY_ENABLE);
-                delayMicroseconds(1000);
-            }
-        }
-    }
 
     showRuntimeInfo = true;
 }
 
 void loop()
 {
+    // wiringLive, not the stored flag: a LOAD_DEVICE that arms the device publishes before it
+    // reboots, and this boot never constructed the pusher or the ESCs.
+    if (!wiringLive)
+    {
+        delay(10);
+        return;
+    }
+
     loopStartTimer_us = micros();
     time_ms = millis();
     fwControlLoop();
@@ -643,7 +1031,7 @@ void mainFiringLogic()
             logger.info("Trigger switch released");
         }
     }
-    if (pinDefined(deviceSettings.idleSwitchPin))
+    if (pinDefined(idleSwitchPin))
     {
         idleSwitch.update();
         if (idleSwitch.pressed())
@@ -655,9 +1043,22 @@ void mainFiringLogic()
             logger.info("Idle switch released");
         }
     }
+    if (pinDefined(safetySwitchPin))
+    {
+        safetySwitch.update();
+        if (safetySwitch.pressed())
+        {
+            logger.info("Safety switch engaged");
+        }
+        else if (safetySwitch.released())
+        {
+            logger.info("Safety switch released");
+        }
+        safetyEngaged = safetySwitch.isPressed();
+    }
     int8_t previousFiringMode = firingMode;
     updateFiringMode();
-    burstMode = activeProfile.fireModes[firingMode].burstMode;
+    burstMode = effectiveBurstMode(activeProfile.fireModes[firingMode].burstMode);
     if (firingMode != previousFiringMode)
         liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
 
@@ -689,6 +1090,7 @@ void mainFiringLogic()
             rpmScale_,
             buzzPulsesRequested_,
             flywheelState == STATE_FULLSPEED,
+            safetyEngaged,
         };
         behaviorFor(burstMode).update(ctx, event);
     }
@@ -705,30 +1107,42 @@ void checkLowVoltageCutoff()
         uint8_t cells = cellCount(deviceSettings.batteryType);
         bool belowCutoff =
             batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageCutoffPerCell_mv * cells;
+        // On the way into cutoff only: this runs every control loop iteration, so reporting each
+        // pass would put hundreds of lines a second on the port.
+        static bool cutoffReported = false;
         if (belowCutoff)
         {
-            digitalWrite(board.ESC_ENABLE, LOW); // cut power to ESCs and pusher
-            logger.error("Battery low, shutting down! ", batteryMonitor->getVoltage_mv(), "mv");
+            if (pinDefined(escEnablePin))
+                digitalWrite(escEnablePin, LOW); // cut power to ESCs and pusher
+            if (!cutoffReported)
+            {
+                cutoffReported = true;
+                logger.error("Battery low, shutting down! ", batteryMonitor->getVoltage_mv(), "mv");
+            }
+        }
+        else
+        {
+            cutoffReported = false;
         }
         // Non-cutoff early warning - lowVoltageWarningPerCell_mv is above the cutoff, so this
         // trips first as the battery depletes.
         batteryWarningActive =
             batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageWarningPerCell_mv * cells;
 
-        if (pinDefined(board.LED_DATA))
+        if (pinDefined(ledDataPin))
         {
             bool shouldBlink =
                 (deviceSettings.ledWarningMode == LED_WARNING_LOW_BATT && belowCutoff) ||
                 (deviceSettings.ledWarningMode == LED_WARNING_WARN_BATT && batteryWarningActive);
             if (!shouldBlink)
             {
-                digitalWrite(board.LED_DATA, HIGH);
+                digitalWrite(ledDataPin, HIGH);
             }
             else if (time_ms > ledTime_ms + 500)
             {
                 ledTime_ms = time_ms;
                 ledOn = !ledOn;
-                digitalWrite(board.LED_DATA, ledOn ? HIGH : LOW);
+                digitalWrite(ledDataPin, ledOn ? HIGH : LOW);
             }
         }
     }
@@ -805,6 +1219,33 @@ void handlePlasmaBuzzPulse()
     }
 }
 
+// The battery reading, floored at the configured cutoff, for every throttle calculation. The divider
+// reads far below the real pack for seconds after power-on, and 0 on USB power alone, and it sits in
+// a denominator - a low reading inflates the throttle, and a zero one divides by it.
+static int32_t throttleReferenceVoltage_mv()
+{
+    const int32_t floor_mv =
+        (int32_t)deviceSettings.lowVoltageCutoffPerCell_mv * cellCount(deviceSettings.batteryType);
+    return max(batteryMonitor->getVoltage_mv(), floor_mv);
+}
+
+// Open-loop control only ratchets throttle down (FlywheelMotor::updateOpenLoop()), so restarting
+// motors from a stop needs a direct kick.
+static void kickMotorsToIdle()
+{
+    currentSpindownSpeed = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i])
+        {
+            motorArr[i].targetRPM = activeProfile.idleRPM[i];
+            motorArr[i].PIDOutput = maxThrottle * motorArr[i].targetRPM /
+                                    throttleReferenceVoltage_mv() * 1000 /
+                                    motorArr[i].m_config->m_motorKv;
+        }
+    }
+}
+
 bool fwControlLoop()
 {
     if (directMotorControlActive)
@@ -813,7 +1254,25 @@ bool fwControlLoop()
         loopTime_us = micros() - loopStartTimer_us;
         if (loopTime_us > targetLoopTime_us)
         {
-            logger.error("Loop over time, ", loopTime_us);
+            logger.warn("Loop over time, ", loopTime_us);
+        }
+        else
+        {
+            delayMicroseconds(max((long)(0), (long)(targetLoopTime_us - loopTime_us)));
+            loopTime_us = targetLoopTime_us;
+        }
+        return true;
+    }
+
+    // Nothing commands a real throttle until the ESCs have had their zero-throttle window. It
+    // sends its own frames, so this keeps the loop's cadence rather than skipping a tick.
+    if (!escStartupComplete())
+    {
+        pusher->update();
+        loopTime_us = micros() - loopStartTimer_us;
+        if (loopTime_us > targetLoopTime_us)
+        {
+            logger.warn("Loop over time, ", loopTime_us);
         }
         else
         {
@@ -828,6 +1287,16 @@ bool fwControlLoop()
 
     case STATE_IDLE:
         checkLowVoltageCutoff();
+
+        {
+            // Catch the instant the menu closes so motors resume at idle - the ratchet below only
+            // pulls targetRPM down, so real RPM would stay wherever it decayed to.
+            static bool menuWasOpenForIdleHold = false;
+            bool menuOpenNow = menuIsOpen();
+            if (menuWasOpenForIdleHold && !menuOpenNow && idleHoldWanted())
+                kickMotorsToIdle();
+            menuWasOpenForIdleHold = menuOpenNow;
+        }
 
         if (shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched))
         {
@@ -850,7 +1319,7 @@ bool fwControlLoop()
                         // for optimal rev let's set throttle to max until first crossing
                         motorArr[i].PIDOutput =
                             max(min(maxThrottle, (maxThrottle * motorArr[i].targetRPM /
-                                                  batteryMonitor->getVoltage_mv() * 1000 /
+                                                  throttleReferenceVoltage_mv() * 1000 /
                                                   motorArr[i].m_config->m_motorKv) +
                                                      deviceSettings.throttleCap),
                                 0);
@@ -858,7 +1327,7 @@ bool fwControlLoop()
                         motorArr[i].PIDIntegral =
                             (2 *
                              map(((motorArr[i].targetRPM * 1000) / motorArr[i].m_config->m_motorKv),
-                                 0, batteryMonitor->getVoltage_mv(), 0, maxThrottle)) -
+                                 0, throttleReferenceVoltage_mv(), 0, maxThrottle)) -
                             motorArr[i].PIDOutput;
                     }
                 }
@@ -889,28 +1358,21 @@ bool fwControlLoop()
                 // logger.info("Holding for dwell");
             }
         }
-        else if (pinDefined(deviceSettings.idleSwitchPin) && idleSwitch.isPressed() &&
-                 burstMode != SAFE && motorArr[0].targetRPM == 0 && motorArr[1].targetRPM == 0 &&
+        else if (((pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE) ||
+                  idleHoldWanted()) &&
+                 motorArr[0].targetRPM == 0 && motorArr[1].targetRPM == 0 &&
                  motorArr[2].targetRPM == 0 && motorArr[3].targetRPM == 0)
-        { // idle switch pressed from a full stop - open-loop kick straight to idle RPM, since
-          // updateOpenLoop() only ever ratchets throttle down, never up
+        { // idle switch pressed from a full stop, or idle-hold engaging from a dead stop -
+          // open-loop kick straight to idle RPM, since updateOpenLoop() only ever ratchets
+          // throttle down, never up
             enableFwControl = false;
-            currentSpindownSpeed = 0;
-            for (int i = 0; i < 4; i++)
-            {
-                if (motorsEnabled[i])
-                {
-                    motorArr[i].targetRPM = activeProfile.idleRPM[i];
-                    motorArr[i].PIDOutput = maxThrottle * motorArr[i].targetRPM /
-                                            batteryMonitor->getVoltage_mv() * 1000 /
-                                            motorArr[i].m_config->m_motorKv;
-                }
-            }
+            kickMotorsToIdle();
         }
-        else if ((pinDefined(deviceSettings.idleSwitchPin) && idleSwitch.isPressed() &&
-                  burstMode != SAFE) ||
+        else if ((pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE) ||
+                 idleHoldWanted() ||
                  (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0))
-        { // idle flywheels - post-dwell idle window, or the idle switch held
+        { // idle flywheels - post-dwell idle window, the idle switch held, or idle-hold standing
+          // at idle
             enableFwControl = false;
             if (currentSpindownSpeed < activeProfile.spindownSpeed)
             {
@@ -977,7 +1439,7 @@ bool fwControlLoop()
             for (int i = 0; i < 4; i++) {
                 if (motorsEnabled[i]) {
                     if ((int32_t)motorArr[i].motorRPM <= atSpeedRpm(i)) {
-                        logger.error("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
+                        logger.warn("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
                     }
                     motorArr[i].targetRPM = 0;
                     motorArr[i].PIDOutput = 0;
@@ -1004,7 +1466,7 @@ bool fwControlLoop()
         {
             flywheelState = STATE_IDLE;
             revSafetyLatched = true;
-            logger.error(
+            logger.warn(
                 "Rev safety timeout - motors held revved too long without firing, spinning down");
         }
         else if (shotsToFire > 0 || firing)
@@ -1074,7 +1536,7 @@ bool fwControlLoop()
             {
                 if (motorsEnabled[i])
                 {
-                    motorArr[i].updatePID(batteryMonitor->getVoltage_mv(), loopTime_us, maxThrottle,
+                    motorArr[i].updatePID(throttleReferenceVoltage_mv(), loopTime_us, maxThrottle,
                                           deviceSettings.EMAFilter, half, deviceSettings.iThreshold,
                                           deviceSettings.batteryType);
                 }
@@ -1085,7 +1547,7 @@ bool fwControlLoop()
             {
                 if (motorsEnabled[i])
                 {
-                    motorArr[i].updateTBH(batteryMonitor->getVoltage_mv(), flywheelState,
+                    motorArr[i].updateTBH(throttleReferenceVoltage_mv(), flywheelState,
                                           maxThrottle);
                 }
             }
@@ -1099,17 +1561,20 @@ bool fwControlLoop()
         {
             if (motorsEnabled[i])
             {
-                motorArr[i].updateOpenLoop(batteryMonitor->getVoltage_mv(), maxThrottle);
+                motorArr[i].updateOpenLoop(throttleReferenceVoltage_mv(), maxThrottle);
             }
         }
     }
 
     logData();
 
-    if (rpmLogger.dumpIfReady(motorsEnabled))
+    // Held off while core 1 is mid-command: DUMP_SCHEMA is one very long line written from core 1,
+    // and interleaving corrupts the JSON. Skipping a tick is free - the capture waits.
+    if (!serialCommandBusy && rpmLogger.dumpIfReady(motorsEnabled))
     {
         logger.info("RPM log dump complete, rebooting now as part of normal RPM logging - this is "
                     "expected");
+        Serial.println("{\"evt\":\"rebooting\",\"reason\":\"rpmLog\"}");
         Serial.flush();
         rp2040.reboot();
     }
@@ -1119,7 +1584,7 @@ bool fwControlLoop()
     loopTime_us = micros() - loopStartTimer_us; // 'us' is microseconds
     if (loopTime_us > targetLoopTime_us)
     {
-        logger.error("Loop over time, ", loopTime_us);
+        logger.warn("Loop over time, ", loopTime_us);
     }
     else
     {
@@ -1189,7 +1654,7 @@ void updateFiringMode()
     }
     else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
-        if (!menuButtonDrivesModeCycle() && pinDefined(deviceSettings.select0Pin))
+        if (!menuButtonDrivesModeCycle() && pinDefined(selectPins[0]))
         {
             select0.update();
             if (select0.pressed())
@@ -1250,21 +1715,12 @@ uint8_t selectShotProfileAtBoot()
     }
     else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
-        if (!menuButtonDrivesModeCycle() && pinDefined(deviceSettings.select0Pin))
+        if (!menuButtonDrivesModeCycle() && pinDefined(selectPins[0]))
         {
             select0.update();
             if (select0.isPressed())
             {
                 return 1;
-            }
-        }
-
-        if (pinDefined(revSwitchPin))
-        {
-            revSwitch.update();
-            if (revSwitch.isPressed())
-            {
-                return 2;
             }
         }
     }
@@ -1278,7 +1734,7 @@ void setup1()
     {
         delay(1);
     }
-    displayManager.begin(deviceSettings.rotateDisplay);
+    displayManager.begin(deviceSettings.rotateDisplay, deviceSettings.displayBrightness, displayBus);
 }
 
 static bool serviceMenuButton()
@@ -1337,11 +1793,32 @@ static void persistFiringModeWhenIdle()
     }
 }
 
+// One line at boot and every 3 s after, from core 1, the only core that writes to Serial. Stops
+// once a host has spoken - a reader taking the first JSON line would otherwise capture this.
+static void announceUnconfigured()
+{
+    static uint32_t lastAnnounce_ms = 0;
+    if (serialCommandSeen)
+        return;
+    if (lastAnnounce_ms != 0 && millis() - lastAnnounce_ms < 3000)
+        return;
+    lastAnnounce_ms = millis();
+    Serial.println("{\"evt\":\"unconfigured\",\"msg\":\"no wiring configured\"}");
+}
+
 void loop1()
 {
     handleSerialCommands();
 
-    if (!deviceSettings.hasDisplay)
+    if (!wiringLive)
+    {
+        announceUnconfigured();
+        return; // no menu, no display, no firing-mode persistence
+    }
+
+    // The manager's flag, not the stored setting: DisplayManager::begin() clears it when the
+    // panel fails to come up, and pushing frames at a display that is not there burns core 1.
+    if (!displayManager.hasDisplay())
     {
         serviceMenuButton();
         persistFiringModeWhenIdle();
@@ -1380,176 +1857,21 @@ void loop1()
                 rpmScale_,
                 buzzPulsesRequested_,
                 false, // render() never reads this
+                safetyEngaged,
             };
             // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
             // last measured extend-to-extend interval, set is the raw targetDPS setting.
             displayManager.renderTelemetry(
-                liveFireMode.effectiveName().c_str(), activeProfile.name.c_str(),
+                safetyEngaged ? "SAFE" : liveFireMode.effectiveName().c_str(),
+                activeProfile.name.c_str(),
                 deviceSettings.blasterName.c_str(), motorArr, motorsEnabled, motorStages,
                 displayShotCounter, batteryMonitor->isDefined(),
                 batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,
-                batteryWarningActive, deviceSettings.homeScreenDisplayMode,
-                behaviorFor(liveFireMode.burstMode), fireCtx,
+                idleHoldActive, batteryWarningActive, deviceSettings.homeScreenDisplayMode,
+                behaviorFor(effectiveBurstMode(liveFireMode.burstMode)), fireCtx,
                 deviceSettings.showDpsOnHomeScreen, lastMeasuredDPS, liveFireMode.targetDPS);
             updateRuntimeNow = false;
             lastUpdated = millis();
         }
-    }
-}
-
-void handleSerialCommands()
-{
-    // ESC passthrough reads raw bytes off Serial directly for the whole session - skip here so
-    // this function's line-oriented reads don't steal bytes from that binary protocol.
-    if (bootReason == BootReason::TO_ESC_PASSTHROUGH)
-        return;
-
-    if (!Serial.available())
-        return;
-
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-
-    int spaceIdx = line.indexOf(' ');
-    String command = spaceIdx == -1 ? line : line.substring(0, spaceIdx);
-
-    bool hasIndex = false;
-    int explicitIndex = -1;
-    if (spaceIdx != -1)
-    {
-        String indexArg = line.substring(spaceIdx + 1);
-        indexArg.trim();
-        hasIndex = indexArg.length() > 0;
-        bool allDigits = hasIndex;
-        for (size_t i = 0; i < indexArg.length(); i++)
-        {
-            if (!isDigit(indexArg[i]))
-                allDigits = false;
-        }
-        explicitIndex =
-            allDigits ? indexArg.toInt() : -1; // -1 sentinel - caught by the range check below
-    }
-
-    if (command == "DUMP_PROFILE")
-    {
-        ShotProfile settings;
-        if (hasIndex)
-        {
-            if (explicitIndex < 0 || explicitIndex >= ProfileStore::MAX_PROFILE_COUNT)
-            {
-                logger.error("DUMP_PROFILE: index out of range");
-                return;
-            }
-            ProfileStore::loadProfile((uint8_t)explicitIndex, settings);
-        }
-        else
-        {
-            settings = activeProfile;
-        }
-        JsonDocument doc;
-        ProfileStore::toJson(settings, doc);
-        serializeJson(doc, Serial);
-        Serial.println();
-    }
-    else if (command == "LOAD_PROFILE")
-    {
-        if (hasIndex && (explicitIndex < 0 || explicitIndex >= ProfileStore::MAX_PROFILE_COUNT))
-        {
-            logger.error("LOAD_PROFILE: index out of range");
-            return;
-        }
-        uint8_t activeIndex = ProfileStore::loadActiveProfileIndex();
-        uint8_t targetIndex = hasIndex ? (uint8_t)explicitIndex : activeIndex;
-
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, Serial);
-        if (err)
-        {
-            logger.error("LOAD_PROFILE: invalid JSON, ignoring");
-            return;
-        }
-
-        ShotProfile newSettings;
-        if (targetIndex == activeIndex)
-        {
-            newSettings = activeProfile; // seed from the live in-memory profile
-        }
-        else
-        {
-            ProfileStore::loadProfile(targetIndex,
-                                      newSettings); // seed from that profile's own saved state
-        }
-        ProfileStore::fromJson(doc, newSettings);
-        ProfileStore::saveProfile(targetIndex, newSettings);
-
-        if (targetIndex == activeIndex)
-        {
-            logger.info("LOAD_PROFILE: saved active profile, rebooting");
-            Serial.flush();
-            delay(100);
-            rebootReason = BootReason::MENU;
-            rp2040.reboot();
-        }
-        else
-        {
-            logger.info("LOAD_PROFILE: saved profile ", targetIndex,
-                        ", no reboot needed (not active)");
-        }
-    }
-    else if (command == "DUMP_DEVICE")
-    {
-        JsonDocument doc;
-        DeviceStore::toJson(deviceSettings, doc);
-        serializeJson(doc, Serial);
-        Serial.println();
-    }
-    else if (command == "LOAD_DEVICE")
-    {
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, Serial);
-        if (err)
-        {
-            logger.error("LOAD_DEVICE: invalid JSON, ignoring");
-            return;
-        }
-        DeviceSettings newSettings = deviceSettings;
-        DeviceStore::fromJson(doc, newSettings);
-        DeviceStore::saveDeviceSettings(newSettings);
-        logger.info("LOAD_DEVICE: saved, rebooting");
-        Serial.flush();
-        delay(100);
-        rebootReason = BootReason::MENU;
-        rp2040.reboot();
-    }
-    else if (command == "LOAD_SPLASH")
-    {
-        // Binary, not JSON - SPLASH_BYTES raw bytes immediately follow the command on the wire.
-        uint8_t buf[SplashStore::SPLASH_BYTES];
-        size_t received = Serial.readBytes(buf, SplashStore::SPLASH_BYTES);
-        if (received != SplashStore::SPLASH_BYTES)
-        {
-            logger.error("LOAD_SPLASH: expected ", (int)SplashStore::SPLASH_BYTES, " bytes, got ",
-                         (int)received, " - rejected");
-            return;
-        }
-        if (SplashStore::saveCustomSplash(buf))
-            logger.info("LOAD_SPLASH: saved custom splash screen (takes effect next boot)");
-        else
-            logger.error("LOAD_SPLASH: failed to save");
-    }
-    else if (command == "CLEAR_SPLASH")
-    {
-        SplashStore::clearCustomSplash();
-        logger.info("CLEAR_SPLASH: reverted to the default splash screen (takes effect next boot)");
-    }
-    else if (command == "DUMP_SPLASH")
-    {
-        uint8_t buf[SplashStore::SPLASH_BYTES];
-        if (!SplashStore::loadCustomSplash(buf))
-        {
-            logger.error("DUMP_SPLASH: no custom splash set");
-            return;
-        }
-        Serial.write(buf, SplashStore::SPLASH_BYTES);
     }
 }

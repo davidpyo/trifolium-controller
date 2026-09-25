@@ -18,7 +18,7 @@ class BatteryMonitor
     int32_t getVoltage_mv() const { return voltage_mv_; }
 
   private:
-    static const int MAX_AVERAGING_WINDOW = 16;
+    static constexpr int MAX_AVERAGING_WINDOW = 16;
 
     uint8_t adcPin_;
     float calibrationFactor_;

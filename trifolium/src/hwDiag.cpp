@@ -3,16 +3,17 @@
 #include <cmath> // sinf() - per-entity vertical motion
 #include <Adafruit_SSD1306.h>
 #include "../lib/Bounce2/src/Bounce2.h"
+#include "displayManager.h" // BoardDisplay
 #include "deviceSettings.h"
+#include "serialCommands.h" // this screen blocks, so it polls for commands itself
 
-extern Adafruit_SSD1306 display;      // owned by main.cpp
+extern BoardDisplay display;          // owned by main.cpp
 extern Bounce2::Button triggerSwitch; // owned by main.cpp / core0's loop()
 extern Bounce2::Button menuButton;    // owned by menu.cpp
 extern uint8_t triggerSwitchPin;      // owned by main.cpp
 extern DeviceSettings deviceSettings; // owned by main.cpp
 
 bool pinDefined(uint8_t pin); // defined in main.cpp
-void handleSerialCommands();  // defined in main.cpp
 
 static const int16_t OLED_WIDTH = 128;
 
