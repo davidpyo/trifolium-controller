@@ -1,37 +1,22 @@
 
 
 trifolium-controller
-
-
-
-> Based on `rune-firmware` and the Dettlaff codebase as well as passthrough from the Stinger codebase.  
-
-> Designed for the `trifolium` controller or `Rune` controller or a generic `RP2040` target with FET drive.
-
-> See some older example configs in /example_configs.
-
-> Here's a video on setup and an overview of the board: https://www.youtube.com/live/lg1xlSH4bGQ?si=-dB7dRIhKSCSjfnB
-
-
-## TODO
- - [x] Feed forward control  
- - [x] Telemetry printing  
- - [x] Python live graphing  
- - [x] Screen support  
- - [X] Menu support  
- - [ ] Auto PID tuning  
- - [X] PID variables per motor (asymmetrical setup support)  
- - [X] ESC temperature monitoring  
- - [x] ESC passthrough
+ 
+ Open source brushless firmware for foam dart blasters based on `rune-firmware` and the Dettlaff codebase as well as passthrough from the Stinger codebase.  
+ Designed for the `trifolium` controller or a generic `RP2040` target with FET drive.
 
 ## Features
- Maybe works™
 
  Closed loop PID, voltage monitoring, nonblocking screen, rpm drop based dart counting, voltage based solenoid timing adjustment etc.
 
-## Usage (TODO)
- **Note:** This project uses `PlatformIO` in `VSCode`.
- **To flash a board:**  
+## Web configurator: 
 
- > 1. Press the "Upload" button in PlatformIO (if board has not been flashed before, putting the board in bootloader mode may be required).
+ https://davidpyo.github.io/trifolium-controller/
 
+## Releases
+
+ See https://github.com/davidpyo/trifolium-controller/releases for latest releases
+
+## See the wiki for more details about settings and development!
+
+ https://github.com/davidpyo/trifolium-controller/wiki
