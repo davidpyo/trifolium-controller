@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  OPEN_OPTIONS,
   SerialTransport,
   askUntilWhole,
   blasterPorts,
@@ -18,6 +19,12 @@ import profile0 from "../fixtures/profile0.json";
 const deviceDump = JSON.stringify({ cmd: "DUMP_DEVICE", ...deviceJson });
 const profileDump = (index: number) =>
   JSON.stringify({ cmd: "DUMP_PROFILE", index, ...profile0 });
+
+describe("OPEN_OPTIONS", () => {
+  it("buffers the largest RPM capture: 2000 rows of up to 241 bytes", () => {
+    expect(OPEN_OPTIONS.bufferSize).toBeGreaterThanOrEqual(2000 * 241);
+  });
+});
 
 describe("isReply", () => {
   it("accepts a JSON line and rejects volunteered events", () => {

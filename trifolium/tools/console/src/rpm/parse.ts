@@ -54,7 +54,28 @@ export function extractRpmCsv(rawText: string): string | null {
   return csv.length > 1 ? csv.join("\n") : null;
 }
 
-/** The "value" column (the PID integral) is read past but not returned - nothing charts it. */
+/** A line's fields, less the empty one after a trailing comma. */
+function fieldsOf(line: string): string[] {
+  const cells = line.split(",").map((c) => c.trim());
+  return cells[cells.length - 1] === "" ? cells.slice(0, -1) : cells;
+}
+
+/**
+ * The capture with only the rows that arrived whole, and how many did not. A USB packet lost from
+ * the dump takes the start of a row, or joins two; read by position, what is left puts one motor's
+ * throttle in another's RPM column, which charts as a drop that never happened.
+ */
+export function wholeRows(csv: string): { csv: string; dropped: number } {
+  const [header, ...rows] = csv.split("\n");
+  const width = fieldsOf(header).length;
+  const kept = rows.filter((row) => fieldsOf(row).length === width);
+  return { csv: [header, ...kept].join("\n"), dropped: rows.length - kept.length };
+}
+
+/**
+ * The "value" column (the PID integral) is read past but not returned - nothing charts it. A row
+ * that did not arrive whole is skipped (see wholeRows()).
+ */
 export function parseRpmCsv(text: string): RpmLog {
   const lines = text
     .split("\n")
@@ -78,8 +99,10 @@ export function parseRpmCsv(text: string): RpmLog {
   if (!motors.length) return { motors: [], voltage: [] };
 
   const voltage: number[] = [];
+  const width = fieldsOf(lines[0]).length;
   for (let r = 1; r < lines.length; r++) {
     const cells = lines[r].split(",");
+    if (fieldsOf(lines[r]).length !== width) continue;
     if (hasVoltage) {
       const v = Number(cells[0]);
       if (Number.isFinite(v)) voltage.push(v);

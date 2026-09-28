@@ -35,6 +35,13 @@ export interface CommandAck {
 const BAUD = 115200;
 
 /**
+ * Room for a whole RPM capture, which the firmware sends in one burst as fast as USB goes, so a page
+ * slow to read it loses none of it. The largest is 2000 rows of at most 241 bytes (`rpmLogger.h`'s
+ * row buffer); Web Serial's default is 255 bytes.
+ */
+export const OPEN_OPTIONS = { baudRate: BAUD, bufferSize: 512 * 1024 };
+
+/**
  * The USB identity every Trifolium enumerates with: arduino-pico's for the Raspberry Pi Pico
  * (`board = rpipico`), and one image runs on every board.
  */
@@ -255,7 +262,7 @@ export class SerialTransport {
     const allowed = choose ? null : await this.onlyAllowedPort(api);
     try {
       this.port = allowed ?? (await api.requestPort());
-      await this.port.open({ baudRate: BAUD });
+      await this.port.open(OPEN_OPTIONS);
 
       this.attach(this.port);
 
@@ -366,7 +373,7 @@ export class SerialTransport {
       await new Promise((r) => setTimeout(r, delayMs));
       for (const port of await this.reconnectCandidates(remembered)) {
         try {
-          await port.open({ baudRate: BAUD });
+          await port.open(OPEN_OPTIONS);
         } catch {
           continue; // not enumerated yet, still claimed by the OS, or already open
         }

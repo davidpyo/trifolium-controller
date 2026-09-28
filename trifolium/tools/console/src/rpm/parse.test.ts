@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { extractRpmCsv, findTrailingFlatStart, niceStep, parseRpmCsv, LOG_LINE_CAP, targetCrossings } from "./parse";
+import {
+  extractRpmCsv,
+  findTrailingFlatStart,
+  niceStep,
+  parseRpmCsv,
+  LOG_LINE_CAP,
+  targetCrossings,
+  wholeRows,
+} from "./parse";
 
 // A capture as it actually arrives: buried in device chatter, prefixed by the console's "(device) ",
 // and followed by more chatter.
@@ -58,6 +66,37 @@ describe("parseRpmCsv", () => {
 
   it("returns nothing for an unrecognisable header", () => {
     expect(parseRpmCsv("a,b,c\n1,2,3").motors).toEqual([]);
+  });
+});
+
+// Four motors, from a capture whose third row lost its first 64 bytes, one USB packet, on the way.
+const damaged = [
+  "Voltage_mv,Motor 0,TargetRPM 0,Throttle 0,value 0,Motor 1,TargetRPM 1,Throttle 1,value 1," +
+    "Motor 2,TargetRPM 2,Throttle 2,value 2,Motor 3,TargetRPM 3,Throttle 3,value 3,",
+  "16187,31968,32000,1224,-3.98,31823,32000,1245,-5.95,31955,32000,1219,-5.77,31903,32000,1234,-4.69,",
+  "16203,32094,32000,1197,-4.07,31985,32000,1212,-5.93,31994,32000,1211,-5.77,31866,32000,1241,-4.56,",
+  "1201,-5.79,31838,32000,1243,-4.40,",
+  "16324,32034,32000,1200,-4.12,32040,32000,1192,-5.99,31955,32000,1210,-5.74,31816,32000,1243,-4.21,",
+].join("\n");
+
+describe("a capture with rows that did not arrive whole", () => {
+  it("keeps the whole rows and counts the rest", () => {
+    const { csv, dropped } = wholeRows(extractRpmCsv(damaged)!);
+    expect(dropped).toBe(1);
+    expect(csv.split("\n")).toHaveLength(4); // the header and three whole rows
+  });
+
+  it("counts two rows run together as one damaged row", () => {
+    const [header, a, b] = damaged.split("\n");
+    expect(wholeRows([header, a + b].join("\n")).dropped).toBe(1);
+  });
+
+  it("charts no drop where a row was damaged", () => {
+    const log = parseRpmCsv(extractRpmCsv(damaged)!);
+    expect(log.motors[0].rpm).toEqual([31968, 32094, 32034]);
+    expect(log.motors[1].rpm).toEqual([31823, 31985, 32040]);
+    expect(log.voltage).toEqual([16187, 16203, 16324]);
+    expect(log.motors.every((m) => m.rpm.length === 3 && m.throttle.length === 3)).toBe(true);
   });
 });
 
