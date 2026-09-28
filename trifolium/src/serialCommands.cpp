@@ -5,6 +5,7 @@
 
 #include "global.h"
 #include "logging.h"
+#include "serialLock.h"
 #include "shotProfile.h"
 #include "profileStore.h"
 #include "deviceSettings.h"
@@ -34,19 +35,7 @@ bool idleHoldWanted();
 bool menuIsOpen();
 bool revControlAllowed();
 
-volatile bool serialCommandBusy = false;
 volatile bool serialCommandSeen = false;
-
-// Sets serialCommandBusy for as long as a command is being serviced, so core 0 holds off its RPM
-// log dump. Scoped rather than set/cleared by hand because several command paths return early.
-namespace
-{
-struct SerialCommandGuard
-{
-    SerialCommandGuard() { serialCommandBusy = true; }
-    ~SerialCommandGuard() { serialCommandBusy = false; }
-};
-} // namespace
 
 void serialCommandsBegin()
 {
@@ -115,7 +104,7 @@ void handleSerialCommands()
     if (!Serial.available())
         return;
 
-    SerialCommandGuard busy;
+    SerialHold serial; // for the whole command, so its reply goes out in one piece
     serialCommandSeen = true;
 
     String line = Serial.readStringUntil('\n');
@@ -151,6 +140,7 @@ void handleSerialCommands()
     else if (command == "REBOOT")
     {
         Serial.println("{\"cmd\":\"REBOOT\",\"ok\":true,\"rebooting\":true}");
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;
@@ -161,6 +151,7 @@ void handleSerialCommands()
         // The only route into the bootloader that doesn't need a working screen or a mapped boot
         // button: Reboot > Bootloader lives in the menu, which a device with no display can't reach.
         Serial.println("{\"cmd\":\"REBOOT_BOOTLOADER\",\"ok\":true,\"rebooting\":true}");
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rp2040.rebootToBootloader();
@@ -178,6 +169,7 @@ void handleSerialCommands()
         // No switch ends this one: the host that asked closes the port instead.
         rebootPassthroughExit = kNoBootButton;
         ackOk("ESC_PASSTHROUGH", -1, false, true);
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::TO_ESC_PASSTHROUGH;
@@ -189,6 +181,7 @@ void handleSerialCommands()
         // preserved set is. Wiring survives this; RESET_PINS is what moves it.
         DeviceStore::saveDeviceSettings(DeviceStore::factoryResetSettings());
         ackOk("FACTORY_RESET_DEVICE", -1, false, true);
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;
@@ -209,6 +202,7 @@ void handleSerialCommands()
         // Reboots whichever slot it was: activeProfile is a RAM copy loaded at boot, so resetting
         // the live slot without one would leave the blaster running tuning no longer on disk.
         ackOk("FACTORY_RESET_PROFILE", explicitIndex, false, true);
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;
@@ -222,6 +216,7 @@ void handleSerialCommands()
             ProfileStore::resetProfile(i);
         DeviceStore::saveDeviceSettings(DeviceStore::factoryResetSettings());
         ackOk("FACTORY_RESET_ALL", -1, false, true);
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;
@@ -234,6 +229,7 @@ void handleSerialCommands()
         DeviceStore::clearWiring(deviceSettings);
         DeviceStore::saveDeviceSettings(deviceSettings);
         ackOk("RESET_PINS", -1, false, true);
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;
@@ -308,6 +304,7 @@ void handleSerialCommands()
             const bool clamped = clampAllSettings();
             ProfileStore::saveProfile(targetIndex, activeProfile);
             ackOk("LOAD_PROFILE", targetIndex, clamped, true);
+            SerialLock::printKept();
             Serial.flush();
             delay(100);
             rebootReason = BootReason::MENU;
@@ -406,6 +403,7 @@ void handleSerialCommands()
         const bool clamped = clampAllSettings();
         DeviceStore::saveDeviceSettings(deviceSettings);
         ackOk("LOAD_DEVICE", -1, clamped, true);
+        SerialLock::printKept();
         Serial.flush();
         delay(100);
         rebootReason = BootReason::MENU;

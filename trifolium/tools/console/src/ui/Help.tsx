@@ -2,6 +2,7 @@ import React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Collapse from "@mui/material/Collapse";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 // Prose a panel has to carry but must not lead with: a disclosure triangle over body text, and the
@@ -28,6 +29,37 @@ export function HelpSection({ summary, children }: { summary: string; children: 
         <Box sx={{ pl: 1.5, pr: 1, pb: 1 }}>{children}</Box>
       </Collapse>
     </Box>
+  );
+}
+
+/**
+ * What a setting does, shown over its label on hover, or on a long press where there is no hover.
+ * `lead` goes first in bold - a label the tile may have cut short, say. The help describes the label
+ * rather than naming it, so what a screen reader calls the setting stays its name.
+ */
+export function HelpTip({
+  help,
+  lead,
+  children,
+}: {
+  help?: string;
+  lead?: React.ReactNode;
+  children: React.ReactElement;
+}) {
+  if (!help && !lead) return children;
+  return (
+    <Tooltip
+      describeChild
+      placement="top" // off the control, which sits under its label
+      title={
+        <>
+          {lead && <Box sx={{ fontWeight: 600 }}>{lead}</Box>}
+          {help}
+        </>
+      }
+    >
+      {children}
+    </Tooltip>
   );
 }
 

@@ -3,6 +3,7 @@
   "presetVersion": 1,
   "id": "diana_v1_2",
   "name": "Diana v1.2",
+  "diagram": "diana_v1_1",
   "notes": [
     "Two motors, no menu button. The idle switch and a third select line sit where a Trifolium puts rev and menu.",
     "Adds the I2C pads v1.0 did not bring out, on the same GP14/GP15 pair a Trifolium uses. Set Display Attached to use one."

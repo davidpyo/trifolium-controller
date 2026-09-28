@@ -2,7 +2,7 @@
 #include "enumIds.h"
 
 static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", "profile:spindownSpeed",
-                                               &activeProfile.spindownSpeed, 10, 200, 10);
+                                               &activeProfile.spindownSpeed, 10, 500, 10);
 // "At speed" = max(targetRPM - firingRPMTolerance, minFiringRPM) - see atSpeedRpm() in main.cpp.
 static NumericItem<int32_t> firingRpmToleranceItem("Firing RPM Tol", "device:firingRPMTolerance",
                                                    &deviceSettings.firingRPMTolerance, 0, 10000,

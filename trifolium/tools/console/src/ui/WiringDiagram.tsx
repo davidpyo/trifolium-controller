@@ -37,6 +37,11 @@ const GUTTER = 148;
 /** Widest the board render itself is drawn. */
 const ART_WIDTH = 340;
 /**
+ * Tallest it is drawn: the Trifolium v1.2's height at full width. A board narrower than that is
+ * drawn this tall and narrower, rather than taller, so its labels still sit against its edges.
+ */
+const ART_MAX_HEIGHT = 604;
+/**
  * Least vertical room a stacked label needs before it collides with the one above.
  *
  * Tight, because these are the labels of one plug and they are meant to read as a block - a
@@ -46,6 +51,12 @@ const ART_WIDTH = 340;
 const LABEL_GAP = 16;
 /** And the room between one plug's labels and the next, which is what makes the block a block. */
 const PLUG_GAP = 26;
+/**
+ * Those two are centre to centre, which is right for one-line labels. A label too long for its
+ * column wraps, and then the rows either side keep this much clear of its real edges instead.
+ */
+const LABEL_CLEARANCE = 1.6;
+const PLUG_CLEARANCE = LABEL_CLEARANCE + PLUG_GAP - LABEL_GAP;
 /**
  * What kind of plug a name describes, which is all the colour means.
  *
@@ -271,8 +282,16 @@ export function runs(items: Placement[]): Placement[][] {
  * Order is by height, and *across* the board for pads of equal height: within a header the pad
  * nearest the label column takes the nearest label. Any other order crosses their leader lines over
  * each other, which is what turns six labelled pads at connector pitch back into an unreadable fan.
+ *
+ * `heightOf` is each label's rendered height, so a wrapped one gets the room it takes. A label not
+ * measured yet counts as 0, which spaces it as one line.
  */
-export function stack(column: Placement[], side: "left" | "right", height: number): Placement[][] {
+export function stack(
+  column: Placement[],
+  side: "left" | "right",
+  height: number,
+  heightOf: (item: Placement) => number = () => 0,
+): Placement[][] {
   const groups = runs(column);
   const order = (a: Placement, b: Placement) =>
     Math.round(a.pinY / CLUSTER_BAND) - Math.round(b.pinY / CLUSTER_BAND) ||
@@ -285,14 +304,22 @@ export function stack(column: Placement[], side: "left" | "right", height: numbe
   groups.sort((a, b) => order(a[0], b[0]));
 
   let last = -Infinity;
+  let lastHeight = 0;
   for (const group of groups) {
     group.forEach((item, i) => {
-      item.labelY = Math.max(item.pinY, last + (i === 0 ? PLUG_GAP : LABEL_GAP));
+      const own = heightOf(item);
+      const reach = (lastHeight + own) / 2;
+      const apart =
+        i === 0
+          ? Math.max(PLUG_GAP, reach + PLUG_CLEARANCE)
+          : Math.max(LABEL_GAP, reach + LABEL_CLEARANCE);
+      item.labelY = Math.max(item.pinY, last + apart);
       last = item.labelY;
+      lastHeight = own;
     });
   }
 
-  const overflow = last - height;
+  const overflow = last + lastHeight / 2 - height;
   if (overflow > 0) {
     for (const group of groups) {
       for (const item of group) item.labelY = Math.max(0, item.labelY - overflow);
@@ -324,6 +351,20 @@ export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
   const artSheetRef = React.useRef<HTMLDivElement>(null);
   const sheetRef = React.useRef<HTMLDivElement>(null);
   const [measured, setMeasured] = React.useState<Measured | null>(null);
+  /** Each label's rendered height by key, so stack() can give a wrapped one the room it takes. */
+  const labelRefs = React.useRef(new Map<string, HTMLElement>());
+  const [labelHeights, setLabelHeights] = React.useState<ReadonlyMap<string, number>>(new Map());
+
+  // A label's height follows from its text and its column's width, not from where it sits, so the
+  // one render after the labels appear - or after the column changes width - settles it.
+  React.useLayoutEffect(() => {
+    const next = new Map<string, number>();
+    labelRefs.current.forEach((el, key) => next.set(key, el.getBoundingClientRect().height));
+    const unchanged =
+      next.size === labelHeights.size &&
+      [...next].every(([key, h]) => Math.abs((labelHeights.get(key) ?? -1) - h) < 0.5);
+    if (!unchanged) setLabelHeights(next);
+  });
   /**
    * The plug the pointer is on, if the sheet names it.
    *
@@ -459,12 +500,16 @@ export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
         labelY: pin.y,
       });
     }
-    stack(placements.filter((p) => p.side === "left"), "left", measured.height);
-    stack(placements.filter((p) => p.side === "right"), "right", measured.height);
+    const heightOf = (p: Placement) => labelHeights.get(p.key) ?? 0;
+    stack(placements.filter((p) => p.side === "left"), "left", measured.height, heightOf);
+    stack(placements.filter((p) => p.side === "right"), "right", measured.height, heightOf);
   }
 
+  const artWidth =
+    diagram.aspect > 0 ? Math.min(ART_WIDTH, ART_MAX_HEIGHT * diagram.aspect) : ART_WIDTH;
+
   return (
-    <Box sx={{ width: "100%", maxWidth: 2 * GUTTER + ART_WIDTH }}>
+    <Box sx={{ width: "100%", maxWidth: 2 * GUTTER + artWidth }}>
       {/* One positioning context for the art, the markers, the leader lines and the labels, so a
           pin measured here lands where its label and line are drawn. */}
       <Box ref={hostRef} sx={{ position: "relative", width: "100%" }}>
@@ -550,6 +595,10 @@ export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
           <Tooltip key={key} title={gpio === null ? label : `${label} — GP${gpio}`}>
             <Typography
               variant="caption"
+              ref={(el: HTMLElement | null) => {
+                if (el) labelRefs.current.set(key, el);
+                else labelRefs.current.delete(key);
+              }}
               sx={{
                 position: "absolute",
                 top: labelY,

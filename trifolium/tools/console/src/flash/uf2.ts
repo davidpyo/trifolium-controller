@@ -21,6 +21,14 @@ const UF2_FLAG_FAMILY_ID = 0x0000_2000;
  */
 const FLASH_END = FLASH_START + 0x100_0000;
 
+/**
+ * Where the blaster keeps its settings: the LittleFS region, platformio.ini's 0.5 MB
+ * `filesystem_size` at the top of the Pico's 2 MB, below the 4 KB the core keeps for EEPROM. An
+ * ordinary image stops well short of it. A factory image from tools/release.py writes all of it,
+ * and tests/suite/test_factory_build.py holds this to where the build puts it.
+ */
+export const SETTINGS_AREA_START = 0x1017_f000;
+
 /** What a .uf2 turns into: one flat buffer and the flash address it starts at. */
 export interface FlashImage {
   address: number;
@@ -93,6 +101,11 @@ function padToSector(data: Uint8Array): Uint8Array {
   padded.fill(0xff);
   padded.set(data);
   return padded;
+}
+
+/** Whether flashing this image rewrites the settings the blaster holds - a factory image does. */
+export function writesSettings(image: FlashImage): boolean {
+  return image.address + image.data.length > SETTINGS_AREA_START;
 }
 
 /**

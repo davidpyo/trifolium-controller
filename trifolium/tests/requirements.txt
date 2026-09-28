@@ -1,0 +1,5 @@
+pytest==9.1.1
+pytest-xdist==3.8.0
+pyserial==3.5
+playwright==1.63.0
+pytest-playwright==0.9.0

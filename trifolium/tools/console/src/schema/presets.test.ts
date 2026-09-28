@@ -86,6 +86,13 @@ describe("the presets this console ships", () => {
     expect(preset.wiring).not.toHaveProperty("schemaVersion");
   });
 
+  it("reads the drawing a board shares, and keeps it out of what gets sent", () => {
+    const preset = presetById("trifolium_v1_3")!;
+    expect(preset.diagram).toBe("trifolium_v1_2");
+    expect(preset.wiring).not.toHaveProperty("diagram");
+    expect(presetById("trifolium_v1_2")!.diagram).toBeUndefined();
+  });
+
   it("keeps telem and escADC out of the wiring - nothing reads either", () => {
     expect(trifoliumV12.unread.telem).toBe(4);
     const preset = presetById("trifolium_v1_2")!;

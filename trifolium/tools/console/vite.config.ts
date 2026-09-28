@@ -1,12 +1,12 @@
-import { copyFileSync, mkdirSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { execSync } from "node:child_process";
+import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
-// The built page must work when opened straight off disk by double-clicking, which is how
-// tools/serial-config.html has always been used.
+// The built page must work when opened straight off disk by double-clicking, which is how the
+// console has always been used.
 //
 // `file://` *is* a secure context - the W3C potentially-trustworthy algorithm returns true for the
 // file scheme and Chromium implements that - so navigator.serial is available. What does not survive
@@ -26,28 +26,31 @@ const classicScriptTag = (): Plugin => ({
   transformIndexHtml: (html) => html.replace(/<script type="module"/g, "<script"),
 });
 
-// The shipped tool. This build *is* tools/serial-config.html now.
-const SHIPPED_PATH = "../serial-config.html";
+// The build is dist/index.html. The release workflow publishes it; nothing local does.
 
 // package.json sets "type": "module", so the config is ESM and __dirname does not exist.
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-const publishSingleFile = (): Plugin => ({
-  name: "publish-single-file",
-  apply: "build",
-  closeBundle() {
-    const from = resolve(here, "dist/index.html");
-    const to = resolve(here, SHIPPED_PATH);
-    mkdirSync(dirname(to), { recursive: true });
-    copyFileSync(from, to);
-    this.info(`published ${to}`);
-  },
-});
+// Where this build came from, and where the published site is. The release workflow sets all four;
+// a local build stamps its own commit, marked as local, and points at the project's site.
+const gitCommit = (): string => {
+  try {
+    return execSync("git rev-parse --short HEAD", { cwd: here }).toString().trim();
+  } catch {
+    return "unknown";
+  }
+};
+const BUILD = {
+  commit: process.env.TRIFOLIUM_BUILD_COMMIT?.slice(0, 7) ?? `${gitCommit()}-local`,
+  date: process.env.TRIFOLIUM_BUILD_DATE ?? new Date().toISOString().slice(0, 10),
+  siteUrl: process.env.TRIFOLIUM_SITE_URL ?? "https://davidpyo.github.io/trifolium-controller/",
+  repoUrl: process.env.TRIFOLIUM_REPO_URL ?? "https://github.com/davidpyo/trifolium-controller",
+};
 
-// Vite's watcher only covers this root, so an edit inside a board folder reaches the dev server
+// Vite's watcher only covers this root, so an edit to a board or a blaster reaches the dev server
 // not at all. A full reload rather than an update: the sheets come in through an eager glob at
 // module scope, which produces no HMR of its own.
-const OUTSIDE_ROOT = ["../../boards"];
+const OUTSIDE_ROOT = ["../../boards", "../../blasters"];
 
 const watchOutsideRoot = (): Plugin => ({
   name: "watch-outside-root",
@@ -65,18 +68,18 @@ const watchOutsideRoot = (): Plugin => ({
 });
 
 export default defineConfig({
+  define: { __BUILD__: JSON.stringify(BUILD) },
   plugins: [
     react(),
     viteSingleFile(),
     classicScriptTag(),
-    publishSingleFile(),
     watchOutsideRoot(),
   ],
   server: {
-    // Every board lives in trifolium/boards/<id>/ - its wiring and its two drawings - outside
-    // this root and imported so the build inlines them, because a folder of JSON/SVG beside the
-    // HTML would not survive file://. A build resolves them regardless; the dev server refuses to
-    // serve outside the root without this.
+    // The boards (trifolium/boards/<id>/, each its wiring and two drawings) and the blasters
+    // (trifolium/blasters/) live outside this root, imported so the build inlines them, because a
+    // folder of JSON/SVG beside the HTML would not survive file://. A build resolves them
+    // regardless; the dev server refuses to serve outside the root without this.
     fs: { allow: [here, ...OUTSIDE_ROOT.map((dir) => resolve(here, dir))] },
   },
   build: {

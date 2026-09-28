@@ -9,6 +9,8 @@
 // Every reply carries a `cmd` naming the command it answers, and a slot where there is one, so
 // replies are matched on that rather than on shape - see repliesTo().
 
+import { serial as usbSerial } from "../vendor/web-serial-polyfill/dist/serial.js";
+
 export type LogKind = "out" | "in" | "ok" | "err";
 
 export interface LogLine {
@@ -31,6 +33,53 @@ export interface CommandAck {
 }
 
 const BAUD = 115200;
+
+/**
+ * The USB identity every Trifolium enumerates with: arduino-pico's for the Raspberry Pi Pico
+ * (`board = rpipico`), and one image runs on every board.
+ */
+const BLASTER_USB = { usbVendorId: 0x2e8a, usbProductId: 0x000a };
+
+/** What the transport uses of a port, which the WebUSB polyfill's ports provide too. */
+type Port = Pick<SerialPort, "readable" | "writable" | "open" | "close" | "getInfo">;
+
+export interface SerialApi {
+  requestPort(): Promise<Port>;
+  getPorts(): Promise<Port[]>;
+}
+
+/**
+ * Web Serial, or the same API over WebUSB. Android's Web Serial reaches USB on only a few devices,
+ * so Android takes WebUSB even beside it; elsewhere native wins, since on Windows the OS serial
+ * driver owns the CDC interface and WebUSB cannot claim it.
+ */
+export function serialApi(): SerialApi | null {
+  if (typeof navigator === "undefined") return null;
+  const native = "serial" in navigator ? navigator.serial : null;
+  if (navigator.usb && (native === null || isAndroid())) return usbSerial;
+  return native;
+}
+
+/**
+ * Chrome's "Desktop site" mode, the default on some larger phones, sends a desktop Linux user
+ * agent. The Contact Picker ships in Chrome on Android alone and stays whatever the mode.
+ */
+function isAndroid(): boolean {
+  return /Android/i.test(navigator.userAgent) || "contacts" in navigator;
+}
+
+/**
+ * The ports that could be a blaster. The browser's allowed list holds whatever was ever picked on
+ * this origin - a Bluetooth serial link, a debug probe - and none of those can be one.
+ */
+export function blasterPorts(ports: Port[]): Port[] {
+  return ports.filter((port) => {
+    const info = port.getInfo();
+    return (
+      info.usbVendorId === BLASTER_USB.usbVendorId && info.usbProductId === BLASTER_USB.usbProductId
+    );
+  });
+}
 
 /** Small replies land in well under a second; DUMP_SCHEMA is ~27KB on one line. */
 export const TIMEOUT_SHORT_MS = 3000;
@@ -88,6 +137,32 @@ export const rebootAnnouncement = (line: string): string | null => {
   }
 };
 
+const WHOLE_ATTEMPTS = 3;
+
+/**
+ * Asks until the answer parses, up to three times.
+ *
+ * A reply can arrive garbled on firmware that lets its other core's log lines land inside one - a
+ * verbose boot logs for seconds after the port is back - and asking again does not repeat that.
+ * Silence is final: firmware that does not know the command never answers, and asking again would
+ * only wait again.
+ */
+export async function askUntilWhole<T>(
+  ask: () => Promise<string | null>,
+  onGarbled: (error: Error, last: boolean) => void,
+): Promise<T | null> {
+  for (let attempt = 1; attempt <= WHOLE_ATTEMPTS; attempt++) {
+    const line = await ask();
+    if (line === null) return null;
+    try {
+      return JSON.parse(line) as T;
+    } catch (e) {
+      onGarbled(e as Error, attempt === WHOLE_ATTEMPTS);
+    }
+  }
+  return null;
+}
+
 /** The reply framing, which every dump carries and no store holds. */
 const FRAMING_KEYS = ["cmd", "index"] as const;
 
@@ -129,7 +204,7 @@ export interface TransportEvents {
 }
 
 export class SerialTransport {
-  private port: SerialPort | null = null;
+  private port: Port | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private reader: ReadableStreamDefaultReader<string> | null = null;
   /** Resolves once the pipe to the text decoder tears down and releases port.readable. */
@@ -137,12 +212,17 @@ export class SerialTransport {
   private listeners: Listener[] = [];
   private disconnecting = false;
   /** Kept across a reboot the device performed itself, so reopenAfterReboot() has a port to retry. */
-  private rebootedPort: SerialPort | null = null;
+  private rebootedPort: Port | null = null;
 
   constructor(private events: TransportEvents = {}) {}
 
   static get supported(): boolean {
-    return typeof navigator !== "undefined" && "serial" in navigator;
+    return serialApi() !== null;
+  }
+
+  /** Android keeps no WebUSB permission from one connection to the next, so it asks every time. */
+  static get asksEveryTime(): boolean {
+    return serialApi() === usbSerial && isAndroid();
   }
 
   get connected(): boolean {
@@ -153,29 +233,75 @@ export class SerialTransport {
     this.events.onLog?.({ kind, text, at: Date.now() });
   }
 
-  async connect(): Promise<boolean> {
-    if (!SerialTransport.supported) {
-      this.log("err", "Web Serial is unavailable. Use Chrome or Edge on desktop.");
+  /**
+   * Opens a blaster, asking the browser's picker only when it has to.
+   *
+   * The browser keeps the permission a picker grants, per device, and getPorts() hands those
+   * devices back. So when exactly one allowed device is plugged in, that is the one to open and the
+   * picker would only be a click to confirm it. With none there is nothing to open without asking,
+   * and with several getInfo() cannot tell blasters apart - they share a USB vendor and product - so
+   * both go to the picker. `choose` goes there regardless, for a blaster this browser has not seen.
+   */
+  async connect(choose = false): Promise<boolean> {
+    const api = serialApi();
+    if (!api) {
+      this.log(
+        "err",
+        "This browser has neither Web Serial nor WebUSB. Use Chrome or Edge on a computer, or Chrome"
+          + " on Android.",
+      );
       return false;
     }
+    const allowed = choose ? null : await this.onlyAllowedPort(api);
     try {
-      this.port = await navigator.serial.requestPort();
+      this.port = allowed ?? (await api.requestPort());
       await this.port.open({ baudRate: BAUD });
 
       this.attach(this.port);
 
-      this.log("ok", "Connected.");
+      this.log("ok", allowed ? "Connected to the blaster this browser already allowed." : "Connected.");
       void this.readLoop(); // runs until the reader errors or is cancelled
       return true;
     } catch (e) {
-      this.log("err", `Connect failed: ${(e as Error).message}`);
+      // Without the picker, a port held by another tab or program is the likely failure, and
+      // nothing on screen says which device was tried.
+      const hint = allowed
+        ? " If another tab or program has the port open, close it. For a different blaster, use"
+          + " Choose Device."
+        : "";
+      this.log("err", `Connect failed: ${(e as Error).message}${hint}`);
       this.port = null;
       return false;
     }
   }
 
+  /**
+   * The one plugged-in blaster this page may open without asking, or null for none or several.
+   *
+   * Says why when it is null, since the picker opening is otherwise indistinguishable from the
+   * console never having tried. The permission belongs to the origin, port number included, so a
+   * blaster allowed on the published site or on another local port counts for nothing here.
+   */
+  private async onlyAllowedPort(api: SerialApi): Promise<Port | null> {
+    let ports: Port[];
+    try {
+      ports = blasterPorts(await api.getPorts());
+    } catch {
+      return null; // getPorts() can reject in odd embedding contexts; the picker still works there
+    }
+    if (ports.length === 1) return ports[0];
+    const where = typeof location !== "undefined" ? location.origin : "this page";
+    this.log(
+      "out",
+      ports.length === 0
+        ? `No plugged-in blaster is allowed on ${where} yet, so the browser asks.`
+        : `${ports.length} plugged-in blasters are allowed on ${where}, so the browser asks which.`,
+    );
+    return null;
+  }
+
   /** Wires reader/writer onto an opened port. Shared so the reopen path cannot drift from connect. */
-  private attach(port: SerialPort): void {
+  private attach(port: Port): void {
     this.port = port;
     const decoder = new TextDecoderStream();
     // TextDecoderStream types its writable as WritableStream<BufferSource> while port.readable
@@ -190,7 +316,7 @@ export class SerialTransport {
   }
 
   /** Same physical device, by USB identity. getInfo() is all Web Serial exposes to match on. */
-  private static sameDevice(a: SerialPort, b: SerialPort): boolean {
+  private static sameDevice(a: Port, b: Port): boolean {
     const x = a.getInfo();
     const y = b.getInfo();
     return (
@@ -209,10 +335,10 @@ export class SerialTransport {
    * device rather than per handle, so the replacement needs no fresh user gesture - it just has to
    * be found, which is what getPorts() is for.
    */
-  private async reconnectCandidates(remembered: SerialPort): Promise<SerialPort[]> {
+  private async reconnectCandidates(remembered: Port): Promise<Port[]> {
     const out = [remembered];
     try {
-      for (const port of await navigator.serial.getPorts()) {
+      for (const port of (await serialApi()?.getPorts()) ?? []) {
         if (port !== remembered && SerialTransport.sameDevice(port, remembered)) out.push(port);
       }
     } catch {
@@ -280,11 +406,13 @@ export class SerialTransport {
       try {
         await this.writer?.close();
       } catch {
-        try {
-          this.writer?.releaseLock();
-        } catch {
-          /* ignore */
-        }
+        /* errored by the device going away */
+      }
+      // Released on success too: the polyfill's close() aborts its writable, which fails while locked.
+      try {
+        this.writer?.releaseLock();
+      } catch {
+        /* ignore */
       }
       try {
         await this.port?.close();
@@ -411,6 +539,23 @@ export class SerialTransport {
       this.log("err", `Reply to ${command} is not valid JSON: ${(e as Error).message}`);
       return null;
     }
+  }
+
+  /** request(), asked again while the reply comes back garbled - see askUntilWhole(). */
+  async requestWhole<T>(command: string, timeoutMs = TIMEOUT_SHORT_MS): Promise<T | null> {
+    return askUntilWhole<T>(
+      async () => {
+        await this.sendLine(command);
+        const line = await this.waitForLine(repliesTo(command), timeoutMs);
+        if (line === null) this.log("err", `No reply to ${command} within ${timeoutMs} ms.`);
+        return line;
+      },
+      (e, last) =>
+        this.log(
+          "err",
+          `Reply to ${command} is not valid JSON: ${e.message}` + (last ? "" : " - asking again."),
+        ),
+    );
   }
 
   /**

@@ -13,8 +13,12 @@
 // Both share a coordinate space - the marker sheet's viewBox is the art's - so a marker's
 // coordinate is just the coordinate the art uses, whatever size either is displayed at.
 //
-// Not every board has a pair. A board with none is not an error - it just means the Wiring tab
-// falls back to the table, the same way a board with no preset falls back to custom wiring.
+// Not every board has a pair. A board that is the same physical design as another names that one
+// under `diagram` in its board.json and uses its pair. A board with neither is not an error - it just
+// means the Wiring tab falls back to the table, the same way a board with no preset falls back to
+// custom wiring.
+
+import { presetForBoardId } from "./presets";
 
 // The board id is the folder's name, not part of either filename: `boards/<id>/board.svg`. One
 // place spells the id, so a board cannot half-rename itself into a drawing that never loads.
@@ -41,6 +45,8 @@ export interface WiringDiagram {
   boardId: string;
   /** The board art. */
   artMarkup: string;
+  /** The art's width over its height, NaN when the art does not say - see aspectOf(). */
+  aspect: number;
   /** The marker sheet, drawn over the art at the same size. */
   svgMarkup: string;
   /**
@@ -73,6 +79,17 @@ export interface DiagramMarker {
 const TAG = /<[a-zA-Z][^>]*>/g;
 const GPIO_ATTRIBUTE = /data-gpio\s*=\s*"(\d+)"/;
 const INTERNAL_ATTRIBUTE = /data-internal\s*=\s*"([^"]*)"/;
+
+/** The art's width over its height: its viewBox's, else its width and height attributes'. */
+export function aspectOf(artMarkup: string): number {
+  const svg = /<svg\b[^>]*>/.exec(artMarkup)?.[0] ?? "";
+  const viewBox = /\bviewBox\s*=\s*["']([^"']*)["']/.exec(svg)?.[1];
+  const box = viewBox?.trim().split(/[\s,]+/).map(Number);
+  if (box?.length === 4 && box[2] > 0 && box[3] > 0) return box[2] / box[3];
+  const width = Number(/\bwidth\s*=\s*["']([\d.]+)/.exec(svg)?.[1]);
+  const height = Number(/\bheight\s*=\s*["']([\d.]+)/.exec(svg)?.[1]);
+  return width > 0 && height > 0 ? width / height : NaN;
+}
 
 export function markersIn(svgMarkup: string): DiagramMarker[] {
   const out: DiagramMarker[] = [];
@@ -108,6 +125,7 @@ for (const [path, svgMarkup] of Object.entries(markerSheets)) {
   byBoardId.set(boardId, {
     boardId,
     artMarkup,
+    aspect: aspectOf(artMarkup),
     svgMarkup,
     markers,
     available: new Set(markers.map((m) => m.gpio)),
@@ -115,22 +133,15 @@ for (const [path, svgMarkup] of Object.entries(markerSheets)) {
 }
 
 /**
- * Boards that are the same physical design, and so share one drawing.
- *
- * v1.2, v1.3 and v1.4 are one board, so one sheet answers for all three rather than three copies of
- * it drifting apart.
- *
- * Kept here rather than as an alias on the board itself: a board's `aliases` are ids a device may
- * still report from the firmware that had a board table, which is a different question from which
- * boards look alike. v1.3 is its own board with its own wiring; it just looks like v1.2.
+ * The drawing for a board: its own, else the one its board.json names under `diagram` - v1.3 and
+ * v1.4 are the same physical board as v1.2, so one sheet answers for all three rather than three
+ * copies of it drifting apart. An id the board answers to finds it as its own id does.
  */
-const SHARES_DIAGRAM_WITH: Record<string, string> = {
-  trifolium_v1_3: "trifolium_v1_2",
-  trifolium_v1_4: "trifolium_v1_2",
-};
-
 export function diagramForBoardId(boardId: string | undefined): WiringDiagram | undefined {
   if (!boardId) return undefined;
-  const shared = SHARES_DIAGRAM_WITH[boardId];
-  return byBoardId.get(boardId) ?? (shared ? byBoardId.get(shared) : undefined);
+  const own = byBoardId.get(boardId);
+  if (own) return own;
+  const preset = presetForBoardId(boardId);
+  if (!preset) return undefined;
+  return byBoardId.get(preset.id) ?? (preset.diagram ? byBoardId.get(preset.diagram) : undefined);
 }

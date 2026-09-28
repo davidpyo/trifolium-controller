@@ -3,6 +3,7 @@
   "presetVersion": 1,
   "id": "trifolium_v1_4",
   "name": "Trifolium v1.4",
+  "diagram": "trifolium_v1_2",
   "aliases": [
     "trifolium_v1_4_fet"
   ],

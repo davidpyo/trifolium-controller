@@ -9,7 +9,9 @@ import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import { getByKey } from "../schema/keyPath";
 import { isVisible, walk, type Schema, type SchemaNode } from "../schema/types";
+import { helpFor } from "../help/settings";
 import { FieldControl } from "./Field";
+import { HelpTip } from "./Help";
 
 // The selector switch, laid out around the thing that actually confuses people.
 //
@@ -101,19 +103,25 @@ export function SelectorSwitch({
                 </Typography>
               </TableCell>
               <TableCell sx={cellSx}>
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  Pin
-                </Typography>
+                <HelpTip help={helpFor("device:select1Pin")}>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    Pin
+                  </Typography>
+                </HelpTip>
               </TableCell>
               <TableCell sx={cellSx}>
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  Fire mode (this profile)
-                </Typography>
+                <HelpTip help={helpFor("profile:switchPositionAssignment[0]")}>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    Fire mode (this profile)
+                  </Typography>
+                </HelpTip>
               </TableCell>
               <TableCell sx={cellSx}>
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  Profile at boot
-                </Typography>
+                <HelpTip help={helpFor("device:variableFPS")}>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    Profile at boot
+                  </Typography>
+                </HelpTip>
               </TableCell>
             </TableRow>
           </TableHead>

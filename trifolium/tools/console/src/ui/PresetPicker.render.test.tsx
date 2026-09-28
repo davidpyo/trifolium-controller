@@ -80,3 +80,39 @@ describe("which boards the picker offers", () => {
     expect(labels).toContain("live_board");
   });
 });
+
+describe("the blaster configs", () => {
+  /** Whether the picker offers a blaster config, mounted with or without a way to apply one. */
+  async function offersBlasters(onApplyBlaster?: () => void): Promise<boolean> {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <PresetPicker
+          busy={false}
+          onApply={() => {}}
+          onApplyBlaster={onApplyBlaster}
+          onCustom={() => {}}
+        />,
+      );
+    });
+    // A select's label is not a <label>, so the dropdown is found by the name it is announced by.
+    const offered = [...host.querySelectorAll('[role="combobox"]')].some(
+      (box) => document.getElementById(box.getAttribute("aria-labelledby") ?? "")?.textContent === "Blaster config",
+    );
+    await act(async () => root.unmount());
+    host.remove();
+    return offered;
+  }
+
+  it("are offered on a device with no wiring", async () => {
+    expect(await offersBlasters(() => {})).toBe(true);
+  });
+
+  it("are not offered when the picker is opened to change a wiring", async () => {
+    // A config replaces every setting and profile, which is not what "change" beside the wiring
+    // name promises.
+    expect(await offersBlasters()).toBe(false);
+  });
+});

@@ -1,0 +1,163 @@
+# Publishes the firmware and the console from main.
+#
+# tests:   ci.yml, first. Nothing below runs unless it passes, except a site-only run, which builds
+#          nothing new.
+# release: when trifolium/src/global.h declares a version with no release yet, builds it with
+#          tools/release.py in this clean checkout and makes a release of the .uf2. Firmware only -
+#          the console is not a release file.
+# site:    on every run, builds the console from source and deploys the Pages site: the console,
+#          its offline copy, and every release's .uf2 for the console's firmware list
+#          (tools/build_site.py). Pages must be set to deploy from GitHub Actions.
+#
+# The site copies the releases as they are when it deploys, so a release published, edited or
+# deleted by hand has to redeploy it. A release event runs on the release's tag, which Pages will
+# not deploy from, so `refresh` asks for a site-only run on the default branch instead - a deleted
+# release is never rebuilt. Releases this workflow makes do not trigger it again: its token's events
+# start no workflows, a dispatch being the one exception.
+
+name: Release and site
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published, edited, deleted]
+  workflow_dispatch:
+    inputs:
+      site_only:
+        description: Redeploy the site without building or releasing anything
+        type: boolean
+        default: false
+
+permissions: {}
+
+# One run at a time, and never cut short: a release half made is worse than one made late.
+concurrency:
+  group: release-and-site
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Redeploy the site from the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh workflow run release-and-site.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
+            -f site_only=true
+
+  tests:
+    if: github.event_name != 'release' && !inputs.site_only
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release:
+    needs: tests
+    if: github.event_name != 'release' && !inputs.site_only
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Version
+        id: version
+        run: echo "version=$(python3 trifolium/tools/release.py --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Already released?
+        id: released
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG is already released - nothing to build"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.released.outputs.exists == 'false'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - if: steps.released.outputs.exists == 'false'
+        uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('trifolium/platformio.ini') }}
+
+      - name: Build
+        if: steps.released.outputs.exists == 'false'
+        run: |
+          pip install platformio==6.2.0
+          python trifolium/tools/release.py
+
+      - name: Release
+        if: steps.released.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --generate-notes trifolium/release/*.uf2
+
+  site:
+    needs: [tests, release]
+    # After the tests and the release job, or in their place on a site-only run - never after a
+    # failed test or build. A release skipped because the tests failed reads as skipped too, hence
+    # the tests' own result.
+    if: >-
+      ${{ github.event_name != 'release' && !cancelled() &&
+      (needs.tests.result == 'success' || needs.tests.result == 'skipped') &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/configure-pages@v6
+        id: pages
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: trifolium/tools/console/package-lock.json
+
+      - name: Build the console
+        working-directory: trifolium/tools/console
+        env:
+          TRIFOLIUM_BUILD_COMMIT: ${{ github.sha }}
+          TRIFOLIUM_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+          TRIFOLIUM_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Assemble the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIFOLIUM_BUILD_COMMIT: ${{ github.sha }}
+        run: python3 trifolium/tools/build_site.py --console trifolium/tools/console/dist/index.html --out _site
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - uses: actions/deploy-pages@v5
+        id: deploy

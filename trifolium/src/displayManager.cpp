@@ -1,4 +1,5 @@
 #include "displayManager.h"
+#include "serialLock.h"
 #include "bitmaps.h"
 #include "bootStatus.h"
 #include "splashStore.h"
@@ -25,6 +26,7 @@ bool DisplayManager::begin(bool rotateDisplay, uint8_t brightness, TwoWire* bus)
     {
         hasDisplay_ = false;
         BootStatus::recordDisplay(true, false, "no i2c on this board");
+        SerialHold hold;
         Serial.println("{\"evt\":\"display\",\"ok\":false,\"err\":\"no i2c on this board\"}");
         return false;
     }
@@ -38,6 +40,7 @@ bool DisplayManager::begin(bool rotateDisplay, uint8_t brightness, TwoWire* bus)
     {
         hasDisplay_ = false;
         BootStatus::recordDisplay(true, false, "no ack at 0x3C");
+        SerialHold hold;
         Serial.println("{\"evt\":\"display\",\"ok\":false,\"err\":\"no ack at 0x3C\"}");
         return false;
     }
@@ -48,6 +51,7 @@ bool DisplayManager::begin(bool rotateDisplay, uint8_t brightness, TwoWire* bus)
     {
         hasDisplay_ = false;
         BootStatus::recordDisplay(true, false, "framebuffer alloc");
+        SerialHold hold;
         Serial.println("{\"evt\":\"display\",\"ok\":false,\"err\":\"framebuffer alloc\"}");
         return false;
     }

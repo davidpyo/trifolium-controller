@@ -1,0 +1,203 @@
+# Tests every pull request, and any branch on request (Actions > CI > Run workflow). On main,
+# release-and-site.yml runs it as its first job, and nothing is released or deployed unless it
+# passes.
+#
+# console:   the web console's unit tests, build and smoke test.
+# firmware:  the pico build, the static checkers and the release tooling's self-tests.
+# simulator: the simulator suite, the console in Chromium and check_schema.py on its capture
+#            included. On Windows with the MinGW the simulator is built against: it relies on a
+#            32-bit long, as on the RP2040, and on a static libstdc++ for its heap count.
+
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: trifolium/tools/console/package-lock.json
+
+      - name: Test, build and smoke-test the console
+        working-directory: trifolium/tools/console
+        run: |
+          npm ci
+          npm run verify
+
+  firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: trifolium
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Restored here and saved as soon as it is filled, so a failing check does not cost the next
+      # run the downloads: a plain actions/cache only saves when the whole job passes.
+      - uses: actions/cache/restore@v6
+        id: platformio
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('trifolium/platformio.ini') }}
+
+      # The simulator's packages too, which check_deps.py holds to their pins alongside pico's.
+      - name: Build the firmware
+        run: |
+          pip install platformio==6.2.0
+          pio run -e pico
+          pio pkg install -e sim
+
+      - if: steps.platformio.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.platformio
+          key: ${{ steps.platformio.outputs.cache-primary-key }}
+
+      - name: Checkers
+        run: |
+          python tools/check_deps.py
+          python tests/checks/check_keys.py
+          python tests/checks/check_bundle.py
+          python tests/checks/check_bundle.py --presets
+          python tests/checks/check_reset.py
+          python tests/checks/check_visibility.py
+
+      - name: The checkers' and the release tooling's self-tests
+        run: |
+          python tools/check_deps.py --self-test
+          python tools/release.py --self-test
+          python tests/checks/check_bundle.py --self-test
+          python tests/checks/check_reset.py --self-test
+          python tests/checks/check_visibility.py --self-test
+
+  simulator:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+    # bash stops at the first failing command; pwsh would only check the last.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: trifolium/tools/console/package-lock.json
+
+      # Both caches are saved as soon as they are filled, as in the firmware job.
+      - uses: actions/cache/restore@v6
+        id: platformio
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('trifolium/platformio.ini') }}
+
+      # The winlibs build the simulator is developed with, pinned by hash.
+      - uses: actions/cache/restore@v6
+        id: mingw
+        with:
+          path: C:\winlibs
+          key: winlibs-14.2.0posix-19.1.1-12.0.0-ucrt-r2
+
+      - name: Fetch MinGW
+        if: steps.mingw.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/brechtsanders/winlibs_mingw/releases/download/" +
+                 "14.2.0posix-19.1.1-12.0.0-ucrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-mingw-w64ucrt-12.0.0-r2.7z"
+          Invoke-WebRequest $url -OutFile winlibs.7z
+          $hash = (Get-FileHash winlibs.7z -Algorithm SHA256).Hash
+          if ($hash -ne "e8751bcad522ee112fbc197e6224c67811df6d039cf400269135eff0dad8cf0c") {
+            throw "winlibs.7z has SHA-256 $hash, not the pinned one"
+          }
+          7z x winlibs.7z -oC:\winlibs | Out-Null
+
+      - if: steps.mingw.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: C:\winlibs
+          key: ${{ steps.mingw.outputs.cache-primary-key }}
+
+      - name: Put MinGW first on PATH
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_PATH "C:\winlibs\mingw64\bin"
+
+      - name: Install the tools
+        run: |
+          pip install platformio==6.2.0 -r trifolium/tests/requirements.txt
+          python -m playwright install chromium
+          cd trifolium
+          pio pkg install -e pico
+          pio pkg install -e sim
+          gcc --version
+
+      - if: steps.platformio.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.platformio
+          key: ${{ steps.platformio.outputs.cache-primary-key }}
+
+      - name: Build the console the browser tests load
+        working-directory: trifolium/tools/console
+        run: |
+          npm ci
+          npm run build
+
+      - name: The suite
+        working-directory: trifolium/tests
+        run: python -m pytest -n auto -ra --junitxml=junit.xml
+
+      # Each failure as an annotation: on the run's page, and readable through the checks API
+      # without signing in, where the log is not.
+      - name: Annotate the failures
+        if: failure()
+        working-directory: trifolium/tests
+        shell: python
+        run: |
+          import os
+          import re
+          import xml.etree.ElementTree as ET
+
+          def escape(text, prop=False):
+              text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+          if not os.path.exists("junit.xml"):
+              print("::error::The suite stopped before any test ran - see its log")
+          for case in ET.parse("junit.xml").iter("testcase") if os.path.exists("junit.xml") else []:
+              for bad in case.findall("failure") + case.findall("error"):
+                  # The failing line, the error's opening lines and where it was raised - not a
+                  # browser test's page dump, which is most of the rest.
+                  lines = re.sub(r"(?:\x1b|#x1B)\[[0-9;]*m", "", bad.text or "").splitlines()
+                  text = "\n".join([bad.get("message") or ""]
+                                   + [l for l in lines if l.startswith(">")]
+                                   + [l for l in lines if l.startswith("E ")][:40]
+                                   + [l for l in lines if re.match(r"\S+\.py:\d+:", l)][-3:])
+                  title = f"{case.get('classname')}.{case.get('name')}"
+                  print(f"::error title={escape(title, True)}::{escape(text[:6000])}")

@@ -76,7 +76,12 @@ const reason = (e: unknown): string => (e instanceof Error ? e.message : String(
  */
 export async function requestBootDevice(): Promise<USBDevice> {
   const usb = navigator.usb;
-  if (!usb) throw new FlashError("This browser has no WebUSB. Use Chrome or Edge on desktop.", false);
+  if (!usb) {
+    throw new FlashError(
+      "This browser has no WebUSB. Use Chrome or Edge on a computer, or Chrome on Android.",
+      false,
+    );
+  }
 
   let device: USBDevice;
   try {

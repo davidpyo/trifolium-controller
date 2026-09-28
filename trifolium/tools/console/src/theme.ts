@@ -13,6 +13,31 @@ const fontStack = [
   "sans-serif",
 ].join(",");
 
+// MUI picks an option when the press that opened a list is released over it, and the list opens
+// touching the field, so a slow click that drifts a few pixels picks one by accident. MUI makes that
+// pick by clicking the option during the release; a release with no press inside the list is the
+// tell. A click in the list, or Enter on an option, has no such release and passes.
+let pressedInList = false;
+let releasedWithoutPress = false;
+const noPickOnOpeningRelease = {
+  onMouseDownCapture: () => {
+    pressedInList = true;
+  },
+  onMouseLeave: () => {
+    pressedInList = false;
+  },
+  onMouseUpCapture: () => {
+    releasedWithoutPress = !pressedInList;
+    pressedInList = false;
+    setTimeout(() => {
+      releasedWithoutPress = false; // for this release's click only
+    });
+  },
+  onClickCapture: (event: React.MouseEvent) => {
+    if (releasedWithoutPress) event.stopPropagation();
+  },
+};
+
 export const buildTheme = (mode: "light" | "dark") =>
   createTheme({
     palette: {
@@ -31,6 +56,11 @@ export const buildTheme = (mode: "light" | "dark") =>
         },
       },
       MuiTextField: { defaultProps: { size: "small" } },
-      MuiSelect: { defaultProps: { size: "small" } },
+      MuiSelect: {
+        defaultProps: {
+          size: "small",
+          MenuProps: { slotProps: { list: noPickOnOpeningRelease } },
+        },
+      },
     },
   });
