@@ -39,6 +39,13 @@ export interface PresetFile {
   notes?: string[];
   /** Board ids a device may still report from the firmware that had a board table. */
   aliases?: string[];
+  /**
+   * The board whose wiring diagram this one uses, for a board that is the same physical design as
+   * another and has no drawing of its own. Not an alias: aliases are ids a device may report, and
+   * this is which boards look alike - v1.3 is its own board with its own wiring, it just looks like
+   * v1.2.
+   */
+  diagram?: string;
   /** A board no longer offered, kept so a device that stored its id is still recognised. */
   retired?: boolean;
   /** `telem` and `escADC`, recorded so the information is not lost. Nothing reads them. */
@@ -55,6 +62,8 @@ export interface Preset {
   notes: string[];
   /** Ids this board answers to besides its own. */
   aliases: string[];
+  /** The board whose drawing this one shares, where it has none of its own. */
+  diagram?: string;
   /** Recognised, but not offered in the picker. */
   retired: boolean;
   /** The wiring keys alone, with the descriptive ones filtered out. */
@@ -70,7 +79,7 @@ export const PRESET_KIND = "trifolium-wiring-preset";
  * one thing the format asks anyone to remember.
  */
 const DESCRIPTIVE_KEYS = new Set(["kind", "presetVersion", "id", "name", "notes", "unread",
-                                  "schemaVersion", "aliases", "retired"]);
+                                  "schemaVersion", "aliases", "diagram", "retired"]);
 
 /** `device:boardId` - provenance the device stores and echoes but never interprets. */
 export const BOARD_ID_KEY = "device:boardId";
@@ -92,6 +101,7 @@ function collect(): Preset[] {
       schemaVersion: file.schemaVersion ?? 0,
       notes: (file.notes as string[]) ?? [],
       aliases: (file.aliases as string[]) ?? [],
+      diagram: typeof file.diagram === "string" ? file.diagram : undefined,
       retired: file.retired === true,
       wiring,
     });

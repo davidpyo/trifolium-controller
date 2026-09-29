@@ -11,7 +11,9 @@ import Divider from "@mui/material/Divider";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import LinearProgress from "@mui/material/LinearProgress";
 import Link from "@mui/material/Link";
+import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import {
   ActivationLost,
@@ -22,7 +24,9 @@ import {
   webUsbSupported,
   type FlashProgress,
 } from "../flash/flash";
-import { formatSize, parseUf2, type FlashImage } from "../flash/uf2";
+import { formatSize, parseUf2, writesSettings, type FlashImage } from "../flash/uf2";
+import { BUILD } from "../build";
+import { fetchRelease, fetchReleaseList, type FirmwareRelease } from "../firmware/releases";
 import type { LogKind } from "../serial/transport";
 import { DropLabel, dropOutlineSx, useFileDrop } from "./FileDrop";
 import { HelpSection, Para, Step, Steps } from "./Help";
@@ -41,16 +45,8 @@ import { HelpSection, Para, Step, Steps } from "./Help";
  * so the backup gate is precaution rather than recovery: either save one here, or say you have one.
  */
 
-/**
- * Where a new .uf2 comes from. The project's own releases rather than a fork's: this console ships
- * as the project's tool, and the firmware it configures is the firmware published there.
- *
- * An absolute URL rather than a path beside the console, because the console is a single file that
- * is meant to work from `file://` as much as from a host - a relative link would 404 for everyone
- * who saved a copy, which is most people. The page it opens is the release list, not a direct
- * download, so the user picks the build that matches their board and reads the notes on the way.
- */
-const FIRMWARE_URL = "https://github.com/davidpyo/trifolium-controller/releases/latest";
+/** The releases' notes, for the build this console came from. */
+const RELEASE_NOTES_URL = `${BUILD.repoUrl}/releases`;
 const ZADIG_URL = "https://zadig.akeo.ie/";
 
 /** Shared by the picker and the drop zone. A .uf2 has no type of its own on most platforms. */
@@ -97,6 +93,21 @@ export function FlashDialog(props: FlashDialogProps) {
   const [device, setDevice] = React.useState<USBDevice | null>(null);
   /** True once the erase has gone through: the board has no firmware to fall back on. */
   const [partial, setPartial] = React.useState(false);
+  /** The site's released firmware; null until the list arrives. */
+  const [releases, setReleases] = React.useState<FirmwareRelease[] | null>(null);
+  const [releasesError, setReleasesError] = React.useState("");
+  const [chosenTag, setChosenTag] = React.useState("");
+  const [fetching, setFetching] = React.useState(false);
+
+  React.useEffect(() => {
+    let current = true;
+    fetchReleaseList(BUILD.siteUrl)
+      .then((list) => current && setReleases(list))
+      .catch((e: Error) => current && setReleasesError(e.message));
+    return () => {
+      current = false;
+    };
+  }, []);
 
   const supported = webUsbSupported();
   const running = stage === "flashing";
@@ -113,6 +124,28 @@ export function FlashDialog(props: FlashDialogProps) {
       const text = (e as Error).message;
       setFileError(`${file.name}: ${text}`);
       onLog("err", `${file.name}: ${text}`);
+    }
+  };
+
+  const onRelease = async (tag: string) => {
+    const release = releases?.find((r) => r.tag === tag);
+    if (!release) return;
+    setChosenTag(tag);
+    setFileError("");
+    setImage(null);
+    const name = `v${release.version} (${release.file.split("/").pop()})`;
+    setFileName(name);
+    setFetching(true);
+    try {
+      const parsed = parseUf2(await fetchRelease(BUILD.siteUrl, release));
+      setImage(parsed);
+      onLog("ok", `${name}: ${formatSize(parsed.data.length)} over ${parsed.blocks} blocks, checksum verified.`);
+    } catch (e) {
+      const text = (e as Error).message;
+      setFileError(text);
+      onLog("err", text);
+    } finally {
+      setFetching(false);
     }
   };
 
@@ -241,7 +274,7 @@ export function FlashDialog(props: FlashDialogProps) {
           <DropLabel over={over} label="Drop a .uf2 here" />
           {!supported && (
             <Alert severity="error" sx={{ py: 0.5 }}>
-              This browser has no WebUSB. Use Chrome or Edge on desktop.
+              This browser has no WebUSB. Use Chrome or Edge on a computer, or Chrome on Android.
             </Alert>
           )}
 
@@ -249,10 +282,14 @@ export function FlashDialog(props: FlashDialogProps) {
             <>
               {/* Not "this erases your config": the wiring and profiles live in LittleFS above
                   the firmware, so an ordinary image does not reach them. What does reach them is a
-                  full-chip erase image, and a firmware whose schema refuses the stored shape. */}
+                  full-chip erase image, a firmware whose schema refuses the stored shape, and a
+                  factory image, which carries a settings area of its own and says so here. */}
               <Alert severity="warning" sx={{ py: 0.5 }}>
-                This replaces the firmware. Wiring, tuning and profiles are kept. Take a full
-                backup first.
+                {image && writesSettings(image)
+                  ? "This image carries its own config: flashing it replaces the wiring, tuning " +
+                    "and profiles on this blaster. Take a full backup first."
+                  : "This replaces the firmware. Wiring, tuning and profiles are kept. Take a " +
+                    "full backup first."}
               </Alert>
               <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <Button
@@ -279,11 +316,48 @@ export function FlashDialog(props: FlashDialogProps) {
                 />
               </Stack>
 
-              {/* Get a file, then pick it: downloading and flashing are one task, so the link
-                  sits beside the picker rather than in the header. */}
+              <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                <TextField
+                  select
+                  size="small"
+                  label="Released firmware"
+                  value={chosenTag}
+                  disabled={!releases?.length || fetching}
+                  onChange={(e) => void onRelease(e.target.value)}
+                  sx={{ minWidth: 210 }}
+                >
+                  {(releases ?? []).map((r, i) => (
+                    <MenuItem key={r.tag} value={r.tag} sx={{ fontSize: 13 }}>
+                      v{r.version}
+                      {i === 0 ? " (latest)" : ""}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <Button
+                  size="small"
+                  component="a"
+                  href={RELEASE_NOTES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Release notes
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  {fetching
+                    ? "Downloading..."
+                    : releasesError
+                      ? `Releases unavailable: ${releasesError}`
+                      : releases === null
+                        ? "Reading the release list..."
+                        : releases.length === 0
+                          ? "No releases listed yet."
+                          : ""}
+                </Typography>
+              </Stack>
+
               <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <Button size="small" variant="outlined" component="label">
-                  {image ? "Choose a different .uf2" : "Choose a .uf2 file"}
+                  {image ? "Choose a different .uf2" : "Or choose a .uf2 file"}
                   <input
                     type="file"
                     accept={UF2_ACCEPT.join(",")}
@@ -294,15 +368,6 @@ export function FlashDialog(props: FlashDialogProps) {
                       if (file) void onFile(file);
                     }}
                   />
-                </Button>
-                <Button
-                  size="small"
-                  component="a"
-                  href={FIRMWARE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Download Firmware
                 </Button>
                 <Typography variant="caption" color="text.disabled">
                   or drop one here
@@ -439,7 +504,7 @@ function DragDropHelp() {
         is the fallback when the steps above do not get you connected.
       </Para>
       <Steps>
-        <Step>Download the .uf2 with the link at the top of this dialog.</Step>
+        <Step>Download the .uf2 from the Releases page - the Release notes link above.</Step>
         <Step>
           Put the blaster in Bootloader mode using one of the methods described above.
         </Step>

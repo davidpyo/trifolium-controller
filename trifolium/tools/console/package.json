@@ -10,7 +10,7 @@
     "serve": "vite preview",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "smoke": "node scripts/smoke.mjs ../serial-config.html",
+    "smoke": "node scripts/smoke.mjs dist/index.html",
     "verify": "npm run test && npm run build && npm run smoke"
   },
   "dependencies": {

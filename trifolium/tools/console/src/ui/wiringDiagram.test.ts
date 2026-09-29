@@ -5,7 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { Schema } from "../schema/types";
-import { diagramForBoardId, markersIn } from "../schema/wiringDiagrams";
+import { PRESETS } from "../schema/presets";
+import { aspectOf, diagramForBoardId, markersIn } from "../schema/wiringDiagrams";
 import {
   connectorKind,
   matchDiagramPins,
@@ -23,6 +24,27 @@ import deviceJson from "../fixtures/device.json";
 const schema = schemaJson as unknown as Schema;
 const rows = collectWiring(schema);
 const gpiosOf = (device: unknown) => matchDiagramPins(rows, device).map((m) => m.gpio).sort((a, b) => a - b);
+
+describe("aspectOf", () => {
+  it("is the art's width over its height, from its viewBox", () => {
+    expect(aspectOf('<svg viewBox="0 0 635 1127" width="635">')).toBeCloseTo(635 / 1127);
+    expect(aspectOf('<svg xmlns="x" viewBox="4000.2 3587 119.3 342" >')).toBeCloseTo(119.3 / 342);
+    expect(aspectOf("<svg viewBox='0,0,200,100'>")).toBeCloseTo(2);
+  });
+
+  it("falls back to the width and height when there is no viewBox", () => {
+    expect(aspectOf('<svg width="300" height="600">')).toBeCloseTo(0.5);
+  });
+
+  it("is NaN for art it cannot size, so the diagram keeps its full width", () => {
+    expect(aspectOf("<svg>")).toBeNaN();
+    expect(aspectOf('<svg viewBox="0 0 100 0">')).toBeNaN();
+  });
+
+  it("is carried on every loaded diagram", () => {
+    expect(diagramForBoardId("trifolium_v1_2")?.aspect).toBeCloseTo(635 / 1127);
+  });
+});
 
 describe("markersIn", () => {
   it("collects every marked pin", () => {
@@ -164,6 +186,44 @@ describe("stack", () => {
     for (const group of stack(many, "left", 200)) {
       expect(group[0].labelY).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  // A label too long for its column wraps, and the rows after it have to clear what it really
+  // takes up rather than one line of it.
+  const ONE_LINE = 14.4;
+  const heights: Record<string, number> = { "Battery -": 2 * ONE_LINE };
+  const heightOf = (p: Placement) => heights[p.label] ?? ONE_LINE;
+  const clearance = (upper: Placement, lower: Placement) =>
+    lower.labelY - heightOf(lower) / 2 - (upper.labelY + heightOf(upper) / 2);
+
+  it("gives a wrapped label the room it takes, within a plug", () => {
+    const plug = [
+      at("ESC +", 106, 100, "Power"),
+      at("Battery -", 106, 104, "Power"),
+      at("Solenoid 2", 106, 108, "Power"),
+    ];
+    const [group] = stack(plug, "left", 900, heightOf);
+    expect(group.map((p) => p.label)).toEqual(["ESC +", "Battery -", "Solenoid 2"]);
+    for (let i = 1; i < group.length; i++) {
+      expect(clearance(group[i - 1], group[i])).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+
+  it("gives a wrapped label the room it takes, between plugs", () => {
+    const groups = stack(
+      [at("Battery -", 106, 100, "Power"), at("S0", 106, 104, "Select")],
+      "left",
+      900,
+      heightOf,
+    );
+    expect(clearance(groups[0][0], groups[1][0])).toBeGreaterThan(10);
+  });
+
+  it("spaces one-line labels exactly as it did before they were measured", () => {
+    const rows = () => [at("a", 106, 100, "P"), at("b", 106, 104, "P"), at("c", 106, 108, "Q")];
+    const measured = stack(rows(), "left", 900, () => ONE_LINE).flat().map((p) => p.labelY);
+    const unmeasured = stack(rows(), "left", 900).flat().map((p) => p.labelY);
+    expect(measured).toEqual(unmeasured);
   });
 });
 
@@ -318,6 +378,16 @@ describe("diagramForBoardId", () => {
   it("gives v1.3 and v1.4 the drawing of the board they are", () => {
     expect(diagramForBoardId("trifolium_v1_3")?.boardId).toBe("trifolium_v1_2");
     expect(diagramForBoardId("trifolium_v1_4")?.boardId).toBe("trifolium_v1_2");
+  });
+
+  it("finds a board's drawing by an id the board answers to as well as its own", () => {
+    expect(diagramForBoardId("trifolium_v1_3_fet")?.boardId).toBe("trifolium_v1_2");
+  });
+
+  it("finds a drawing for every board that names one to share", () => {
+    for (const preset of PRESETS.filter((p) => p.diagram)) {
+      expect(diagramForBoardId(preset.diagram)?.boardId, preset.id).toBe(preset.diagram);
+    }
   });
 
   it("gives v1.1 its own drawing, not the one it is not", () => {

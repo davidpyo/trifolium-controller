@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4000.2 3587 119.3 342"
+     preserveAspectRatio="xMidYMid meet">
+
+  <metadata>
+
+    <pin data-gpio="0" data-internal="pusherFetPin" />
+    <pin data-gpio="27" data-internal="ledDataPin" />
+    <pin data-gpio="28" data-internal="batteryAdcPin" />
+  </metadata>
+
+  <g fill="rgba(0,229,255,0.25)" stroke="#00e5ff" stroke-width="0.7">
+
+    <g data-connector="LED connector">
+      <circle cx="4032" cy="3628" r="2.4" data-pin="VCC" data-label="LED +5V" />
+      <circle cx="4032" cy="3635" r="2.4" data-pin="GND" data-label="LED switched return" />
+    </g>
+
+    <g data-connector="I2C connector">
+      <rect x="4098" y="3718.0" width="8" height="2" data-pin="VCC" data-label="VCC to I2C" />
+      <rect x="4098" y="3714.0" width="8" height="2" data-gpio="15" />
+      <rect x="4098" y="3710.0" width="8" height="2" data-gpio="14" />
+      <rect x="4098" y="3706.0" width="8" height="2" data-pin="GND" data-label="GND to I2C" />
+    </g>
+
+    <g data-connector="ESC signals">
+      <circle cx="4053" cy="3791.5" r="3.4" data-gpio="2" />
+      <circle cx="4063" cy="3791.5" r="3.4" data-gpio="1" />
+    </g>
+
+
+    <g data-connector="Power and Solenoid">
+      <rect x="4010.5" y="3796.75" width="12" height="16" data-pin="GND" data-label="ESC +" />
+      <rect x="4097" y="3796.75" width="12" height="16" data-pin="GND" data-label="ESC -" />
+      <rect x="4050" y="3813" width="12" height="16" data-pin="GND" data-label="Battery −" />
+      <rect x="4011" y="3817" width="15.5" height="17" data-pin="VCC" data-label="ESC + and Solenoid 2" />
+      <rect x="4097" y="3816.5" width="12" height="16" data-pin="VCC" data-label="ESC +" />
+      <rect x="4066.5" y="3813" width="12" height="20" data-pin="VCC" data-label="Battery +" />
+      <rect x="4018.5" y="3837.5" width="8" height="23" data-pin="SOL" data-label="Solenoid 1" />
+    </g>
+
+    <g data-connector="P1 control connector">
+      <circle cx="4045.72" cy="3867.87" r="2.2" data-gpio="3" />
+      <circle cx="4049.65" cy="3867.87" r="2.2" data-gpio="4" />
+      <circle cx="4053.59" cy="3867.87" r="2.2" data-gpio="5" />
+      <circle cx="4057.52" cy="3867.87" r="2.2" data-pin="GND" />
+      <circle cx="4061.47" cy="3867.87" r="2.2" data-pin="GND" />
+      <circle cx="4065.40" cy="3867.87" r="2.2" data-gpio="6" />
+      <circle cx="4069.34" cy="3867.87" r="2.2" data-pin="GND" />
+      <circle cx="4073.28" cy="3867.87" r="2.2" data-gpio="7" />
+    </g>
+  </g>
+</svg>

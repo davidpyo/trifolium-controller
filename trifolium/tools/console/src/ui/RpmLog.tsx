@@ -18,6 +18,7 @@ import {
   MS_PER_SAMPLE,
   parseRpmCsv,
   targetCrossings,
+  wholeRows,
 } from "../rpm/parse";
 import { getByKey } from "../schema/keyPath";
 import { walk, type Schema, type SchemaNode } from "../schema/types";
@@ -81,12 +82,12 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
     return CAPTURE_KEYS.map((k) => found.get(k)).filter((n): n is SchemaNode => n !== undefined);
   }, [schema]);
 
-  const parsed = React.useMemo(() => {
-    if (!text.trim()) return null;
-    const csv = extractRpmCsv(text);
-    if (!csv) return null;
-    return parseRpmCsv(csv);
+  // The box shows the capture as it arrived; the chart and the saved CSV take only its whole rows.
+  const whole = React.useMemo(() => {
+    const csv = text.trim() ? extractRpmCsv(text) : null;
+    return csv ? wholeRows(csv) : null;
   }, [text]);
+  const parsed = React.useMemo(() => (whole ? parseRpmCsv(whole.csv) : null), [whole]);
 
   const series: Series[] = React.useMemo(() => {
     if (!parsed?.motors.length) return [];
@@ -169,8 +170,8 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
     setError(null);
   };
 
-  /** The CSV as it would be saved: what was extracted, not the raw box contents. */
-  const csvOut = React.useMemo(() => (text.trim() ? extractRpmCsv(text) : null), [text]);
+  /** The CSV as it would be saved: the whole rows extracted, not the raw box contents. */
+  const csvOut = whole?.csv ?? null;
 
   const saveCsv = () => {
     if (!csvOut) return;
@@ -266,6 +267,13 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
       {error && (
         <Alert severity="info" sx={{ py: 0 }}>
           {error}
+        </Alert>
+      )}
+
+      {whole && whole.dropped > 0 && (
+        <Alert severity="warning" sx={{ py: 0 }}>
+          {whole.dropped} {whole.dropped === 1 ? "row" : "rows"} of this capture arrived damaged
+          and {whole.dropped === 1 ? "is" : "are"} left out of the chart and the saved CSV.
         </Alert>
       )}
 

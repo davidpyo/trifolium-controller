@@ -7,3 +7,4 @@
 logs
 config_dumps
 release
+.pytest_cache/

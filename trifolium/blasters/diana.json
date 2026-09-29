@@ -1,14 +1,25 @@
 {
   "kind": "trifolium-config",
   "bundleVersion": 1,
-  "savedAt": "2026-09-13T00:00:00.000Z",
-  "fw": "2.0.1",
-  "board": "diana_v1_0",
+  "savedAt": "2026-09-27T16:07:08.275Z",
+  "fw": "2.1.0",
+  "board": "diana_v1_1",
   "deviceSchemaVersion": 3,
   "profileSchemaVersion": 2,
   "device": {
     "schemaVersion": 3,
-    "boardId": "diana_v1_0",
+    "boardId": "diana_v1_1",
+    "wiringConfigured": true,
+    "escPins": [
+      1,
+      2,
+      255,
+      255
+    ],
+    "i2cSdaPin": 14,
+    "i2cSclPin": 15,
+    "batteryAdcPin": 28,
+    "escEnablePin": 255,
     "hasDisplay": false,
     "rotateDisplay": true,
     "blasterName": "Diana",
@@ -17,6 +28,7 @@
     "revSwitchPin": 255,
     "cycleSwitchPin": 255,
     "idleSwitchPin": 7,
+    "safetySwitchPin": 255,
     "select0Pin": 3,
     "select1Pin": 4,
     "select2Pin": 5,
@@ -24,6 +36,7 @@
     "triggerSwitchNormallyClosed": false,
     "cycleSwitchNormallyClosed": false,
     "idleSwitchNormallyClosed": false,
+    "safetySwitchNormallyClosed": false,
     "menuButtonNormallyClosed": false,
     "pusherReverseDirection": false,
     "dualStageTrigger": false,
@@ -108,80 +121,12 @@
     "batteryType": "4s",
     "lowVoltageCutoffPerCell_mv": 3500,
     "lowVoltageWarningPerCell_mv": 3800,
-    "voltageCalibrationFactor": 1.0,
+    "voltageCalibrationFactor": 1,
     "selectFireType": "switch",
     "variableFPS": true,
-    "defaultProfileIndex": 1,
-    "wiringConfigured": true,
-    "escPins": [
-      1,
-      2,
-      255,
-      255
-    ],
-    "i2cSdaPin": 255,
-    "i2cSclPin": 255,
-    "batteryAdcPin": 28,
-    "escEnablePin": 255
+    "defaultProfileIndex": 1
   },
   "profiles": [
-    {
-      "schemaVersion": 2,
-      "name": "Low",
-      "revRPM": [
-        50000,
-        50000,
-        0,
-        0
-      ],
-      "dwellTime_ms": 500,
-      "idleTime_ms": 0,
-      "idleRPM": [
-        10000,
-        10000,
-        10000,
-        10000
-      ],
-      "spindownSpeed": 100,
-      "revSafetyTimeout_ms": 0,
-      "rpmMode": "stage",
-      "fireModes": [
-        {
-          "name": "",
-          "burstLength": 1,
-          "burstMode": "semi",
-          "targetDPS": 0,
-          "reversible": false,
-          "binaryTriggerTimeout_ms": 2000,
-          "includeInCycle": true
-        },
-        {
-          "name": "",
-          "burstLength": 100,
-          "burstMode": "auto",
-          "targetDPS": 0,
-          "reversible": false,
-          "binaryTriggerTimeout_ms": 2000,
-          "includeInCycle": true
-        },
-        {
-          "name": "",
-          "burstLength": 0,
-          "burstMode": "safe",
-          "targetDPS": 0,
-          "reversible": false,
-          "binaryTriggerTimeout_ms": 2000,
-          "includeInCycle": true
-        }
-      ],
-      "activeModeCount": 3,
-      "defaultFiringMode": 1,
-      "switchPositionAssignment": [
-        0,
-        1,
-        2
-      ]
-    },
     {
       "schemaVersion": 2,
       "name": "Medium",
@@ -194,14 +139,15 @@
       "dwellTime_ms": 500,
       "idleTime_ms": 0,
       "idleRPM": [
-        10000,
-        10000,
+        1000,
+        1000,
         10000,
         10000
       ],
       "spindownSpeed": 100,
       "revSafetyTimeout_ms": 0,
       "rpmMode": "stage",
+      "activeModeCount": 3,
       "fireModes": [
         {
           "name": "",
@@ -231,7 +177,63 @@
           "includeInCycle": true
         }
       ],
+      "defaultFiringMode": 1,
+      "switchPositionAssignment": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "name": "Low",
+      "revRPM": [
+        40000,
+        40000,
+        0,
+        0
+      ],
+      "dwellTime_ms": 500,
+      "idleTime_ms": 0,
+      "idleRPM": [
+        1000,
+        1000,
+        10000,
+        10000
+      ],
+      "spindownSpeed": 100,
+      "revSafetyTimeout_ms": 0,
+      "rpmMode": "stage",
       "activeModeCount": 3,
+      "fireModes": [
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "semi",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 100,
+          "burstMode": "auto",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 0,
+          "burstMode": "safe",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        }
+      ],
       "defaultFiringMode": 1,
       "switchPositionAssignment": [
         0,
@@ -243,22 +245,23 @@
       "schemaVersion": 2,
       "name": "High",
       "revRPM": [
-        50000,
-        50000,
+        60000,
+        60000,
         0,
         0
       ],
       "dwellTime_ms": 500,
       "idleTime_ms": 0,
       "idleRPM": [
-        10000,
-        10000,
-        10000,
-        10000
+        1000,
+        1000,
+        1000,
+        1000
       ],
       "spindownSpeed": 100,
       "revSafetyTimeout_ms": 0,
       "rpmMode": "stage",
+      "activeModeCount": 3,
       "fireModes": [
         {
           "name": "",
@@ -288,7 +291,6 @@
           "includeInCycle": true
         }
       ],
-      "activeModeCount": 3,
       "defaultFiringMode": 1,
       "switchPositionAssignment": [
         0,

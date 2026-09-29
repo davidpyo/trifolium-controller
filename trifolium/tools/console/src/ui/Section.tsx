@@ -12,7 +12,9 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { getByKey } from "../schema/keyPath";
 import { isConfigField, isVisible, needsReboot, type SchemaNode } from "../schema/types";
+import { helpFor } from "../help/settings";
 import { Field, FieldControl } from "./Field";
+import { HelpTip } from "./Help";
 import {
   countFields,
   matrixRows,
@@ -117,9 +119,11 @@ function Matrix({
             <TableRow key={row.label}>
               <TableCell sx={{ ...cellSx, whiteSpace: "nowrap" }}>
                 <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {row.label}
-                  </Typography>
+                  <HelpTip help={helpFor(row.key)}>
+                    <Typography variant="caption" color="text.secondary">
+                      {row.label}
+                    </Typography>
+                  </HelpTip>
                   {needsReboot(row) && (
                     <Tooltip title="Takes effect after a reboot">
                       <Box component="span" sx={{ color: "warning.main", fontSize: 12 }}>

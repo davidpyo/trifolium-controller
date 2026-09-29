@@ -22,6 +22,7 @@ const schema = schemaJson as unknown as Schema;
 const diagram: Diagram = {
   boardId: "test_board",
   artMarkup: '<svg viewBox="0 0 10 10"><rect width="10" height="10" fill="#101010" /></svg>',
+  aspect: 1,
   svgMarkup:
     '<svg viewBox="0 0 10 10"><g fill="#00e5ff" stroke="#00e5ff">' +
     '<circle data-gpio="21" cx="1" cy="1" r="1" /><circle data-gpio="8" cx="5" cy="5" r="1" />' +

@@ -8,6 +8,7 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import { compareVersions } from "../firmware/releases";
 import type { LogLine } from "../serial/transport";
 import { dropOutlineSx, useFileDrop } from "./FileDrop";
 import { LogView } from "./LogView";
@@ -29,6 +30,12 @@ export type LoadIntent = "bundle" | "device" | "profile";
 /** Shared by the hidden picker in App and the header's drop target. */
 export const CONFIG_ACCEPT = [".json", "application/json"] as const;
 
+/**
+ * The first firmware whose log lines wait for a reply to finish instead of landing inside it. Before
+ * it, verbose logging could garble a DUMP_* reply or an ack; from it, verbose is only extra output.
+ */
+const FW_LOGS_WAIT_FOR_REPLIES = "2.1.1";
+
 export interface TopBarProps {
   lines: LogLine[];
   onClearLog: () => void;
@@ -38,6 +45,8 @@ export interface TopBarProps {
   /** Null when nothing is connected. */
   identity: { wiring: string; fw: string } | null;
   supported: boolean;
+  /** The browser shows its picker on every connect, so Choose Device would be a second Connect. */
+  asksEveryTime: boolean;
 
   /** device:blasterName, edited in place. Limits come from its schema node. */
   blasterName: string;
@@ -55,19 +64,23 @@ export interface TopBarProps {
 
   deviceDirty: number;
   profileDirty: number;
+  /** Every staged edit, the other profiles' included. */
+  totalDirty: number;
   profileName: string;
   profileReboots: boolean;
 
   verbose: boolean;
   onToggleVerbose: () => void;
 
-  onConnect: () => void;
+  /** `choose` shows the browser's picker even when one allowed blaster is plugged in. */
+  onConnect: (choose: boolean) => void;
   onDisconnect: () => void;
   onReadAll: () => void;
   onReboot: (mode: "normal" | "bootloader" | "passthrough") => void;
   onReset: (kind: "profile" | "device" | "wiring" | "everything") => void;
   onWriteDevice: () => void;
   onWriteProfile: () => void;
+  onWriteEverything: () => void;
   /** Opens the PICOBOOT flasher. Offline too: a board left in BOOTSEL is reachable from there. */
   onFlashFirmware: () => void;
   onSaveDeviceFile: () => void;
@@ -160,6 +173,7 @@ export function TopBar(props: TopBarProps) {
     busy,
     identity,
     supported,
+    asksEveryTime,
     blasterName,
     nameMaxLen,
     nameCharset,
@@ -168,6 +182,7 @@ export function TopBar(props: TopBarProps) {
     onOpenPresets,
     deviceDirty,
     profileDirty,
+    totalDirty,
     profileName,
     profileReboots,
     verbose,
@@ -179,6 +194,7 @@ export function TopBar(props: TopBarProps) {
     onReset,
     onWriteDevice,
     onWriteProfile,
+    onWriteEverything,
     onFlashFirmware,
     onSaveDeviceFile,
     onSaveProfileFile,
@@ -188,7 +204,11 @@ export function TopBar(props: TopBarProps) {
     onDropReject,
   } = props;
 
-  const totalDirty = deviceDirty + profileDirty;
+  // The connected firmware's version when verbose is on and can still garble replies, else null.
+  const garblingFw =
+    verbose && identity && compareVersions(identity.fw, FW_LOGS_WAIT_FOR_REPLIES) < 0
+      ? identity.fw
+      : null;
 
   const { over, dropProps } = useFileDrop({
     accept: CONFIG_ACCEPT,
@@ -274,20 +294,46 @@ export function TopBar(props: TopBarProps) {
               Disconnect
             </Button>
           ) : (
-            <Tooltip title={supported ? "" : "Web Serial needs Chrome or Edge on desktop"}>
-              <span>
-                <Button
-                  size="small"
-                  variant="contained"
-                  fullWidth
-                  sx={actionSx}
-                  disabled={!supported}
-                  onClick={onConnect}
-                >
-                  Connect
-                </Button>
-              </span>
-            </Tooltip>
+            <Stack direction="row" spacing={0.5}>
+              <Tooltip
+                title={
+                  !supported
+                    ? "Needs Chrome or Edge on a computer, or Chrome on Android"
+                    : asksEveryTime
+                      ? "Pick the blaster from the list. Android asks each time you connect."
+                      : "Opens the blaster this browser already allowed, when it is the only one plugged in. Otherwise asks which."
+                }
+              >
+                <span style={{ display: "flex", flex: 1 }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    fullWidth
+                    sx={actionSx}
+                    disabled={!supported}
+                    onClick={() => onConnect(false)}
+                  >
+                    Connect
+                  </Button>
+                </span>
+              </Tooltip>
+              {!asksEveryTime && (
+                <Tooltip title="Pick from the browser's list: a blaster this browser hasn't used yet, or one of several plugged in">
+                  <span style={{ display: "flex", flex: 1 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      fullWidth
+                      sx={actionSx}
+                      disabled={!supported}
+                      onClick={() => onConnect(true)}
+                    >
+                      Choose Device
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
+            </Stack>
           )}
 
           {/*
@@ -321,6 +367,12 @@ export function TopBar(props: TopBarProps) {
               tooltip={totalDirty ? "" : "No unsaved changes"}
               sx={actionSx}
               actions={[
+                {
+                  label: `Everything${totalDirty ? ` (${totalDirty})` : ""}`,
+                  detail: "The device settings and every profile with changes, in turn",
+                  disabled: totalDirty === 0,
+                  onClick: onWriteEverything,
+                },
                 {
                   label: `Device Config${deviceDirty ? ` (${deviceDirty})` : ""}`,
                   detail: deviceDirty
@@ -497,8 +549,8 @@ export function TopBar(props: TopBarProps) {
           <Tooltip
             title={
               verbose
-                ? "Turn the device's warn/info output back off. It floods the port from the 1 kHz control loop."
-                : "Turn on the device's warn/info output. Not needed for an RPM capture; reboots the blaster either way."
+                ? "Turn the device's warn/info log back off. Reboots the blaster."
+                : "Turn on the device's warn/info log: switch presses, state changes, shots and overrunning loops. Not needed for an RPM capture; reboots the blaster."
             }
           >
             <span>
@@ -518,11 +570,12 @@ export function TopBar(props: TopBarProps) {
         </Stack>
       </Stack>
 
-      {verbose && (
+      {garblingFw && (
         <Box sx={{ mt: 0.5 }}>
           <Typography variant="caption" color="warning.main">
-            Verbose device logging is on — the blaster is printing from its control loop. Turn it off
-            before reading the schema or writing settings.
+            With verbose logging on, firmware {garblingFw} can garble its replies, so a read or write
+            may fail or show stale values. Update to {FW_LOGS_WAIT_FOR_REPLIES} or later to fix it for
+            good, or turn verbose off first.
           </Typography>
         </Box>
       )}

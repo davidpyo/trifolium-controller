@@ -13,7 +13,9 @@ import Typography from "@mui/material/Typography";
 import { asBound, boundsToReal, snapReal, steppedReal, type Band } from "../schema/grid";
 import { isEditable, needsReboot, type SchemaNode } from "../schema/types";
 import { optionIndexFor, optionValueAt } from "../schema/enumValue";
+import { helpFor, optionHelpFor } from "../help/settings";
 import { useIsDirty } from "./dirty";
+import { HelpTip } from "./Help";
 
 export interface FieldProps {
   node: SchemaNode;
@@ -276,12 +278,30 @@ function EnumField({ node, value, onChange }: FieldProps) {
       disabled={!isEditable(node)}
       onChange={(e) => onChange(valueAt(Number(e.target.value)))}
       sx={{ width: "100%", "& .MuiSelect-select": { ...denseInput } }}
+      // Just the name once chosen: an option's description belongs in the open list only.
+      slotProps={{ select: { renderValue: (i) => options[i as number] } }}
     >
-      {options.map((label, i) => (
-        <MenuItem key={label} value={i} sx={{ fontSize: 13 }}>
-          {label}
-        </MenuItem>
-      ))}
+      {options.map((label, i) => {
+        const about = optionHelpFor(node.key, valueAt(i));
+        // Named for the option alone, with the line under it as its description.
+        const aboutId = about ? `${(node.key ?? "").replace(/\W/g, "-")}-about-${i}` : undefined;
+        return (
+          <MenuItem
+            key={label}
+            value={i}
+            aria-label={about ? label : undefined}
+            aria-describedby={aboutId}
+            sx={{ fontSize: 13, ...(about && { display: "block", whiteSpace: "normal", maxWidth: 320 }) }}
+          >
+            {label}
+            {about && (
+              <Typography id={aboutId} component="div" variant="caption" color="text.secondary">
+                {about}
+              </Typography>
+            )}
+          </MenuItem>
+        );
+      })}
     </TextField>
   );
 }
@@ -385,6 +405,16 @@ export function Field(props: FieldProps) {
   const dirty = useIsDirty(node.key);
   const labelColour = dirty ? "error.main" : "text.secondary";
 
+  // A locked field has one tooltip over all of it, saying why, and the help joins that one rather than
+  // opening a second over the label.
+  const editable = isEditable(node);
+  const help = helpFor(node.key);
+  const locked = (field: React.ReactElement) => (
+    <HelpTip lead={node.locked} help={help}>
+      {field}
+    </HelpTip>
+  );
+
   // A checkbox already carries its label, so it takes one line rather than three.
   if (node.kind === "bool") {
     const control = (
@@ -393,31 +423,38 @@ export function Field(props: FieldProps) {
         disableTypography
         label={
           <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-            <Typography variant="caption" color={dirty ? "error.main" : undefined}>
-              {node.label}
-            </Typography>
+            <HelpTip help={editable ? help : undefined}>
+              <Typography variant="caption" color={dirty ? "error.main" : undefined}>
+                {node.label}
+              </Typography>
+            </HelpTip>
             {needsReboot(node) && <RebootMark />}
           </Stack>
         }
         sx={{ m: 0, gap: 0.75, alignSelf: "start" }}
       />
     );
-    return isEditable(node) ? control : <Tooltip title={node.locked ?? ""}>{control}</Tooltip>;
+    return editable ? control : locked(control);
   }
 
   const hint = rangeHint(node);
   const tile = (
     <Box sx={{ minWidth: 0 }}>
       <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", mb: 0.25 }}>
-        <Typography
-          variant="caption"
-          color={labelColour}
-          noWrap
-          title={dirty ? `${node.label} — edited, not yet written` : node.label}
-          sx={{ minWidth: 0, fontWeight: dirty ? 600 : undefined }}
+        {/* Named in full first: a narrow tile cuts the label short. */}
+        <HelpTip
+          lead={editable ? (dirty ? `${node.label} (edited, not yet written)` : node.label) : undefined}
+          help={editable ? help : undefined}
         >
-          {node.label}
-        </Typography>
+          <Typography
+            variant="caption"
+            color={labelColour}
+            noWrap
+            sx={{ minWidth: 0, fontWeight: dirty ? 600 : undefined }}
+          >
+            {node.label}
+          </Typography>
+        </HelpTip>
         {needsReboot(node) && <RebootMark />}
       </Stack>
       <FieldControl {...props} />
@@ -432,5 +469,5 @@ export function Field(props: FieldProps) {
     </Box>
   );
 
-  return isEditable(node) ? tile : <Tooltip title={node.locked ?? ""}>{tile}</Tooltip>;
+  return editable ? tile : locked(tile);
 }

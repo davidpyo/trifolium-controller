@@ -1,6 +1,8 @@
 #pragma once
 #include <Arduino.h>
 
+#include "serialLock.h"
+
 extern bool printTelemetry; // defined in CONFIGURATION.h
 
 // logs "millis() [LEVEL] <args...>" as a single line, e.g. logger.info("shotsToFire ",
@@ -10,7 +12,10 @@ extern bool printTelemetry; // defined in CONFIGURATION.h
 // config, refuses a command, or disables a motor has to be able to say so on a stock unit.
 //
 // warn/info stay gated. Several of them sit in the 1 kHz control loop, where unconditional printing
-// would flood the port and interleave into DUMP_SCHEMA's single-line output.
+// would flood the port.
+//
+// A line is built whole, then handed to SerialLock: printed now, or once the reply the other core is
+// sending has gone out - never inside it, and never waiting for it.
 class Logger
 {
   public:
@@ -29,26 +34,52 @@ class Logger
     }
 
   private:
-    // The gate is checked once here rather than per-part, so a level that is off costs nothing and
-    // a line can never be emitted half-written.
+    // One line, cut short past its buffer.
+    class Line : public Print
+    {
+      public:
+        size_t write(uint8_t c) override
+        {
+            if (len_ < sizeof(buf_) - 2)
+                buf_[len_++] = (char)c;
+            return 1;
+        }
+        void end()
+        {
+            buf_[len_++] = '\r';
+            buf_[len_++] = '\n';
+        }
+        const char* data() const { return buf_; }
+        size_t size() const { return len_; }
+
+      private:
+        char buf_[192];
+        size_t len_ = 0;
+    };
+
+    // The gate is checked once here rather than per-part, so a level that is off costs nothing.
     template <typename... Args> void logLine(bool enabled, const char* level, Args... args)
     {
         if (!enabled)
             return;
-        Serial.print(millis());
-        Serial.print(" [");
-        Serial.print(level);
-        Serial.print("] ");
-        logParts(args...);
-        Serial.println();
+        Line line;
+        line.print(millis());
+        line.print(" [");
+        line.print(level);
+        line.print("] ");
+        logParts(line, args...);
+        line.end();
+        SerialLock::keep(line.data(), line.size());
+        if (SerialLock::tryHold())
+            SerialLock::release();
     }
 
-    template <typename T> void logParts(T value) { Serial.print(value); }
+    template <typename T> void logParts(Print& out, T value) { out.print(value); }
 
-    template <typename T, typename... Rest> void logParts(T first, Rest... rest)
+    template <typename T, typename... Rest> void logParts(Print& out, T first, Rest... rest)
     {
-        Serial.print(first);
-        logParts(rest...);
+        out.print(first);
+        logParts(out, rest...);
     }
 };
 

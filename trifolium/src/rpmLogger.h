@@ -90,9 +90,9 @@ class RpmLogger
         return true;
     }
 
-  private:
     bool armed() const { return targetRpmCache_ != nullptr; }
 
+  private:
     void freeBuffers()
     {
         delete[] targetRpmCache_;

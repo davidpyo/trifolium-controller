@@ -619,6 +619,7 @@ static void runUnconfiguredBoot()
 
 void setup()
 {
+    SerialLock::begin();
     uint8_t passthroughExit = kNoBootButton;
     if (powerOnResetMagicNumber == 0xdeadbeefdeadbeef)
     {
@@ -1568,15 +1569,20 @@ bool fwControlLoop()
 
     logData();
 
-    // Held off while core 1 is mid-command: DUMP_SCHEMA is one very long line written from core 1,
-    // and interleaving corrupts the JSON. Skipping a tick is free - the capture waits.
-    if (!serialCommandBusy && rpmLogger.dumpIfReady(motorsEnabled))
+    // Held off while the port is busy with a reply. Skipping a tick is free - the capture waits.
+    if (rpmLogger.armed() && SerialLock::tryHold())
     {
-        logger.info("RPM log dump complete, rebooting now as part of normal RPM logging - this is "
-                    "expected");
-        Serial.println("{\"evt\":\"rebooting\",\"reason\":\"rpmLog\"}");
-        Serial.flush();
-        rp2040.reboot();
+        const bool dumped = rpmLogger.dumpIfReady(motorsEnabled);
+        SerialLock::release();
+        if (dumped)
+        {
+            logger.info("RPM log dump complete, rebooting now as part of normal RPM logging - this "
+                        "is expected");
+            SerialLock::hold();
+            Serial.println("{\"evt\":\"rebooting\",\"reason\":\"rpmLog\"}");
+            Serial.flush();
+            rp2040.reboot();
+        }
     }
     // update pusher driver
     pusher->update();
@@ -1803,6 +1809,7 @@ static void announceUnconfigured()
     if (lastAnnounce_ms != 0 && millis() - lastAnnounce_ms < 3000)
         return;
     lastAnnounce_ms = millis();
+    SerialHold hold;
     Serial.println("{\"evt\":\"unconfigured\",\"msg\":\"no wiring configured\"}");
 }
 

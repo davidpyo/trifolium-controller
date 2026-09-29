@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trifolium Simulator</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2330; --muted: #5f6b7a; --line: #d9dde3;
+    --accent: #2b6cb0; --held: #c05621; --ok: #2f855a; --warn: #b7791f; --oled: #bfe3ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --ink: #e6e9ee; --muted: #9aa5b4; --line: #2c3340;
+      --accent: #63a4e8; --held: #ed8936; --ok: #68d391; --warn: #f6c453;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 16px;
+           align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  #state { color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(340px, 440px) 1fr; height: calc(100vh - 45px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } #console { height: 90vh; } }
+  #blaster { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;
+             border-right: 1px solid var(--line); }
+  section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  section.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+                    margin: 0 0 8px; }
+  #oled { width: 100%; max-width: 384px; aspect-ratio: 2 / 1; image-rendering: pixelated; background: #000;
+          border-radius: 4px; display: block; margin: 0 auto; }
+  .indicator { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; color: var(--muted); }
+  #led { justify-content: center; }
+  .lamp { width: 14px; height: 14px; border-radius: 50%; background: var(--line); flex: none; }
+  .lamp.on { background: #48bb78; box-shadow: 0 0 8px #48bb78; }
+  .lamp.hot { background: var(--held); box-shadow: 0 0 8px var(--held); }
+  #switches { display: flex; flex-wrap: wrap; gap: 8px; }
+  #switches button { flex: 1 1 110px; min-height: 52px; border: 1px solid var(--line); border-radius: 6px;
+                     background: var(--bg); color: var(--ink); font: inherit; cursor: pointer; touch-action: none;
+                     user-select: none; }
+  #switches button small { display: block; color: var(--muted); font-size: 11px; }
+  #switches button.held, #switches button[aria-pressed="true"] { background: var(--held); color: #fff;
+                                                                 border-color: var(--held); }
+  #switches button.held small, #switches button[aria-pressed="true"] small { color: #fff; }
+  .note { color: var(--muted); margin: 0; }
+  #selector { display: flex; margin-top: 8px; }
+  #selector[hidden] { display: none; }
+  #selector button { flex: 1 1 0; min-height: 52px; border: 1px solid var(--line); margin-left: -1px;
+                     background: var(--bg); color: var(--ink); font: inherit; cursor: pointer; }
+  #selector button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  #selector button:last-child { border-radius: 0 6px 6px 0; }
+  #selector button small { display: block; color: var(--muted); font-size: 11px; }
+  #selector button[aria-checked="true"] { background: var(--held); color: #fff; border-color: var(--held); }
+  #selector button[aria-checked="true"] small { color: #fff; }
+  .wheel { display: grid; grid-template-columns: 64px 1fr 120px; gap: 8px; align-items: center; margin: 6px 0; }
+  .wheel small { display: block; color: var(--muted); font-size: 11px; }
+  .power { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .bar { position: relative; height: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+         overflow: hidden; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+  .bar .target { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  #pusher { display: flex; align-items: center; gap: 12px; }
+  #dart { width: 18px; height: 18px; border-radius: 50%; background: var(--line); }
+  #dart.fired { animation: fire .25s ease-out; }
+  @keyframes fire { from { background: var(--held); transform: scale(1.5); } to { background: var(--line); } }
+  #status { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+  .chip.on { border-color: var(--held); color: var(--held); }
+  label.row { display: grid; grid-template-columns: 90px 1fr 70px; gap: 8px; align-items: center; margin: 6px 0; }
+  select, input[type=range] { width: 100%; }
+  button.plain { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink);
+                 font: inherit; padding: 6px 12px; cursor: pointer; }
+  #console { width: 100%; height: 100%; border: 0; background: var(--panel); }
+  #error { color: var(--held); min-height: 1.4em; margin: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trifolium Simulator</h1>
+  <span id="state">Connecting...</span>
+</header>
+<main>
+  <div id="blaster">
+    <section class="card">
+      <h2>Screen</h2>
+      <canvas id="oled" width="128" height="64" aria-label="The blaster's screen"></canvas>
+      <p id="led" class="indicator"><span id="led-lamp" class="lamp"></span><span id="led-label"></span></p>
+    </section>
+    <section class="card">
+      <h2>Switches</h2>
+      <div id="switches"></div>
+      <div id="selector" role="radiogroup" aria-label="Select switch" hidden></div>
+      <p class="note" id="switches-note"></p>
+    </section>
+    <section class="card">
+      <h2>Flywheels</h2>
+      <div id="wheels"><p class="note">Not running.</p></div>
+    </section>
+    <section class="card">
+      <h2>Pusher</h2>
+      <div id="pusher"><span id="dart"></span><span id="shots">0 shots this boot</span></div>
+      <p id="solenoid" class="indicator"><span id="solenoid-lamp" class="lamp"></span>
+        <span id="solenoid-label"></span></p>
+    </section>
+    <section class="card">
+      <h2>State</h2>
+      <div id="status"></div>
+    </section>
+    <section class="card">
+      <h2>Conditions</h2>
+      <label class="row">Pack <input id="pack" type="range" min="6000" max="26000" step="100">
+        <span class="num" id="pack-value"></span></label>
+      <p class="note" id="pack-note"></p>
+      <label class="row">Speed <select id="speed">
+        <option value="0.1">0.1x</option><option value="0.25">0.25x</option><option value="0.5">0.5x</option>
+        <option value="1">1x</option><option value="2">2x</option></select><span></span></label>
+      <div class="power">
+        <button class="plain" id="power-battery"
+                title="Everything off, then on from the pack: the ESCs start up with the chip">Power on from battery</button>
+        <button class="plain" id="power-usb"
+                title="Everything off, then on from USB with the pack unplugged: the ESCs stay dark until it is plugged in">Power on from USB</button>
+      </div>
+      <p id="error" role="status"></p>
+    </section>
+  </div>
+  <iframe id="console" src="/console" title="Web console"></iframe>
+</main>
+<script>
+// Switches by role, at the pins the wiring gives them. Momentary ones are held while the button is;
+// the rest latch, as the switches they stand in for do.
+const ROLES = [
+  { role: "trigger", key: "triggerSwitchPin", label: "Trigger", momentary: true, hotkey: " " },
+  { role: "rev", key: "revSwitchPin", label: "Rev", momentary: true, hotkey: "r" },
+  { role: "menu", key: "menuButtonPin", label: "Menu", momentary: true, hotkey: "m" },
+  { role: "cycle", key: "cycleSwitchPin", label: "Cycle", momentary: true, hotkey: "c" },
+  { role: "idle", key: "idleSwitchPin", label: "Idle" },
+  { role: "safety", key: "safetySwitchPin", label: "Safety" },
+  { role: "select0", key: "select0Pin", label: "Select 1" },
+  { role: "select1", key: "select1Pin", label: "Select 2" },
+  { role: "select2", key: "select2Pin", label: "Select 3" },
+];
+const PIN_NOT_USED = 255;
+const POLL_MS = 100;
+
+const $ = (id) => document.getElementById(id);
+const oled = $("oled").getContext("2d");
+const latched = new Set();
+let wiringFor = null; // the boot the switches were built for
+let shownShots = 0;
+let packTouched = false;
+
+// One request at a time in each direction, answered in order.
+const ws = new WebSocket(`ws://${location.host}/control`);
+const waiting = [];
+ws.onmessage = (e) => waiting.shift()?.(JSON.parse(e.data));
+ws.onclose = () => { $("state").textContent = "Disconnected - is serve.py still running?"; };
+function call(request) {
+  return new Promise((resolve) => { waiting.push(resolve); ws.send(JSON.stringify(request)); });
+}
+async function act(request) {
+  const reply = await call(request);
+  $("error").textContent = reply.ok ? "" : reply.error;
+  return reply;
+}
+
+function buildSwitches(settings) {
+  const box = $("switches");
+  box.replaceChildren();
+  const wired = ROLES.filter((r) => settings[r.key] !== undefined && settings[r.key] !== PIN_NOT_USED);
+  // A switch-type select fire is one switch: a position per select pin, and one grounding none.
+  const selector = settings.selectFireType === "switch" ? wired.filter((r) => isSelect(r.role)) : [];
+  $("switches-note").textContent = !settings.wiringConfigured
+    ? "No wiring. Set the board up in the console."
+    : "Hold Space for the trigger, R for rev, M for the menu, C for cycle.";
+  // A button-type select fire cycles modes on Select 1, a push button - unless that is the menu
+  // button's pin, when the Menu button already presses it.
+  const modeButton = settings.selectFireType === "button";
+  const buttons = wired.filter((r) => !selector.includes(r) &&
+    !(modeButton && r.role === "select0" && settings.select0Pin === settings.menuButtonPin));
+  const momentary = (r) => r.momentary || (modeButton && r.role === "select0");
+  // A latch left down by the last wiring, on a pin that no longer latches, lets go.
+  const latching = new Set([...buttons.filter((r) => !momentary(r)), ...selector].map((r) => r.role));
+  for (const role of [...latched].filter((x) => !latching.has(x))) {
+    latched.delete(role);
+    act({ op: "release", role });
+  }
+  buildSelector(settings.wiringConfigured ? selector : [], settings);
+  if (!settings.wiringConfigured) return;
+  for (const r of buttons) {
+    const b = document.createElement("button");
+    b.dataset.role = r.role;
+    b.innerHTML = `${r.label}<small>GPIO ${settings[r.key]}</small>`;
+    if (momentary(r)) {
+      b.addEventListener("pointerdown", (e) => { b.setPointerCapture(e.pointerId); hold(b, true); });
+      for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) {
+        b.addEventListener(ev, () => hold(b, false));
+      }
+    } else {
+      b.setAttribute("aria-pressed", String(latched.has(r.role)));
+      b.addEventListener("click", () => {
+        const on = !latched.has(r.role);
+        on ? latched.add(r.role) : latched.delete(r.role);
+        b.setAttribute("aria-pressed", String(on));
+        act({ op: on ? "press" : "release", role: r.role });
+      });
+    }
+    box.append(b);
+  }
+}
+
+const isSelect = (role) => role.startsWith("select");
+
+// Two pins make a centre-off toggle, so the position grounding neither goes between them.
+function buildSelector(roles, settings) {
+  const box = $("selector");
+  box.replaceChildren();
+  box.hidden = !roles.length;
+  if (!roles.length) return;
+  const positions = roles.map((r) => ({ role: r.role, html: `${r.label}<small>GPIO ${settings[r.key]}</small>` }));
+  positions.splice(positions.length === 2 ? 1 : 0, 0, { role: null, html: "None<small>no pin</small>" });
+  for (const p of positions) {
+    const b = document.createElement("button");
+    b.setAttribute("role", "radio");
+    b.dataset.role = p.role ?? "";
+    b.innerHTML = p.html;
+    b.addEventListener("click", () => moveSelector(p.role));
+    box.append(b);
+  }
+  markSelector();
+}
+
+function markSelector() {
+  const at = [...latched].find(isSelect) ?? "";
+  for (const b of $("selector").children) b.setAttribute("aria-checked", String(b.dataset.role === at));
+}
+
+// Break before make, as the switch does: a moment with two pins grounded would read as the lower one.
+async function moveSelector(role) {
+  for (const r of [...latched].filter((x) => isSelect(x) && x !== role)) {
+    latched.delete(r);
+    await act({ op: "release", role: r });
+  }
+  if (role && !latched.has(role)) {
+    latched.add(role);
+    await act({ op: "press", role });
+  }
+  markSelector();
+}
+
+function hold(button, down) {
+  if (button.classList.contains("held") === down) return;
+  button.classList.toggle("held", down);
+  act({ op: down ? "press" : "release", role: button.dataset.role });
+}
+
+addEventListener("keydown", (e) => {
+  if (e.repeat || e.target.closest("input, select")) return;
+  const r = ROLES.find((x) => x.hotkey === e.key.toLowerCase());
+  const b = r && document.querySelector(`#switches button[data-role="${r.role}"]`);
+  if (b) { e.preventDefault(); hold(b, true); }
+});
+addEventListener("keyup", (e) => {
+  const r = ROLES.find((x) => x.hotkey === e.key.toLowerCase());
+  const b = r && document.querySelector(`#switches button[data-role="${r.role}"]`);
+  if (b) hold(b, false);
+});
+
+function drawScreen(panel) {
+  const img = oled.createImageData(128, 64);
+  const rows = panel && panel.on && panel.pixels ? panel.pixels : [];
+  rows.forEach((row, y) => {
+    for (let x = 0; x < 128; x++) {
+      const i = (y * 128 + x) * 4;
+      const lit = row[x] === "1";
+      img.data[i] = lit ? 191 : 0; img.data[i + 1] = lit ? 227 : 0; img.data[i + 2] = lit ? 255 : 0;
+      img.data[i + 3] = 255;
+    }
+  });
+  if (!rows.length) for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+  oled.putImageData(img, 0, 0);
+}
+
+function drawWheels(s) {
+  const box = $("wheels");
+  if (!s.motors) { box.innerHTML = '<p class="note">Not running.</p>'; return; }
+  const shown = s.motors.map((m, i) => ({ ...m, ...s.wheels[i], i })).filter((m) => m.enabled || m.attached);
+  if (!shown.length) { box.innerHTML = '<p class="note">No motor enabled.</p>'; return; }
+  const scale = Math.max(1000, ...shown.map((m) => Math.max(m.revRPM, m.targetRPM, m.rpm))) * 1.1;
+  box.innerHTML = shown.map((m) => `
+    <div class="wheel"><span>Motor ${m.i + 1}${escNote(m.esc)}</span>
+      <div class="bar"><div class="fill" style="width:${(100 * m.rpm) / scale}%"></div>
+        <div class="target" style="left:${(100 * m.targetRPM) / scale}%"></div></div>
+      <span class="num">${Math.round(m.rpm).toLocaleString()} / ${Math.round(m.targetRPM).toLocaleString()}</span>
+    </div>`).join("");
+}
+
+// A real ESC ignores the signal while it starts up, and has nothing to start on without the pack.
+function escNote(esc) {
+  const words = { starting: "ESC starting", unpowered: "ESC unpowered" };
+  return words[esc] ? `<small>${words[esc]}</small>` : "";
+}
+
+// Steady on once armed; it blinks while the pack is below the level LED Warning names.
+function drawLed(s) {
+  const led = s.led;
+  $("led-lamp").classList.toggle("on", Boolean(led?.on));
+  $("led-label").textContent = led
+    ? `LED · GPIO ${led.pin} · ${led.on ? "on" : "off"}`
+    : s.motors === undefined ? "LED" : "LED · not wired (set its pin in the console's Wiring tab)";
+}
+
+// A pulse is 25-40 ms and a refresh 100 ms, so the server hands over every pulse since the last
+// one; each keeps the lamp lit long enough to see.
+const PULSE_SHOWN_MS = 150;
+let solenoidLitUntil = 0;
+let lastPulseMs = null;
+function drawSolenoid(s) {
+  const sol = s.solenoid;
+  if (sol?.pulses.length) {
+    lastPulseMs = sol.pulses[sol.pulses.length - 1] / 1000;
+    solenoidLitUntil = performance.now() + PULSE_SHOWN_MS;
+  }
+  const lit = Boolean(sol && (sol.on || performance.now() < solenoidLitUntil));
+  $("solenoid-lamp").classList.toggle("hot", lit);
+  $("solenoid-label").textContent = sol
+    ? `Solenoid · GPIO ${sol.pin} · ${lit ? "powered" : "off"}` +
+      (lastPulseMs === null ? "" : ` · last pulse ${lastPulseMs.toFixed(1)} ms`)
+    : s.pusherEsc ? `Pusher on ESC channel ${s.pusherEsc.replace("esc", "")}, not a solenoid`
+    : s.motors === undefined ? "Solenoid" : "Solenoid · not wired";
+}
+
+function drawStatus(s) {
+  const chips = [];
+  // The firmware's rev state, not the wheels' speed: "idle" covers a dwell with the wheels still up.
+  if (s.flywheelState !== undefined) chips.push(["Rev state: " + s.flywheelState, s.flywheelState !== "idle"]);
+  if (s.firing !== undefined) chips.push([s.firing ? "Firing" : "Not firing", s.firing]);
+  if (s.activeProfileIndex !== undefined) chips.push([`Slot ${s.activeProfileIndex + 1}`, false]);
+  if (s.safetyEngaged) chips.push(["Safety on", true]);
+  if (s.menuOpen) chips.push(["Menu open", true]);
+  if (s.battery?.defined) chips.push([`Reads ${(s.battery.mv / 1000).toFixed(2)} V`, false]);
+  if (s.runtimeShotCounter !== undefined) chips.push([`Counter ${s.runtimeShotCounter}`, false]);
+  $("status").innerHTML = chips.map(([t, on]) => `<span class="chip${on ? " on" : ""}">${t}</span>`).join("");
+}
+
+function drawState(s) {
+  const words = { running: "Running", off: "Off", bootloader: "In the bootloader", halted: "Stopped" };
+  let line = words[s.state] ?? s.state;
+  if (s.state === "running" && s.motors === undefined) line = "Booting";
+  line += ` · up ${(s.uptime_ms / 1000).toFixed(1)} s · boot ${s.boots} · ${s.speed}x`;
+  $("state").textContent = line;
+}
+
+let sinceUs = 0;
+let sinceBoot = null;
+async function poll() {
+  const s = await call({ op: "snapshot", since_us: sinceUs });
+  if (s.ok) {
+    if (s.boots !== sinceBoot) { sinceBoot = s.boots; lastPulseMs = null; }
+    sinceUs = s.uptimeUs;
+    drawState(s);
+    drawScreen(s.panel);
+    drawLed(s);
+    drawSolenoid(s);
+    drawWheels(s);
+    drawStatus(s);
+    if (s.motors !== undefined && wiringFor !== s.boots) {
+      wiringFor = s.boots;
+      const w = await call({ op: "wiring" });
+      if (w.ok) buildSwitches(w.settings);
+    }
+    // The simulator counts a solenoid's pulses; an ESC-driven pusher has only the firmware's count.
+    const shots = (s.pusherEsc ? s.runtimeShotCounter : s.extends) ?? 0;
+    $("shots").textContent = `${shots} shot${shots === 1 ? "" : "s"} this boot`;
+    if (shots > shownShots) { $("dart").classList.remove("fired"); void $("dart").offsetWidth; $("dart").classList.add("fired"); }
+    shownShots = shots;
+    if (!packTouched) {
+      if (s.packMv) $("pack").value = s.packMv;
+      $("pack-value").textContent = s.packMv ? `${(s.packMv / 1000).toFixed(1)} V` : "unplugged";
+    }
+    $("pack-note").textContent = s.packMv ? "" : "On USB alone. Move the slider to plug the pack in.";
+    if (document.activeElement !== $("speed")) $("speed").value = String(s.speed);
+  }
+  setTimeout(poll, POLL_MS);
+}
+
+$("pack").addEventListener("input", () => {
+  packTouched = true;
+  $("pack-value").textContent = `${($("pack").value / 1000).toFixed(1)} V`;
+});
+$("pack").addEventListener("change", async () => {
+  await act({ op: "pack", mv: Number($("pack").value) });
+  packTouched = false;
+});
+$("speed").addEventListener("change", () => act({ op: "speed", speed: Number($("speed").value) }));
+$("power-battery").addEventListener("click", () => {
+  wiringFor = null;
+  act({ op: "power_on", source: "battery", mv: Number($("pack").value) });
+});
+$("power-usb").addEventListener("click", () => { wiringFor = null; act({ op: "power_on", source: "usb" }); });
+
+ws.onopen = poll;
+</script>
+</body>
+</html>

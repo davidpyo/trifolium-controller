@@ -18,9 +18,10 @@ void recordBootProfile(int8_t slot); // -1: no boot action chose one
 // A plain global, so a reboot clears it and a true here means the fall-through really happened.
 void recordPassthroughExit();
 
-// answeredAt_ms[i] is the uptime motor i's first eRPM frame decoded at, or -1 if none did. Written
-// from the control loop after core 1 is released, so `ran` false means "not finished yet" rather
-// than "never happened"; it is set last, so a true there means the rest is readable.
+// answeredAt_ms[i] is when motor i's first eRPM frame decoded, in ms from the arm loop's start, or
+// -1 if none did. Written from the control loop after core 1 is released, so `ran` false means
+// "not finished yet" rather than "never happened"; it is set last, so a true there means the rest
+// is readable.
 void recordEscArming(const int32_t answeredAt_ms[4], uint32_t duration_ms, bool timedOut);
 
 // Only a file read off flash: a bad upload fails in front of the host that sent it.

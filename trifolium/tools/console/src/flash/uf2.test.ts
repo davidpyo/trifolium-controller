@@ -7,10 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  SETTINGS_AREA_START,
   UF2_BLOCK_SIZE,
   firstDifference,
   formatAddress,
   parseUf2,
+  writesSettings,
 } from "./uf2";
 
 const FLASH_BASE = 0x10000000;
@@ -68,6 +70,32 @@ describe("parseUf2", () => {
     expect(image.data[0]).toBe(0x11);
     // Padding is what an erase leaves behind, so writing it back changes nothing on the chip.
     expect(image.data[0x0fff]).toBe(0xff);
+  });
+
+  it("takes a factory image whole: the program, then the settings area, erased flash between", () => {
+    // tools/release.py --board --blaster: the program at the start of flash and a whole LittleFS
+    // region near the end, as one file. Flashing it has to rewrite the settings area too.
+    const settings = SETTINGS_AREA_START;
+    const image = parseUf2(
+      join(
+        block(FLASH_BASE, payload(0xaa), { index: 0, total: 2 }),
+        block(settings, payload(0x5a), { index: 1, total: 2 }),
+      ),
+    );
+    expect(image.address).toBe(FLASH_BASE);
+    expect(image.data[0]).toBe(0xaa);
+    expect(image.data[settings - FLASH_BASE]).toBe(0x5a);
+    expect(image.data[0x1000]).toBe(0xff);
+    expect(image.data.length).toBe(settings - FLASH_BASE + 0x1000);
+    expect(writesSettings(image)).toBe(true);
+  });
+
+  it("knows an ordinary image leaves the settings alone", () => {
+    expect(writesSettings(parseUf2(join(block(FLASH_BASE, payload(0xaa)))))).toBe(false);
+    // The last sector short of the settings area is still the firmware's.
+    const last = SETTINGS_AREA_START - 0x1000;
+    expect(writesSettings(parseUf2(join(block(last, payload(0xaa)))))).toBe(false);
+    expect(writesSettings(parseUf2(join(block(SETTINGS_AREA_START, payload(0xaa)))))).toBe(true);
   });
 
   it("refuses an RP2350 image, which would write and then not boot", () => {

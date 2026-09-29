@@ -22,7 +22,9 @@ import {
   type Schema,
   type SchemaNode,
 } from "../schema/types";
+import { helpFor } from "../help/settings";
 import { FieldControl } from "./Field";
+import { HelpTip } from "./Help";
 
 // The Select-Fire mode editor, as a table: one row per mode, one column per property.
 //
@@ -194,9 +196,11 @@ export function FireModes({ schema, profile, onEdit, onReplaceModes }: FireModes
               </TableCell>
               {columns.map((col) => (
                 <TableCell key={col.key} sx={cellSx}>
-                  <Typography variant="caption" sx={{ fontWeight: 600 }} noWrap>
-                    {col.label}
-                  </Typography>
+                  <HelpTip help={helpFor(col.key)}>
+                    <Typography variant="caption" sx={{ fontWeight: 600 }} noWrap>
+                      {col.label}
+                    </Typography>
+                  </HelpTip>
                 </TableCell>
               ))}
               <TableCell sx={cellSx} />
@@ -225,8 +229,9 @@ export function FireModes({ schema, profile, onEdit, onReplaceModes }: FireModes
                   </TableCell>
 
                   {columns.map((col) => {
-                    const resolved = applyCap(col, cap);
                     const key = keyForMode(col, index);
+                    // Keyed to this mode, not the column's: the key is what marks a cell edited.
+                    const resolved = { ...applyCap(col, cap), key };
                     if (!isVisible(resolved)) {
                       return (
                         <TableCell key={col.key} sx={cellSx}>

@@ -13,7 +13,9 @@ import { getByKey } from "../schema/keyPath";
 import { isVisible, walk, type Schema, type SchemaNode } from "../schema/types";
 import { WIRING_CONFIGURED_KEY } from "../schema/presets";
 import { ruleFor } from "./wiringRules";
+import { helpFor } from "../help/settings";
 import { FieldControl } from "./Field";
+import { HelpTip } from "./Help";
 
 // One row per physical control, rather than three lists that happen to be the same length.
 //
@@ -115,6 +117,14 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
   const anyPolarity = rows.some((r) => r.polarity);
   const anyBootAction = rows.some((r) => r.bootAction);
   const cellSx = { py: 0.35, px: 0.75, borderBottom: "none" } as const;
+  const columns: { label: string; help?: string }[] = [
+    { label: "Control" },
+    { label: "Pin" },
+    ...(anyPolarity
+      ? [{ label: "Normally Closed", help: helpFor("device:triggerSwitchNormallyClosed") }]
+      : []),
+    ...(anyBootAction ? [{ label: "Held At Boot", help: helpFor("device:bootAction[0]") }] : []),
+  ];
 
   const cell = (node: SchemaNode | undefined, width: number) => {
     if (!node) return <TableCell sx={cellSx} />;
@@ -146,12 +156,13 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
         <Table size="small" sx={{ width: "auto" }}>
           <TableHead>
             <TableRow>
-              {["Control", "Pin", ...(anyPolarity ? ["Normally Closed"] : []),
-                ...(anyBootAction ? ["Held At Boot"] : [])].map((h) => (
-                <TableCell key={h} sx={cellSx}>
-                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                    {h}
-                  </Typography>
+              {columns.map(({ label, help }) => (
+                <TableCell key={label} sx={cellSx}>
+                  <HelpTip help={help}>
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                      {label}
+                    </Typography>
+                  </HelpTip>
                 </TableCell>
               ))}
             </TableRow>
@@ -164,9 +175,11 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
               <TableRow key={row.id}>
                 <TableCell sx={{ ...cellSx, whiteSpace: "nowrap" }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      {row.label}
-                    </Typography>
+                    <HelpTip help={helpFor((row.pin ?? row.bootAction)?.key)}>
+                      <Typography variant="caption" color="text.secondary">
+                        {row.label}
+                      </Typography>
+                    </HelpTip>
                     {/* A visible mark, not a styled label: in a dense table nobody hovers a
                         label to find out whether it does anything, so an affordance that cannot be
                         seen is help that exists and is never found. */}

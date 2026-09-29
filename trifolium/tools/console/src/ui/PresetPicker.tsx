@@ -6,7 +6,10 @@ import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import { BLASTERS, type Blaster } from "../config/blasters";
 import { OFFERED_PRESETS, PRESETS, type Preset } from "../schema/presets";
+
+const NO_BLASTER = "none";
 
 export interface PresetPickerProps {
   busy: boolean;
@@ -15,11 +18,17 @@ export interface PresetPickerProps {
   /** The preset that id names, resolved through the alias table by the caller. */
   suggested?: Preset;
   onApply: (preset: Preset) => void;
+  /**
+   * Offers a blaster config to load with the board. Only for a device with no wiring: a config
+   * replaces every setting and profile, which on a device already set up is a Full Backup's job.
+   */
+  onApplyBlaster?: (board: Preset, blaster: Blaster) => void;
   onCustom: () => void;
 }
 
 /**
- * The first thing a device with no wiring shows.
+ * The first thing a device with no wiring shows: the board to wire it as, and optionally a blaster
+ * config to start from instead of the firmware defaults.
  *
  * Three ways to get here, and the copy has to serve all of them: a device flashed with the released
  * .uf2, which ships with no wiring at all; a device whose wiring was cleared with RESET_PINS; and a
@@ -35,11 +44,16 @@ export function PresetPicker({
   storedBoardId,
   suggested,
   onApply,
+  onApplyBlaster,
   onCustom,
 }: PresetPickerProps) {
   const [id, setId] = React.useState(suggested?.id ?? "");
   // Resolved against every board, not just the offered ones: a retired board still has to apply.
   const chosen = PRESETS.find((p) => p.id === id);
+
+  const offersBlasters = onApplyBlaster !== undefined && BLASTERS.length > 0;
+  const [blasterId, setBlasterId] = React.useState(NO_BLASTER);
+  const blaster = offersBlasters ? BLASTERS.find((b) => b.id === blasterId) : undefined;
 
   // A retired board is recognised but not listed - except when the device reported it, which is
   // the case `retired` exists for. Leaving it out there would suggest a board the list cannot show.
@@ -60,11 +74,19 @@ export function PresetPicker({
         <Typography variant="h6" gutterBottom>
           Which board is this wired as?
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          This blaster has no wiring set, so it drives no pins at all — no motors, no pusher, no
-          screen. Picking a board loads that board&rsquo;s pin assignments. Nothing else is touched:
-          your profiles, tuning and fire modes are not part of a wiring preset.
-        </Typography>
+        {offersBlasters ? (
+          <Typography variant="body2" color="text.secondary">
+            This blaster has no wiring set, so it drives no pins at all — no motors, no pusher, no
+            screen. Picking a board loads that board&rsquo;s pin assignments. Load a blaster config
+            with it to start from one of the published builds rather than the firmware defaults.
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            This blaster has no wiring set, so it drives no pins at all — no motors, no pusher, no
+            screen. Picking a board loads that board&rsquo;s pin assignments. Nothing else is
+            touched: your profiles, tuning and fire modes are not part of a wiring preset.
+          </Typography>
+        )}
       </Box>
 
       {suggested && storedBoardId && (
@@ -97,17 +119,52 @@ export function PresetPicker({
         </Typography>
       ))}
 
+      {offersBlasters && (
+        <TextField
+          select
+          size="small"
+          label="Blaster config"
+          value={blasterId}
+          disabled={busy}
+          onChange={(e) => setBlasterId(e.target.value)}
+          helperText="A published build's settings and profiles, in place of the firmware defaults. The pins stay the board's."
+        >
+          <MenuItem value={NO_BLASTER}>None (firmware defaults)</MenuItem>
+          {BLASTERS.map((b) => (
+            <MenuItem key={b.id} value={b.id}>
+              {b.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+
       <Alert severity="warning" sx={{ py: 0 }}>
         Pick the board you actually have. A wrong choice drives the wrong pins on real hardware.
       </Alert>
 
       <Box>
-        <Button variant="contained" disabled={!chosen || busy} onClick={() => chosen && onApply(chosen)}>
-          {busy ? "Applying..." : "Load this wiring and restart"}
+        <Button
+          variant="contained"
+          disabled={!chosen || busy}
+          onClick={() => {
+            if (!chosen) return;
+            if (blaster) onApplyBlaster?.(chosen, blaster);
+            else onApply(chosen);
+          }}
+        >
+          {busy
+            ? "Applying..."
+            : blaster
+              ? "Load the wiring and config, and restart"
+              : "Load this wiring and restart"}
         </Button>
         <Typography variant="caption" sx={{ display: "block", mt: 1 }} color="text.secondary">
-          The device saves the wiring and restarts; the console reconnects on its own. You can
-          change any pin afterwards from the Device tab.
+          {blaster
+            ? "The device saves its settings and then each profile, restarting as it goes; the " +
+              "console reconnects on its own. If your build wires anything differently from the " +
+              "board's usual pins, change it afterwards in the Wiring tab."
+            : "The device saves the wiring and restarts; the console reconnects on its own. You " +
+              "can change any pin afterwards from the Device tab."}
         </Typography>
       </Box>
 

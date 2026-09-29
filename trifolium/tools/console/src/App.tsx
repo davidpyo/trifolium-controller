@@ -24,6 +24,7 @@ import { walk, type BootStatus, type Schema, type SchemaNode } from "./schema/ty
 import { resolveVisibility } from "./schema/visibility";
 import { configFrom, SerialTransport, TIMEOUT_SCHEMA_MS, type LogLine } from "./serial/transport";
 import { bundleFilename, buildBundle, checkBundle, diffKeys, downloadJson } from "./config/bundle";
+import { blasterLoads, schemaMismatch, type Blaster } from "./config/blasters";
 import { LOG_LINE_CAP } from "./rpm/parse";
 import { applyLayout } from "./ui/applyLayout";
 import { PresetApplyDialog } from "./ui/PresetApplyDialog";
@@ -48,6 +49,7 @@ import { WiringWarnings } from "./ui/WiringWarnings";
 import { WiringDiagram } from "./ui/WiringDiagram";
 import { WiringRules } from "./ui/wiringRules";
 import { WiringTable } from "./ui/WiringTable";
+import { ConsoleFooter } from "./ui/ConsoleFooter";
 import { Fieldset, Section, type Payloads } from "./ui/Section";
 import { countFields, deriveSections, pruneToStore, type Store } from "./ui/sections";
 import { Splash } from "./ui/Splash";
@@ -117,6 +119,41 @@ const OFFLINE_DEVICE = {
 
 type TabId = "profile" | "device" | "rpm" | "splash" | "wiring" | "raw";
 
+/** An edit not yet written: its mark as `dirty` holds it, and the value it stages. */
+interface Staged {
+  mark: string;
+  value: unknown;
+}
+
+/** "1:profile:name" -> ["1", "profile:name"]. */
+const splitMark = (mark: string): [string, string] => {
+  const at = mark.indexOf(":");
+  return [mark.slice(0, at), mark.slice(at + 1)];
+};
+
+/** Values read from the device, with staged edits laid back over them. */
+function restage(device: unknown, profiles: unknown[], keep: Staged[]) {
+  let nextDevice = device;
+  const nextProfiles = [...profiles];
+  for (const { mark, value } of keep) {
+    if (mark.startsWith("device:")) {
+      nextDevice = setByKey(nextDevice, mark, value);
+      continue;
+    }
+    const [slotText, key] = splitMark(mark);
+    const slot = Number(slotText);
+    nextProfiles[slot] = setByKey(nextProfiles[slot], key, value);
+  }
+  return { device: nextDevice, profiles: nextProfiles };
+}
+
+/** One store's staged edits as the command that writes them. */
+interface Load {
+  command: string;
+  payload: Record<string, unknown>;
+  marks: string[];
+}
+
 export function App() {
   const [schema, setSchema] = React.useState<Schema>(OFFLINE_SCHEMA);
   const [live, setLive] = React.useState(false);
@@ -131,6 +168,11 @@ export function App() {
   const [pendingPreset, setPendingPreset] = React.useState<Preset | null>(null);
   /** The picker, opened deliberately on a device that already has a wiring. */
   const [presetsOpen, setPresetsOpen] = React.useState(false);
+  /**
+   * The blaster config a device is being set up with. Keeps the picker up across the restarts that
+   * takes, during which the device reports no wiring and then, briefly, no connection at all.
+   */
+  const [settingUp, setSettingUp] = React.useState<Blaster | null>(null);
   /** The connected device's DUMP_BOOT, for the faults it recorded. Null while offline. */
   const [boot, setBoot] = React.useState<BootStatus | null>(null);
   /** A reset the user picked, held until they type its word. Null when no dialog is open. */
@@ -226,16 +268,27 @@ export function App() {
    * rebooting cannot move any of the five, which is the whole of why this is safe there. Everywhere
    * else, and always after a reboot, use readSchemaAndValues().
    */
-  const readAll = async () => {
+  const readAll = async (keep: Staged[] = []) => {
     const dev = await transport.request<unknown>("DUMP_DEVICE");
     const loaded: unknown[] = [];
     for (let i = 0; i < schema.profileCount; i++) {
       loaded.push(configFrom((await transport.request<unknown>(`DUMP_PROFILE ${i}`)) ?? {}));
     }
-    if (dev) setDevice(configFrom(dev));
-    setProfiles(loaded);
-    setDirty(new Set());
+    const read = restage(dev ? configFrom(dev) : device, loaded, keep);
+    setDevice(read.device);
+    setProfiles(read.profiles);
+    setDirty(new Set(keep.map((s) => s.mark)));
   };
+
+  /** Staged edits outside `written`, with their values, for a re-read to put back. */
+  const stagedExcept = (written: Set<string>): Staged[] =>
+    [...dirty]
+      .filter((mark) => !written.has(mark))
+      .map((mark) => {
+        if (mark.startsWith("device:")) return { mark, value: getByKey(device, mark) };
+        const [slotText, key] = splitMark(mark);
+        return { mark, value: getByKey(profiles[Number(slotText)], key) };
+      });
 
   /**
    * Re-reads the schema and every stored value from a connected device.
@@ -244,31 +297,34 @@ export function App() {
    * both depend on the board, so anything that can change the board has to refetch it rather than
    * only refreshing values.
    */
-  const readSchemaAndValues = async (): Promise<boolean> => {
-    const next = await transport.request<Schema>("DUMP_SCHEMA", TIMEOUT_SCHEMA_MS);
+  const readSchemaAndValues = async (keep: Staged[] = []): Promise<boolean> => {
+    const next = await transport.requestWhole<Schema>("DUMP_SCHEMA", TIMEOUT_SCHEMA_MS);
     if (!next || next.cmd !== "DUMP_SCHEMA") {
       note(
         "err",
-        "No schema from this firmware - it predates DUMP_SCHEMA. Use the Raw JSON tab; the form would show limits that may not match this device.",
+        "No usable schema from the device - the log says why. Reconnect to try again. Firmware " +
+          "that predates DUMP_SCHEMA never answers it: use the Raw JSON tab there, since the form " +
+          "would show limits that may not match the device.",
       );
       return false;
     }
 
-    const dev = await transport.request<unknown>("DUMP_DEVICE");
+    const dev = await transport.requestWhole<unknown>("DUMP_DEVICE");
     const loaded: unknown[] = [];
     for (let i = 0; i < next.profileCount; i++) {
-      loaded.push(configFrom((await transport.request<unknown>(`DUMP_PROFILE ${i}`)) ?? {}));
+      loaded.push(configFrom((await transport.requestWhole<unknown>(`DUMP_PROFILE ${i}`)) ?? {}));
     }
 
     // Cheap, and the only way to learn what this boot discarded: the faults print before a host
     // can attach. A device too old to answer leaves it null, which reads as "nothing recorded".
     setBoot(await transport.request<BootStatus>("DUMP_BOOT"));
 
+    const read = restage(configFrom(dev ?? {}), loaded, keep);
     setSchema(next);
-    setDevice(configFrom(dev ?? {}));
-    setProfiles(loaded);
+    setDevice(read.device);
+    setProfiles(read.profiles);
     setSlot(next.activeProfileIndex);
-    setDirty(new Set());
+    setDirty(new Set(keep.map((s) => s.mark)));
     setLive(true);
     return true;
   };
@@ -284,8 +340,8 @@ export function App() {
    * connect looked fine for so long and then reported "No reply to DUMP_SCHEMA within 15000 ms" on
    * the bench. Ten cheap DUMP_BOOT retries cost nothing against a device that is already up.
    */
-  const connect = async () => {
-    if (!(await transport.connect())) return;
+  const connect = async (choose: boolean) => {
+    if (!(await transport.connect(choose))) return;
     if (!(await transport.waitReady())) return;
     await readSchemaAndValues();
   };
@@ -321,6 +377,56 @@ export function App() {
     } finally {
       setBusy(false);
       setPendingPreset(null);
+    }
+  };
+
+  /**
+   * Sets a device with no wiring up as a board with a blaster's config: its device settings, then
+   * every profile slot, each sent whole as a Full Backup's would be.
+   *
+   * Refused outright for a config or a board written for another schema. A load the device refuses
+   * stops the rest, and the re-read then shows what the device holds.
+   */
+  const applyBlaster = async (board: Preset, blaster: Blaster) => {
+    const configMismatch = schemaMismatch(blaster.bundle, schema);
+    const mismatch = configMismatch
+      ? `The ${blaster.name} config ${configMismatch}.`
+      : board.schemaVersion !== schema.deviceSchemaVersion
+        ? `The ${board.name} preset was written for device schema v${board.schemaVersion}, and ` +
+          `this firmware speaks v${schema.deviceSchemaVersion}.`
+        : null;
+    if (mismatch) {
+      note("err", `${mismatch} Not loading it - use a console built with this firmware's release.`);
+      return;
+    }
+    const label = `${blaster.name} on ${board.name}`;
+    setSettingUp(blaster);
+    setBusy(true);
+    try {
+      for (const { command, payload } of blasterLoads(blaster.bundle, board, schema)) {
+        const step =
+          command === "LOAD_DEVICE"
+            ? "the device settings"
+            : `profile slot ${Number(command.split(" ")[1]) + 1}`;
+        const ack = await transport.load(command, payload);
+        if (!ack?.ok) {
+          note("err", `Setting up as ${label} stopped at ${step}; the log says why.`);
+          await readSchemaAndValues();
+          return;
+        }
+        if (ack.rebooting && !((await transport.reopenAfterReboot()) && (await transport.waitReady()))) {
+          note(
+            "err",
+            `The device restarted after ${step} and did not come back. Reconnect when it has ` +
+              "restarted, then check its settings.",
+          );
+          return;
+        }
+      }
+      if (await readSchemaAndValues()) note("ok", `Set up as ${label}.`);
+    } finally {
+      setBusy(false);
+      setSettingUp(null);
     }
   };
 
@@ -362,7 +468,7 @@ export function App() {
    * Commands that end in a reboot, and what the console owes the user afterwards.
    *
    * Everything here reboots, so every one of them has to come back through
-   * reopenAfterReboot()/waitReady() before reading again - the same sequence writeStore() uses and
+   * reopenAfterReboot()/waitReady() before reading again - the same sequence writeStores() uses and
    * for the same reason. Bootloader is the exception and deliberately does not: the device comes
    * back as a USB mass-storage drive with no serial port at all, so there is nothing to reconnect
    * to and pretending otherwise would just time out.
@@ -474,7 +580,7 @@ export function App() {
    *
    * For a setting the console arms and then clears on the user's behalf, which must not sit in a
    * batch the user might never send or might send half of. The device reboots on any LOAD_DEVICE,
-   * so this carries the same reconnect as writeStore().
+   * so this carries the same reconnect as writeStores().
    */
   const applyDeviceValues = async (entries: { key: string; value: unknown }[]) => {
     setBusy(true);
@@ -531,9 +637,10 @@ export function App() {
     );
   };
 
-  const writeStore = async (which: Store, target: number) => {
+  /** A store's staged edits as the load that writes them, or null when it has none. */
+  const loadFor = (which: Store, target: number): Load | null => {
     const keys = dirtyFor(which, target);
-    if (!keys.length) return;
+    if (!keys.length) return null;
 
     const source = which === "device" ? device : profiles[target];
     const version = which === "device" ? schema.deviceSchemaVersion : schema.profileSchemaVersion;
@@ -553,35 +660,56 @@ export function App() {
         ]
       : keys.map((key) => ({ key, value: getByKey(source, key) }));
 
+    return {
+      command,
+      payload: buildPatch(version, entries),
+      marks: keys.map((key) => (which === "device" ? key : `${target}:${key}`)),
+    };
+  };
+
+  /**
+   * Writes these stores in order, then reads the device back once. Edits staged anywhere else are
+   * laid back over what is read, so writing one part of a loaded backup keeps the rest. A load the
+   * device refuses stops the ones after it, which stay staged.
+   */
+  const writeStores = async (targets: [Store, number][]) => {
+    const loads = targets
+      .map(([which, target]) => loadFor(which, target))
+      .filter((load): load is Load => load !== null);
+    if (!loads.length) return;
+
     setBusy(true);
     try {
-      const ack = await transport.load(command, buildPatch(version, entries));
-      if (!ack || !ack.ok) return; // the log already says why; the device is untouched on a refusal
+      const written = new Set<string>();
+      let rebooted = false;
+      for (const load of loads) {
+        const ack = await transport.load(load.command, load.payload);
+        if (!ack || !ack.ok) break; // the log already says why; the device is untouched on a refusal
 
-      setDirty((prev) => {
-        const next = new Set(prev);
-        for (const key of keys) next.delete(which === "device" ? key : `${target}:${key}`);
-        return next;
-      });
+        for (const mark of load.marks) written.add(mark);
+        setDirty((prev) => new Set([...prev].filter((mark) => !written.has(mark))));
 
-      if (ack.rebooting) {
-        // The device dropped the port to apply the change. Reconnect and re-read the schema as
-        // well as the values: clamping may have altered what got stored, and the reboot may have
-        // changed what the header says about the device - a pin that now collides shows up in
-        // `pinConflicts`, and a write that armed or disarmed it moves `wiringConfigured`. Reading
-        // values alone left both stale.
-        //
-        // waitReady() is not optional and its absence is what made a write look like a failed
-        // reconnect: USB CDC enumerates seconds before loop1() starts servicing commands, so the
-        // port reopens and then the first read lands in that gap and is swallowed. The console
-        // came back connected to a device that answered nothing.
-        if ((await transport.reopenAfterReboot()) && (await transport.waitReady())) {
+        if (ack.rebooting) {
+          // The device dropped the port to apply the change. Reconnect and re-read the schema as
+          // well as the values: clamping may have altered what got stored, and the reboot may have
+          // changed what the header says about the device - a pin that now collides shows up in
+          // `pinConflicts`, and a write that armed or disarmed it moves `wiringConfigured`. Reading
+          // values alone left both stale.
+          //
+          // waitReady() is not optional and its absence is what made a write look like a failed
+          // reconnect: USB CDC enumerates seconds before loop1() starts servicing commands, so the
+          // port reopens and then the first read lands in that gap and is swallowed. The console
+          // came back connected to a device that answered nothing.
+          if (!((await transport.reopenAfterReboot()) && (await transport.waitReady()))) return;
           setLive(true);
-          await readSchemaAndValues();
+          rebooted = true;
         }
-      } else {
-        await readAll();
       }
+      if (!written.size) return;
+
+      const keep = stagedExcept(written);
+      if (rebooted) await readSchemaAndValues(keep);
+      else await readAll(keep);
     } finally {
       setBusy(false);
     }
@@ -734,6 +862,7 @@ export function App() {
 
   const deviceDirty = dirtyFor("device").length;
   const profileDirty = dirtyFor("profile").length;
+  const otherProfilesDirty = dirty.size - deviceDirty - profileDirty;
   // `wiringByHand` is the console's own answer to "does this device still need a board chosen".
   // The device says no wiring either way; this says the user has already declined the picker.
   const showPicker = needsPresetPicker(schema, live) && !wiringByHand;
@@ -838,6 +967,7 @@ export function App() {
           busy={busy}
           identity={live ? { wiring: wiringName, fw: schema.fw } : null}
           supported={SerialTransport.supported}
+          asksEveryTime={SerialTransport.asksEveryTime}
           blasterName={String(getByKey(device, BLASTER_NAME_KEY) ?? "")}
           nameMaxLen={blasterNameNode?.maxLen}
           nameCharset={blasterNameNode?.charset}
@@ -846,6 +976,7 @@ export function App() {
           onOpenPresets={() => setPresetsOpen(true)}
           deviceDirty={deviceDirty}
           profileDirty={profileDirty}
+          totalDirty={dirty.size}
           profileName={profileName(slot)}
           profileReboots={slot === schema.activeProfileIndex}
           verbose={getByKey(device, "device:printTelemetry") === true}
@@ -857,13 +988,16 @@ export function App() {
               },
             ])
           }
-          onConnect={() => void connect()}
+          onConnect={(choose) => void connect(choose)}
           onDisconnect={() => void transport.disconnect()}
           onReadAll={() => void readSchemaAndValues()}
           onReboot={(mode) => void reboot(mode)}
           onReset={askReset}
-          onWriteDevice={() => void writeStore("device", 0)}
-          onWriteProfile={() => void writeStore("profile", slot)}
+          onWriteDevice={() => void writeStores([["device", 0]])}
+          onWriteProfile={() => void writeStores([["profile", slot]])}
+          onWriteEverything={() =>
+            void writeStores([["device", 0], ...profiles.map((_, i): [Store, number] => ["profile", i])])
+          }
           onFlashFirmware={() => setFlashOpen(true)}
           onSaveDeviceFile={saveDeviceFile}
           onSaveProfileFile={saveProfileFile}
@@ -967,12 +1101,14 @@ export function App() {
           </Alert>
         )}
 
-        {live && !showPicker && (deviceDirty > 0 || profileDirty > 0) && (
+        {live && !showPicker && dirty.size > 0 && (
           <Alert severity="warning" sx={{ py: 0 }}>
             {deviceDirty > 0 && `${deviceDirty} unsaved device change(s). `}
             {profileDirty > 0 &&
               `${profileDirty} unsaved change(s) to ${profileName(slot)}. `}
-            Device and profile are written separately.
+            {otherProfilesDirty > 0 &&
+              `${otherProfilesDirty} unsaved change(s) to the other profiles. `}
+            Write to Device &gt; Everything writes them all.
             {hiddenDirty.length > 0 && (
               <Box component="span" sx={{ display: "block", mt: 0.25 }}>
                 {hiddenDirty.length} of them{" "}
@@ -995,7 +1131,7 @@ export function App() {
             and no bound it could show that would mean anything. The picker replaces it. Opened by
             hand on a wired device, it sits above the form rather than replacing it, because there
             the form is still the thing being used. */}
-        {(showPicker || presetsOpen) && (
+        {(showPicker || presetsOpen || settingUp) && (
           <Paper variant="outlined" sx={{ p: 2 }}>
             <PresetPicker
               busy={busy}
@@ -1004,9 +1140,14 @@ export function App() {
               onApply={(preset) =>
                 showPicker ? void applyPreset(preset) : setPendingPreset(preset)
               }
+              onApplyBlaster={
+                showPicker || settingUp
+                  ? (board, blaster) => void applyBlaster(board, blaster)
+                  : undefined
+              }
               onCustom={() => void startCustomWiring()}
             />
-            {!showPicker && (
+            {!showPicker && !settingUp && (
               <Box sx={{ mt: 1 }}>
                 <Button size="small" disabled={busy} onClick={() => setPresetsOpen(false)}>
                   Cancel
@@ -1016,7 +1157,7 @@ export function App() {
           </Paper>
         )}
 
-        {!showPicker && (
+        {!showPicker && !settingUp && (
           <Paper variant="outlined">
             <Tabs value={tab} onChange={(_, v: TabId) => setTab(v)} variant="scrollable">
               <Tab value="profile" label="Profile" />
@@ -1208,6 +1349,7 @@ function DirtyContainer({
       {/* xl rather than lg so the header's action column and the log beside it both have room. */}
       <Container maxWidth="xl" sx={{ py: 2 }}>
         {children}
+        <ConsoleFooter />
       </Container>
     </DirtyKeys.Provider>
   );

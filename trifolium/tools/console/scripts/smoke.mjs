@@ -5,7 +5,7 @@
 // error in a UI library leaves exactly the same blank page as a syntax error. Catches the class of
 // mistake that only shows up when the code runs.
 //
-//   node scripts/smoke.mjs ../serial-config.html
+//   node scripts/smoke.mjs dist/index.html
 //
 // Not a substitute for opening it in a real browser: jsdom has no Web Serial, so this checks the
 // initial offline render only, which is precisely the part that was blank.
@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 
-const target = process.argv[2] ?? "../serial-config.html";
+const target = process.argv[2] ?? "dist/index.html";
 const html = readFileSync(target, "utf8");
 
 const errors = [];
