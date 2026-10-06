@@ -1,0 +1,367 @@
+{
+  "kind": "trifolium-config",
+  "bundleVersion": 1,
+  "savedAt": "2026-10-06T09:46:45.967Z",
+  "fw": "2.2.0",
+  "board": "seeed_xiao_rp2040",
+  "notes": [
+    "Nothing on this build reads the battery - every XIAO pin is taken - so the firmware works from 3.5 V a cell and has no low-voltage cutoff or warning. Fit a LiPo alarm, or use the ESCs' own cutoff."
+  ],
+  "deviceSchemaVersion": 3,
+  "profileSchemaVersion": 2,
+  "device": {
+    "schemaVersion": 3,
+    "boardId": "seeed_xiao_rp2040",
+    "wiringConfigured": true,
+    "escPins": [
+      1,
+      2,
+      4,
+      3
+    ],
+    "i2cSdaPin": 255,
+    "i2cSclPin": 255,
+    "batteryAdcPin": 255,
+    "escEnablePin": 255,
+    "speedPotPin": 29,
+    "speedPotReversed": false,
+    "hasDisplay": false,
+    "rotateDisplay": true,
+    "blasterName": "MS-GnK",
+    "menuButtonPin": 255,
+    "triggerSwitchPin": 28,
+    "revSwitchPin": 27,
+    "cycleSwitchPin": 255,
+    "dartSwitchPin": 26,
+    "idleSwitchPin": 255,
+    "safetySwitchPin": 255,
+    "select0Pin": 6,
+    "select1Pin": 7,
+    "select2Pin": 255,
+    "revSwitchNormallyClosed": false,
+    "triggerSwitchNormallyClosed": false,
+    "cycleSwitchNormallyClosed": false,
+    "dartSwitchNormallyClosed": false,
+    "idleSwitchNormallyClosed": false,
+    "safetySwitchNormallyClosed": false,
+    "menuButtonNormallyClosed": false,
+    "pusherReverseDirection": false,
+    "dualStageTrigger": false,
+    "bootAction": [
+      "bootloader",
+      "esc_passthrough",
+      "bootloader",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none"
+    ],
+    "pusherType": "solenoid_openloop",
+    "pusherDrive": "fet",
+    "pusherFetPin": 0,
+    "pusherEscChannel": "esc3",
+    "ledDataPin": 255,
+    "debounceTime_ms": 20,
+    "menuButtonHoldTime_ms": 1500,
+    "pusherDebounceTime_ms": 25,
+    "dartSwitchDebounce_ms": 4,
+    "dartSensing": true,
+    "dartWaitTimeout_ms": 500,
+    "minPushTime_ms": 8,
+    "revOnlyWithDart": true,
+    "voltageAveragingWindow": 5,
+    "useRpmBaseShotCounter": true,
+    "goodRpmShotReads": 5,
+    "rpmDropThreshold": 200,
+    "displayBrightness": 255,
+    "showCurrentRpmOnHomeScreen": false,
+    "homeScreenDisplayMode": "counter",
+    "showDpsOnHomeScreen": false,
+    "ledWarningMode": "none",
+    "dshotMode": "dshot600",
+    "printTelemetry": false,
+    "useRpmLogging": false,
+    "rpmLogLength": 2000,
+    "motorConfig": [
+      {
+        "enabled": true,
+        "stage": "stage1",
+        "kp": 0.5,
+        "ki": 0.8,
+        "motorKv": 6000,
+        "motorPolesDiv2": 6
+      },
+      {
+        "enabled": true,
+        "stage": "stage1",
+        "kp": 0.5,
+        "ki": 0.8,
+        "motorKv": 6000,
+        "motorPolesDiv2": 6
+      },
+      {
+        "enabled": true,
+        "stage": "stage2",
+        "kp": 0.5,
+        "ki": 0.8,
+        "motorKv": 6000,
+        "motorPolesDiv2": 6
+      },
+      {
+        "enabled": true,
+        "stage": "stage2",
+        "kp": 0.5,
+        "ki": 0.8,
+        "motorKv": 6000,
+        "motorPolesDiv2": 6
+      }
+    ],
+    "flywheelControl": "pid",
+    "firingRPMTolerance": 17500,
+    "minFiringRPM": 20000,
+    "rampupTimeout_ms": 500,
+    "speedPotMinRPM": 30000,
+    "speedPotMaxRPM": 65000,
+    "EMAFilter": 2,
+    "iThreshold": 50,
+    "throttleCap": 300,
+    "solenoidExtendTimeHigh_ms": 30,
+    "solenoidExtendTimeHighVoltage_mv": 12600,
+    "solenoidExtendTimeLow_ms": 30,
+    "solenoidExtendTimeLowVoltage_mv": 11800,
+    "solenoidRetractTime_ms": 15,
+    "vibrationPulseMs": 0,
+    "batteryType": "3s",
+    "lowVoltageCutoffPerCell_mv": 3300,
+    "lowVoltageWarningPerCell_mv": 3700,
+    "voltageCalibrationFactor": 1,
+    "selectFireType": "encoder",
+    "variableFPS": false,
+    "defaultProfileIndex": 0,
+    "switchPositionProfile": [
+      0,
+      1,
+      2,
+      -1,
+      -1,
+      -1,
+      -1
+    ]
+  },
+  "profiles": [
+    {
+      "schemaVersion": 2,
+      "name": "MS-GnK 1",
+      "revRPM": [
+        47972,
+        47972,
+        47972,
+        47972
+      ],
+      "dwellTime_ms": 0,
+      "idleTime_ms": 0,
+      "idleRPM": [
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "spindownSpeed": 100,
+      "revSafetyTimeout_ms": 0,
+      "rpmMode": "stage",
+      "speedPotStage2Ratio": 1,
+      "activeModeCount": 4,
+      "fireModes": [
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "safe",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "semi",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 3,
+          "burstMode": "burst",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 100,
+          "burstMode": "auto",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        }
+      ],
+      "defaultFiringMode": 0,
+      "switchPositionAssignment": [
+        1,
+        2,
+        3,
+        -1,
+        -1,
+        -1,
+        -1
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "name": "MS-GnK 2",
+      "revRPM": [
+        20000,
+        20000,
+        20000,
+        20000
+      ],
+      "dwellTime_ms": 0,
+      "idleTime_ms": 0,
+      "idleRPM": [
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "spindownSpeed": 100,
+      "revSafetyTimeout_ms": 0,
+      "rpmMode": "stage",
+      "speedPotStage2Ratio": 1,
+      "activeModeCount": 4,
+      "fireModes": [
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "safe",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "semi",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "binary",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 100,
+          "burstMode": "auto",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        }
+      ],
+      "defaultFiringMode": 0,
+      "switchPositionAssignment": [
+        1,
+        2,
+        3,
+        -1,
+        -1,
+        -1,
+        -1
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "name": "MS-GnK 3",
+      "revRPM": [
+        20000,
+        20000,
+        20000,
+        20000
+      ],
+      "dwellTime_ms": 0,
+      "idleTime_ms": 0,
+      "idleRPM": [
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "spindownSpeed": 100,
+      "revSafetyTimeout_ms": 0,
+      "rpmMode": "stage",
+      "speedPotStage2Ratio": 1,
+      "activeModeCount": 4,
+      "fireModes": [
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "safe",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "semi",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 1,
+          "burstMode": "binary",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        },
+        {
+          "name": "",
+          "burstLength": 100,
+          "burstMode": "auto",
+          "targetDPS": 0,
+          "reversible": false,
+          "binaryTriggerTimeout_ms": 2000,
+          "includeInCycle": true
+        }
+      ],
+      "defaultFiringMode": 0,
+      "switchPositionAssignment": [
+        1,
+        2,
+        3,
+        -1,
+        -1,
+        -1,
+        -1
+      ]
+    }
+  ]
+}

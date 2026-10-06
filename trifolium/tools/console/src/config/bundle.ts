@@ -26,6 +26,11 @@ export interface ConfigBundle {
   profileSchemaVersion: number;
   device: unknown;
   profiles: unknown[];
+  /**
+   * What someone setting the blaster up from this file should know, shown when it is picked. Only a
+   * published config has any: they are written by hand, and a Full Backup does not carry them.
+   */
+  notes?: string[];
 }
 
 export function buildBundle(

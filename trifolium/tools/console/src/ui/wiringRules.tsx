@@ -40,6 +40,13 @@ export const WIRING_RULES: WiringRule[] = [
       "channel is noise, and the low-voltage cutoff would act on it.",
   },
   {
+    field: "device:speedPotPin",
+    text:
+      "The speed pot must be on GPIO 26-29 too, for the same reason. Wire its ends to 3.3 V and " +
+      "ground and its wiper to this pin: the ADC reads 0-3.3 V, and 5 V on the pin damages it. " +
+      "On a pin the battery divider also uses, the battery keeps it.",
+  },
+  {
     field: "device:i2cSdaPin",
     text:
       "SDA and SCL have to be a servable pair. A GPIO's I2C role is fixed in silicon by pin % 4: " +

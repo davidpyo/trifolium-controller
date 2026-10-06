@@ -125,6 +125,7 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
     doc["spindownSpeed"] = settings.spindownSpeed;
     doc["revSafetyTimeout_ms"] = settings.revSafetyTimeout_ms;
     doc["rpmMode"] = enumIdOf(settings.rpmMode, kRpmModeIds, kRpmModeIdCount);
+    doc["speedPotStage2Ratio"] = settings.speedPotStage2Ratio;
 
     doc["activeModeCount"] = settings.activeModeCount;
     JsonArray fireModes = doc["fireModes"].to<JsonArray>();
@@ -141,7 +142,8 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
         mode["includeInCycle"] = settings.fireModes[i].includeInCycle;
     }
     doc["defaultFiringMode"] = settings.defaultFiringMode;
-    writeArray(doc, "switchPositionAssignment", settings.switchPositionAssignment, 3);
+    writeArray(doc, "switchPositionAssignment", settings.switchPositionAssignment,
+               SELECTOR_POSITIONS);
 }
 
 void fromJson(JsonDocument& doc, ShotProfile& out, Source source, uint8_t slot)
@@ -170,6 +172,7 @@ void fromJson(JsonDocument& doc, ShotProfile& out, Source source, uint8_t slot)
     out.spindownSpeed = doc["spindownSpeed"] | out.spindownSpeed;
     out.revSafetyTimeout_ms = doc["revSafetyTimeout_ms"] | out.revSafetyTimeout_ms;
     out.rpmMode = enumFromJson(doc["rpmMode"], kRpmModeIds, kRpmModeIdCount, out.rpmMode);
+    out.speedPotStage2Ratio = doc["speedPotStage2Ratio"] | out.speedPotStage2Ratio;
 
     uint8_t loadedModeCount = doc["activeModeCount"] | out.activeModeCount;
     if (loadedModeCount < 1)
@@ -200,7 +203,7 @@ void fromJson(JsonDocument& doc, ShotProfile& out, Source source, uint8_t slot)
         }
     }
     out.defaultFiringMode = doc["defaultFiringMode"] | out.defaultFiringMode;
-    readArray(doc, "switchPositionAssignment", out.switchPositionAssignment, 3);
+    readArray(doc, "switchPositionAssignment", out.switchPositionAssignment, SELECTOR_POSITIONS);
 }
 
 bool loadProfile(uint8_t index, ShotProfile& out)

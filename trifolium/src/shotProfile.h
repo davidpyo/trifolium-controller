@@ -43,10 +43,11 @@ struct ShotProfile
     uint32_t spindownSpeed;
     uint32_t revSafetyTimeout_ms;
     rpmModeType_t rpmMode;
+    float speedPotStage2Ratio; // with a speed pot, stage 2's rev RPM over stage 1's
 
     FireModeConfig fireModes[MAX_FIRE_MODES];
     uint8_t activeModeCount; // how many leading fireModes[] slots are in use, 1-MAX_FIRE_MODES
     uint8_t defaultFiringMode; // index into fireModes[0, activeModeCount)
 
-    int8_t switchPositionAssignment[3];
+    int8_t switchPositionAssignment[SELECTOR_POSITIONS];
 };

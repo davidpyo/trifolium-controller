@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include "types.h"
 
+static constexpr int8_t NO_PROFILE = -1;
+
 struct MotorConfig
 {
     bool enabled;
@@ -29,6 +31,8 @@ struct DeviceSettings
     uint8_t i2cSclPin;     // I2C role is fixed by pin % 4, so storing it would be a second answer.
     uint8_t batteryAdcPin; // GPIO 26-29 only; anything else folds to unused
     uint8_t escEnablePin;  // driven LOW at boot and by the low-voltage cutoff, to kill ESC power
+    uint8_t speedPotPin;   // GPIO 26-29 only; sets the rev RPM in place of the profile's own
+    bool speedPotReversed; // wired so that turning it up reads lower
 
     bool hasDisplay;
     bool rotateDisplay;
@@ -38,6 +42,7 @@ struct DeviceSettings
     uint8_t triggerSwitchPin;
     uint8_t revSwitchPin;
     uint8_t cycleSwitchPin;
+    uint8_t dartSwitchPin; // reads whether a dart is sitting in the breech
     uint8_t idleSwitchPin; // holds flywheels at idle RPM manually, instead of the dwell/idle timers
     uint8_t safetySwitchPin; // engaged, it forces the effective firing mode to SAFE
     uint8_t select0Pin;
@@ -47,6 +52,7 @@ struct DeviceSettings
     bool revSwitchNormallyClosed;
     bool triggerSwitchNormallyClosed;
     bool cycleSwitchNormallyClosed;
+    bool dartSwitchNormallyClosed;
     bool idleSwitchNormallyClosed;
     bool safetySwitchNormallyClosed;
     bool menuButtonNormallyClosed;
@@ -72,6 +78,11 @@ struct DeviceSettings
     uint16_t debounceTime_ms;
     uint32_t menuButtonHoldTime_ms;
     uint16_t pusherDebounceTime_ms;
+    uint16_t dartSwitchDebounce_ms; // how long a dart must show without a break to count
+    bool dartSensing;               // the pusher pushes only when the dart switch shows a dart
+    uint16_t dartWaitTimeout_ms;    // how long queued shots wait for a dart before they're dropped
+    uint16_t minPushTime_ms;        // how long a push ignores the dart switch before it can end
+    bool revOnlyWithDart;           // a rev only starts with a dart in the breech
     int voltageAveragingWindow;
 
     bool useRpmBaseShotCounter; // if true, shot counter increases based on detected rpm drop,
@@ -98,6 +109,8 @@ struct DeviceSettings
     int32_t firingRPMTolerance;
     int32_t minFiringRPM;
     uint32_t rampupTimeout_ms;
+    int32_t speedPotMinRPM; // stage 1's rev RPM at each end of the pot's travel
+    int32_t speedPotMaxRPM;
     uint8_t EMAFilter;
     uint16_t iThreshold;
     uint16_t throttleCap;
@@ -120,4 +133,7 @@ struct DeviceSettings
     selectFireType_t selectFireType;
     bool variableFPS;
     uint8_t defaultProfileIndex; // used at boot when no select-switch position is active
+    // With variableFPS, the slot each selector position boots. NO_PROFILE boots
+    // defaultProfileIndex, as no position does.
+    int8_t switchPositionProfile[SELECTOR_POSITIONS];
 };

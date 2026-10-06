@@ -5,7 +5,7 @@ static NumericItem<uint32_t> spindownSpeedItem("Spindown Speed", "profile:spindo
                                                &activeProfile.spindownSpeed, 10, 500, 10);
 // "At speed" = max(targetRPM - firingRPMTolerance, minFiringRPM) - see atSpeedRpm() in main.cpp.
 static NumericItem<int32_t> firingRpmToleranceItem("Firing RPM Tol", "device:firingRPMTolerance",
-                                                   &deviceSettings.firingRPMTolerance, 0, 10000,
+                                                   &deviceSettings.firingRPMTolerance, 0, 20000,
                                                    500);
 static RpmTargetItem minFiringRpmItem("Min Firing RPM", "device:minFiringRPM",
                                       &deviceSettings.minFiringRPM, RPM_TARGET_ALL_MOTORS, 1000,
@@ -16,6 +16,22 @@ static NumericItem<uint32_t> rampupTimeoutItem("Rampup Timeout (ms)", "device:ra
                                                &deviceSettings.rampupTimeout_ms, 100, 5000, 50);
 static ToggleItem variableFPSItem("Variable FPS", "device:variableFPS", &deviceSettings.variableFPS,
                                   true);
+static RpmTargetItem speedPotMinRpmItem("Pot Min RPM", "device:speedPotMinRPM",
+                                        &deviceSettings.speedPotMinRPM, RPM_TARGET_ALL_MOTORS, 1000,
+                                        RPM_FLOOR_MOTOR_MIN);
+static RpmTargetItem speedPotMaxRpmItem("Pot Max RPM", "device:speedPotMaxRPM",
+                                        &deviceSettings.speedPotMaxRPM, RPM_TARGET_ALL_MOTORS, 1000,
+                                        RPM_FLOOR_MOTOR_MIN);
+static FloatItem speedPotStage2RatioItem("Stage 2 Ratio", "profile:speedPotStage2Ratio",
+                                         &activeProfile.speedPotStage2Ratio, 0.5f, 2.0f, 0.05f);
+
+// The stored pin, like ledIsWired() in menuDevice.cpp, so the rule beside it can say the same.
+static bool speedPotIsWired()
+{
+    return deviceSettings.speedPotPin != PIN_NOT_USED;
+}
+static constexpr VisibilityTerm kSpeedPotWiredTerms[] = {{"device:speedPotPin", "255", true}};
+static constexpr VisibilityCondition kSpeedPotWired = {kSpeedPotWiredTerms, 1};
 
 static bool selectFireIsWired()
 {
@@ -27,7 +43,13 @@ static constexpr VisibilityCondition kSelectFireIsWired = {kSelectFireIsWiredTer
 
 struct FlywheelItemsInit
 {
-    FlywheelItemsInit() { variableFPSItem.setVisibleWhen(selectFireIsWired, &kSelectFireIsWired); }
+    FlywheelItemsInit()
+    {
+        variableFPSItem.setVisibleWhen(selectFireIsWired, &kSelectFireIsWired);
+        speedPotMinRpmItem.setVisibleWhen(speedPotIsWired, &kSpeedPotWired);
+        speedPotMaxRpmItem.setVisibleWhen(speedPotIsWired, &kSpeedPotWired);
+        speedPotStage2RatioItem.setVisibleWhen(speedPotIsWired, &kSpeedPotWired);
+    }
 } flywheelItemsInit;
 
 static const char* const rpmModeLabels[] = {"Custom", "Stage"};
@@ -35,28 +57,43 @@ static_assert(sizeof(rpmModeLabels) / sizeof(rpmModeLabels[0]) == kRpmModeIdCoun
 static EnumItem<rpmModeType_t> rpmModeItem("RPM Mode", "profile:rpmMode", &activeProfile.rpmMode,
                                            rpmModeLabels, kRpmModeIds, kRpmModeIdCount);
 
-// The rule below, as data. Two fixed conditions rather than one built per instance: a constructor
+// The rule below, as data. Fixed conditions rather than one built per instance: a constructor
 // cannot hand out a pointer to something with its own lifetime, and there are only ever two modes.
 static constexpr VisibilityTerm kRpmModeIsCustomTerms[] = {{"profile:rpmMode", "custom", false}};
 static constexpr VisibilityCondition kRpmModeIsCustom = {kRpmModeIsCustomTerms, 1};
 static constexpr VisibilityTerm kRpmModeIsStageTerms[] = {{"profile:rpmMode", "stage", false}};
 static constexpr VisibilityCondition kRpmModeIsStage = {kRpmModeIsStageTerms, 1};
+static constexpr VisibilityTerm kRevRpmIsCustomTerms[] = {{"profile:rpmMode", "custom", false},
+                                                          {"device:speedPotPin", "255", false}};
+static constexpr VisibilityCondition kRevRpmIsCustom = {kRevRpmIsCustomTerms, 2};
+static constexpr VisibilityTerm kRevRpmIsStageTerms[] = {{"profile:rpmMode", "stage", false},
+                                                         {"device:speedPotPin", "255", false}};
+static constexpr VisibilityCondition kRevRpmIsStage = {kRevRpmIsStageTerms, 2};
 
-// Hides a submenu entirely unless the global RPM Mode matches.
+// Hides a submenu entirely unless the global RPM Mode matches - and, for the rev RPM rows, while a
+// speed pot is wired, since the pot sets those.
 class ModeVisibleSubmenuItem : public SubmenuItem
 {
   public:
     ModeVisibleSubmenuItem(const char* label, MenuItem* const* children, uint8_t childCount,
-                           rpmModeType_t requiredMode)
-        : SubmenuItem(label, children, childCount), requiredMode_(requiredMode)
+                           rpmModeType_t requiredMode, bool potSetsRows = false)
+        : SubmenuItem(label, children, childCount), requiredMode_(requiredMode),
+          potSetsRows_(potSetsRows)
     {
-        setVisibleWhenData(requiredMode == RPM_STAGE ? &kRpmModeIsStage : &kRpmModeIsCustom);
+        setVisibleWhenData(
+            potSetsRows ? (requiredMode == RPM_STAGE ? &kRevRpmIsStage : &kRevRpmIsCustom)
+                        : (requiredMode == RPM_STAGE ? &kRpmModeIsStage : &kRpmModeIsCustom));
     }
 
-    bool isVisible() const override { return activeProfile.rpmMode == requiredMode_; }
+    bool isVisible() const override
+    {
+        return activeProfile.rpmMode == requiredMode_ &&
+               !(potSetsRows_ && deviceSettings.speedPotPin != PIN_NOT_USED);
+    }
 
   private:
     rpmModeType_t requiredMode_;
+    bool potSetsRows_;
 };
 
 // Writes the same RPM to every motor whose motorStage matches - a convenience over the real
@@ -164,14 +201,14 @@ static RpmTargetItem profileRpmMotor3Item("Motor 4 RPM", "profile:revRPM[3]",
 static MenuItem* profileRpmCustomItems[] = {&profileRpmMotor0Item, &profileRpmMotor1Item,
                                             &profileRpmMotor2Item, &profileRpmMotor3Item};
 static ModeVisibleSubmenuItem profileRpmCustomSubmenu("Per Motor RPM", profileRpmCustomItems, 4,
-                                                      RPM_CUSTOM);
+                                                      RPM_CUSTOM, true);
 static StageRpmItem profileRpmStage1Item("1st Stage RPM", activeProfile.revRPM, STAGE_1, 500,
                                          RPM_FLOOR_MOTOR_MIN, true);
 static StageRpmItem profileRpmStage2Item("2nd Stage RPM", activeProfile.revRPM, STAGE_2, 500,
                                          RPM_FLOOR_MOTOR_MIN, true);
 static MenuItem* profileRpmStageItems[] = {&profileRpmStage1Item, &profileRpmStage2Item};
 static ModeVisibleSubmenuItem profileRpmStageSubmenu("Per Stage RPM", profileRpmStageItems, 2,
-                                                     RPM_STAGE);
+                                                     RPM_STAGE, true);
 
 MenuItem* activeProfileRpmTarget()
 {
@@ -189,10 +226,12 @@ static SecondsDisplayItem revSafetyTimeoutItem("Rev Safety TO", "profile:revSafe
 
 static MenuItem* flywheelRpmItems[] = {
     &rpmModeItem,          &profileRpmStageSubmenu, &profileRpmCustomSubmenu,
+    &speedPotStage2RatioItem,
     &idleRpmCustomSubmenu, &idleRpmStageSubmenu,    &profileDwellItem,
     &profileIdleItem,      &spindownSpeedItem,
     &revSafetyTimeoutItem, &firingRpmToleranceItem, &minFiringRpmItem,        &rampupTimeoutItem,
-    &variableFPSItem,
+    &variableFPSItem,      &speedPotMinRpmItem,     &speedPotMaxRpmItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem flywheelRpmSubmenu("Flywheel / RPM", flywheelRpmItems, 13);
+SubmenuItem flywheelRpmSubmenu("Flywheel / RPM", flywheelRpmItems,
+                               sizeof(flywheelRpmItems) / sizeof(flywheelRpmItems[0]));

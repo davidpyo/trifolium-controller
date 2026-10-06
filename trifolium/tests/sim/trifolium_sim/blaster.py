@@ -14,7 +14,8 @@ import json
 from .host import EXE, PROJECT, HostProcess, SimCrash
 from .panel import Panel
 
-SWITCHES = ("menu", "trigger", "rev", "cycle", "idle", "safety", "select0", "select1", "select2")
+SWITCHES = ("menu", "trigger", "rev", "cycle", "dart", "idle", "safety", "select0", "select1",
+            "select2")
 
 # flywheelState
 IDLE, ACCELERATING, FULLSPEED = 0, 1, 2
@@ -133,6 +134,18 @@ class Blaster:
     def analog(self, pin, raw):
         self._set_world(("analog", pin), "analog", pin=pin, raw=raw)
 
+    def pot(self, fraction):
+        """The speed pot turned `fraction` of its travel from the grounded end, on the pin the
+        wiring gives it. Left alone, a wired pot reads 0; with none wired, it keeps its place for a
+        wiring that has one."""
+        self._set_world(("pot",), "pot", fraction=fraction)
+
+    @property
+    def pot_fraction(self):
+        """What pot() last gave, or None."""
+        entry = self._world.get(("pot",))
+        return entry[1]["fraction"] if entry else None
+
     def drive(self, pin, level):
         """Something outside the chip holding `pin` - a switch to ground is drive(pin, False)."""
         self._set_world(("pin", pin), "pin.drive", pin=pin, level=level)
@@ -144,6 +157,8 @@ class Blaster:
         """A switch by role, at the pin and polarity the wiring gives it - the firmware's own copy
         once booted, the config on flash before that."""
         reply = self._call("switch", role=role, pressed=pressed)
+        if role == "dart":  # a hand on the dart switch outranks the magazine until reload()
+            self._world[("dartByHand",)] = ("magazine.byHand", {"value": True})
         pin = reply["pin"]
         if reply["level"] is None:
             self._world[("pin", pin)] = ("pin.release", {"pin": pin})
@@ -191,8 +206,27 @@ class Blaster:
         merged = dict(self._world.get(key, ("wheel", {"index": index}))[1], **params)
         self._set_world(key, "wheel", **merged)
 
+    def magazine(self, capacity=None, load_rate=None, leave_ms=None):
+        """The magazine's size, the rate its spring feeds the breech in darts a second, and how long
+        after a push the dart clears the dart switch. Fitting one takes reload()."""
+        params = {"capacity": capacity, "loadRate": load_rate, "leaveMs": leave_ms}
+        self._call("magazine", **{k: v for k, v in params.items() if v is not None})
+
+    def reload(self):
+        """A full magazine in. The breech fills a feed interval later, and from then on each push
+        carries a dart out and the spring feeds the next once the pusher is back; a push with the
+        breech empty is dry. It stays in across reboots and power cycles, as a magazine does."""
+        self._world.pop(("dartByHand",), None)
+        self._call("magazine.reload")
+
+    def magazine_state(self):
+        """fitted, capacity, darts left behind the breech, breech, loadRate, launched, dry."""
+        reply = self._call("magazine.get")
+        return {k: v for k, v in reply.items() if k not in ("id", "ok")}
+
     def darts(self, **params):
-        """loaded, delay_us, loss_rpm - what goes through the wheels on each extend."""
+        """loaded, delay_us, loss_rpm - what goes through the wheels on each extend. With a
+        magazine in, only a push that carries a dart out puts one through them."""
         merged = dict(self._world.get(("darts",), ("darts", {}))[1], **params)
         self._set_world(("darts",), "darts", **merged)
 
@@ -390,11 +424,13 @@ class Blaster:
         return self._call("pinModeCalls")["count"]
 
     def edges(self, pin, since_us=0):
-        """This boot's level changes on `pin`, as (µs since this boot's power-on, level)."""
+        """This boot's level changes on `pin`, as (µs since this boot's power-on, level). An
+        ESC-driven pusher's channel reads as its pusher's gate: high while it is sent throttle."""
         return [tuple(e) for e in self._call("pin.edges", pin=pin, since_us=since_us)["edges"]]
 
     def extends(self):
-        """This boot's pusher extends, in µs since its power-on."""
+        """This boot's pusher extends, in µs since its power-on: a FET's gate going high, or an
+        ESC-driven pusher's channel going from no throttle to some, as a brushed motor starts."""
         return self._call("extends")["at_us"]
 
     def panel(self, pixels=False):
@@ -503,6 +539,7 @@ class Blaster:
         self._pull_serial()
         files = self._call("flash.dump")["files"]
         ram = self._call("noinit.get") if keep_ram else None
+        magazine = self.magazine_state()
         self._finish_boot("reboot" if keep_ram else "power")
         self._proc.close()
 
@@ -521,3 +558,4 @@ class Blaster:
                        passthroughExit=ram["passthroughExit"], magic=ram["magic"])
         for op, params in self._world.values():
             self._call(op, **self._as_of_now(op, params))
+        self._call("magazine.set", **magazine)

@@ -35,9 +35,10 @@ static IdleModeItem idleModeItem("Idle Mode", &idleHoldActive);
 // Profile) - same instances either way.
 static MenuItem* advancedItems[] = {
     &flywheelRpmSubmenu, &selectFireSubmenu, &profileAdvancedSubmenu, &motorsPidSubmenu,
-    &solenoidSubmenu,    &batterySubmenu,    &deviceSubmenu,
+    &solenoidSubmenu,    &dartSwitchSubmenu, &batterySubmenu,    &deviceSubmenu,
 };
-static SubmenuItem advancedSubmenu("Advanced", advancedItems, 7);
+static SubmenuItem advancedSubmenu("Advanced", advancedItems,
+                                   sizeof(advancedItems) / sizeof(advancedItems[0]));
 
 MenuItem* rootItems[] = {
     &firingModeShortcut, &burstLengthShortcut,  &targetDpsShortcut, &rpmTimingShortcut,
