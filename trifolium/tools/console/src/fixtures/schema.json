@@ -2412,6 +2412,14 @@
                   "step": 10
                 },
                 {
+                  "label": "Max Spinup Voltage (mV)",
+                  "kind": "int",
+                  "key": "device:motorConfig[0].maxSpinupVoltage_mv",
+                  "lo": 10000,
+                  "hi": 30000,
+                  "step": 100
+                },
+                {
                   "label": "Change Direction",
                   "kind": "action"
                 },
@@ -2481,6 +2489,14 @@
                   "lo": 500,
                   "hi": 10000,
                   "step": 10
+                },
+                {
+                  "label": "Max Spinup Voltage (mV)",
+                  "kind": "int",
+                  "key": "device:motorConfig[1].maxSpinupVoltage_mv",
+                  "lo": 10000,
+                  "hi": 30000,
+                  "step": 100
                 },
                 {
                   "label": "Change Direction",
@@ -2554,6 +2570,14 @@
                   "step": 10
                 },
                 {
+                  "label": "Max Spinup Voltage (mV)",
+                  "kind": "int",
+                  "key": "device:motorConfig[2].maxSpinupVoltage_mv",
+                  "lo": 10000,
+                  "hi": 30000,
+                  "step": 100
+                },
+                {
                   "label": "Change Direction",
                   "kind": "action"
                 },
@@ -2623,6 +2647,14 @@
                   "lo": 500,
                   "hi": 10000,
                   "step": 10
+                },
+                {
+                  "label": "Max Spinup Voltage (mV)",
+                  "kind": "int",
+                  "key": "device:motorConfig[3].maxSpinupVoltage_mv",
+                  "lo": 10000,
+                  "hi": 30000,
+                  "step": 100
                 },
                 {
                   "label": "Change Direction",

@@ -90,6 +90,33 @@ def test_the_throttle_never_leaves_0_to_1999_and_saturates_on_a_target_past_the_
     assert b.escs()[1]["lastThrottle"] == 0
 
 
+def test_a_motor_voltage_limit_caps_throttle_rising_with_sag_and_with_the_target_rpm(blaster):
+    b = blaster
+    b.flash_profile(1, {"schemaVersion": 2, "revRPM": [20000, 20000, 20000, 45000]})
+    limited = {"maxSpinupVoltage_mv": 10000}
+    armed_v12(b, {"motorConfig": [{}, limited, {}, limited]}, display=False)
+
+    def peak_throttles():
+        b.press("rev")
+        seen = []
+        for _ in range(300):
+            b.run_ms(2)
+            seen.append([b.escs()[i]["lastThrottle"] for i in (1, 3, 0)])
+        b.release("rev")
+        b.run_ms(3000)
+        return [max(column) for column in zip(*seen)]
+
+    # 20000 RPM needs 6.25 V + 2 V headroom, under the limit. 45000 RPM needs 14.06 V + 2 V, so the
+    # cap rises to that. approx: the battery reading is quantized by the ADC
+    assert peak_throttles() == [
+        pytest.approx(1999 * 10000 / 16400, rel=0.01),
+        pytest.approx(1999 * 16062 / 16400, rel=0.01),
+        1999,
+    ]
+    b.set_pack(14000)  # above the 3.3 V/cell cutoff
+    assert peak_throttles()[0] == pytest.approx(1999 * 10000 / 14000, rel=0.01)
+
+
 def test_open_loop_spin_down_only_ever_lowers_the_throttle(blaster):
     b = armed_v12(blaster, display=False)
     b.press("rev")
