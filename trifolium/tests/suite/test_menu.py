@@ -37,6 +37,21 @@ def test_advanced_holds_the_seven_setting_groups(blaster):
                                    "Solenoid / Pusher", "Battery", "Device", "< Back"]
 
 
+def test_a_wired_dart_switch_gets_its_own_group_after_the_pusher(blaster):
+    b = armed_v12(blaster, {"dartSwitchPin": 20}, settle_ms=3000)
+    advanced = menu(b, "Advanced")
+    assert advanced[advanced.index("Solenoid / Pusher") + 1] == "Dart Switch"
+    enter(b, "Dart Switch")
+    dart = rows(b)
+    for name in ("Dart Sensing", "Rev Only With Dart", "Dart Debounce"):
+        assert shown(dart, name), dart
+    for name in ("Dart Wait", "Min Push"):  # Dart Sensing's own, and it is off
+        assert not shown(dart, name), dart
+    close_menu(b)
+    pusher = menu(b, "Advanced", "Solenoid / Pusher")
+    assert not shown(pusher, "Dart Sensing"), pusher
+
+
 def test_wiring_and_what_only_a_host_should_set_have_no_rows_on_the_device(blaster):
     b = armed_v12(blaster, settle_ms=3000)
     device = menu(b, "Advanced", "Device")

@@ -56,6 +56,23 @@ def test_a_rev_while_the_divider_reads_low_reaches_speed_without_running_away(bl
     assert b.wheels()[1]["rpm"] == pytest.approx(TARGET, rel=0.01)
 
 
+def test_with_nothing_reading_the_pack_it_is_taken_as_3_5_v_a_cell_and_never_cut_or_warned(blaster):
+    """A board with no divider: the firmware works from 3.5 V a cell - under the 3.7 V warning - and
+    skips the cutoff and the warning altogether. It fires, and nothing will stop it running a pack
+    flat either."""
+    b = blaster
+    armed_v12(b, {"batteryAdcPin": 255, "escEnablePin": 22, "ledDataPin": 20,
+                  "ledWarningMode": "warn_batt"}, display=False)
+    assert b.peek("battery") == {"defined": False, "mv": 4 * 3500}
+    armed_at = b.uptime_us
+    b.press("trigger")
+    assert b.run_until(lambda: len(b.extends()) >= 1, 1500)
+    b.release("trigger")
+    b.run_ms(3000)
+    assert b.pin(22)["outputLevel"] is True  # the ESCs were never cut
+    assert len(b.edges(20, armed_at)) <= 1  # the LED came on, at most, and never blinked
+
+
 @pytest.mark.xfail(reason="checkLowVoltageCutoff() trusts the reading as soon as ESC arming ends and "
                           "latches ESC enable off, so a divider still rising then cuts the ESCs until "
                           "the next boot")

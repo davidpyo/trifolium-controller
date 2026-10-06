@@ -44,15 +44,29 @@
                                                                  border-color: var(--held); }
   #switches button.held small, #switches button[aria-pressed="true"] small { color: #fff; }
   .note { color: var(--muted); margin: 0; }
-  #selector { display: flex; margin-top: 8px; }
-  #selector[hidden] { display: none; }
-  #selector button { flex: 1 1 0; min-height: 52px; border: 1px solid var(--line); margin-left: -1px;
-                     background: var(--bg); color: var(--ink); font: inherit; cursor: pointer; }
-  #selector button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
-  #selector button:last-child { border-radius: 0 6px 6px 0; }
-  #selector button small { display: block; color: var(--muted); font-size: 11px; }
-  #selector button[aria-checked="true"] { background: var(--held); color: #fff; border-color: var(--held); }
-  #selector button[aria-checked="true"] small { color: #fff; }
+  .positions { display: flex; margin-top: 8px; }
+  .positions[hidden] { display: none; }
+  .positions button { flex: 1 1 0; min-height: 52px; border: 1px solid var(--line); margin-left: -1px;
+                      background: var(--bg); color: var(--ink); font: inherit; cursor: pointer; }
+  .positions button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .positions button:last-child { border-radius: 0 6px 6px 0; }
+  .positions button small { display: block; color: var(--muted); font-size: 11px; }
+  .positions button[aria-checked="true"] { background: var(--held); color: #fff; border-color: var(--held); }
+  .positions button[aria-checked="true"] small { color: #fff; }
+  #encoder { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 8px; }
+  #encoder[hidden] { display: none; }
+  #dial { position: relative; width: 168px; height: 168px; }
+  #dial .knob { position: absolute; inset: 46px; border-radius: 50%; background: var(--bg);
+                border: 1px solid var(--line); transition: transform .06s linear; }
+  #dial .knob::after { content: ""; position: absolute; left: 50%; top: 5px; width: 4px; height: 26px;
+                       margin-left: -2px; border-radius: 2px; background: var(--held); }
+  #dial button { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; padding: 0;
+                 border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--ink);
+                 font: 12px system-ui, sans-serif; cursor: pointer; }
+  #dial button[aria-checked="true"] { background: var(--held); color: #fff; border-color: var(--held); }
+  #encoder .turn { display: flex; gap: 8px; align-items: center; }
+  #encoder-lines { color: var(--muted); font-size: 12px; min-width: 150px; text-align: center; }
+  #pot-row[hidden] { display: none; }
   .wheel { display: grid; grid-template-columns: 64px 1fr 120px; gap: 8px; align-items: center; margin: 6px 0; }
   .wheel small { display: block; color: var(--muted); font-size: 11px; }
   .power { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -69,7 +83,7 @@
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
   .chip.on { border-color: var(--held); color: var(--held); }
   label.row { display: grid; grid-template-columns: 90px 1fr 70px; gap: 8px; align-items: center; margin: 6px 0; }
-  select, input[type=range] { width: 100%; }
+  select, input[type=range], input[type=number] { width: 100%; }
   button.plain { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink);
                  font: inherit; padding: 6px 12px; cursor: pointer; }
   #console { width: 100%; height: 100%; border: 0; background: var(--panel); }
@@ -91,7 +105,18 @@
     <section class="card">
       <h2>Switches</h2>
       <div id="switches"></div>
-      <div id="selector" role="radiogroup" aria-label="Select switch" hidden></div>
+      <div id="selector" class="positions" role="radiogroup" aria-label="Select switch" hidden></div>
+      <div id="encoder" hidden>
+        <div id="dial" role="radiogroup" aria-label="Encoder"><div class="knob"></div></div>
+        <div class="turn">
+          <button class="plain" id="encoder-left" aria-label="Turn the encoder left">&#9664;</button>
+          <span id="encoder-lines"></span>
+          <button class="plain" id="encoder-right" aria-label="Turn the encoder right">&#9654;</button>
+        </div>
+      </div>
+      <label class="row" id="pot-row" hidden>Speed pot
+        <input id="pot" type="range" min="0" max="100" step="1" value="100">
+        <span class="num" id="pot-value"></span></label>
       <p class="note" id="switches-note"></p>
     </section>
     <section class="card">
@@ -103,6 +128,17 @@
       <div id="pusher"><span id="dart"></span><span id="shots">0 shots this boot</span></div>
       <p id="solenoid" class="indicator"><span id="solenoid-lamp" class="lamp"></span>
         <span id="solenoid-label"></span></p>
+    </section>
+    <section class="card">
+      <h2>Magazine</h2>
+      <label class="row">Size <input id="mag-size" type="number" min="1" max="200" value="18">
+        <span>darts</span></label>
+      <label class="row">Load rate <input id="mag-rate" type="range" min="10" max="200" step="5" value="100">
+        <span class="num" id="mag-rate-value">100 dps</span></label>
+      <div class="power"><button class="plain" id="reload"
+        title="A full magazine in: the spring feeds the breech at the load rate">Reload magazine</button></div>
+      <p id="magazine" class="indicator"><span id="breech-lamp" class="lamp"></span>
+        <span id="magazine-label">No magazine in: every push launches a dart.</span></p>
     </section>
     <section class="card">
       <h2>State</h2>
@@ -150,6 +186,7 @@ const latched = new Set();
 let wiringFor = null; // the boot the switches were built for
 let shownShots = 0;
 let packTouched = false;
+let potAt = null; // the pot's fraction as the simulator holds it, null until something sets it
 
 // One request at a time in each direction, answered in order.
 const ws = new WebSocket(`ws://${location.host}/control`);
@@ -171,22 +208,31 @@ function buildSwitches(settings) {
   const wired = ROLES.filter((r) => settings[r.key] !== undefined && settings[r.key] !== PIN_NOT_USED);
   // A switch-type select fire is one switch: a position per select pin, and one grounding none.
   const selector = settings.selectFireType === "switch" ? wired.filter((r) => isSelect(r.role)) : [];
+  // An encoder is one knob over all its lines: a detent per combination of them.
+  const encoder = settings.selectFireType === "encoder" ? wired.filter((r) => isSelect(r.role)) : [];
   $("switches-note").textContent = !settings.wiringConfigured
     ? "No wiring. Set the board up in the console."
-    : "Hold Space for the trigger, R for rev, M for the menu, C for cycle.";
+    : "Hold Space for the trigger, R for rev, M for the menu, C for cycle." +
+      (encoder.length ? " [ and ] turn the encoder." : "");
   // A button-type select fire cycles modes on Select 1, a push button - unless that is the menu
   // button's pin, when the Menu button already presses it.
   const modeButton = settings.selectFireType === "button";
-  const buttons = wired.filter((r) => !selector.includes(r) &&
+  const buttons = wired.filter((r) => !selector.includes(r) && !encoder.includes(r) &&
     !(modeButton && r.role === "select0" && settings.select0Pin === settings.menuButtonPin));
   const momentary = (r) => r.momentary || (modeButton && r.role === "select0");
   // A latch left down by the last wiring, on a pin that no longer latches, lets go.
-  const latching = new Set([...buttons.filter((r) => !momentary(r)), ...selector].map((r) => r.role));
+  const latching = new Set([...buttons.filter((r) => !momentary(r)), ...selector, ...encoder]
+    .map((r) => r.role));
   for (const role of [...latched].filter((x) => !latching.has(x))) {
     latched.delete(role);
     act({ op: "release", role });
   }
   buildSelector(settings.wiringConfigured ? selector : [], settings);
+  buildEncoder(settings.wiringConfigured ? encoder : [], settings);
+  const pot = settings.speedPotPin;
+  $("pot-row").hidden = !settings.wiringConfigured || pot === undefined || pot === PIN_NOT_USED;
+  // A pot nothing has set reads 0 in the simulator; the slider says where it is instead.
+  if (!$("pot-row").hidden && potAt === null) act({ op: "pot", fraction: $("pot").value / 100 });
   if (!settings.wiringConfigured) return;
   for (const r of buttons) {
     const b = document.createElement("button");
@@ -249,6 +295,84 @@ async function moveSelector(role) {
   markSelector();
 }
 
+// The encoder's lines, lowest bit first, and the GPIO each one is on.
+let encoderLines = [];
+let encoderGoal = 0; // where the knob is headed; a turn under way follows it if it moves
+let encoderTurning = false;
+const DETENT_MS = 30; // a brisk turn: long enough per detent to see, shorter than it takes to settle
+
+function encoderAt() {
+  return encoderLines.reduce((p, line, bit) => p | (latched.has(line.role) ? 1 << bit : 0), 0);
+}
+
+function detentAngle(i, count) {
+  const step = count <= 4 ? 60 : 38;
+  return (i - (count - 1) / 2) * step;
+}
+
+function buildEncoder(roles, settings) {
+  const dial = $("dial");
+  dial.querySelectorAll("button").forEach((b) => b.remove());
+  $("encoder").hidden = !roles.length;
+  encoderLines = roles.map((r) => ({ role: r.role, gpio: settings[r.key] }));
+  if (!roles.length) return;
+  encoderGoal = encoderAt();
+  const count = 1 << roles.length;
+  for (let i = 0; i < count; i++) {
+    const a = (detentAngle(i, count) * Math.PI) / 180;
+    const b = document.createElement("button");
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-label", `Position ${i}`);
+    b.title = linesText(i);
+    b.textContent = String(i);
+    b.style.left = `${84 + 70 * Math.sin(a)}px`;
+    b.style.top = `${84 - 70 * Math.cos(a)}px`;
+    b.addEventListener("click", () => turnEncoder(i));
+    dial.append(b);
+  }
+  markEncoder(encoderAt());
+}
+
+function linesText(position) {
+  const grounded = encoderLines.filter((_, bit) => position & (1 << bit)).map((l) => `GPIO ${l.gpio}`);
+  return grounded.length ? `${grounded.join(" + ")} grounded` : "no line grounded";
+}
+
+function markEncoder(at) {
+  const count = 1 << encoderLines.length;
+  for (const b of $("dial").querySelectorAll("button")) {
+    b.setAttribute("aria-checked", String(b.textContent === String(at)));
+  }
+  $("dial").querySelector(".knob").style.transform = `rotate(${detentAngle(at, count)}deg)`;
+  $("encoder-lines").textContent = `Position ${at}: ${linesText(at)}`;
+}
+
+// Turns one detent at a time, as a knob does, so a turn from 1 to 3 passes through 2 on the way.
+async function turnEncoder(to) {
+  encoderGoal = Math.max(0, Math.min((1 << encoderLines.length) - 1, to));
+  if (encoderTurning) return;
+  encoderTurning = true;
+  try {
+    let at = encoderAt();
+    while (at !== encoderGoal) {
+      at += encoderGoal > at ? 1 : -1;
+      for (const [bit, line] of encoderLines.entries()) {
+        const grounded = Boolean(at & (1 << bit));
+        if (grounded === latched.has(line.role)) continue;
+        grounded ? latched.add(line.role) : latched.delete(line.role);
+        await act({ op: grounded ? "press" : "release", role: line.role });
+      }
+      markEncoder(at);
+      if (at !== encoderGoal) await new Promise((resolve) => setTimeout(resolve, DETENT_MS));
+    }
+  } finally {
+    encoderTurning = false;
+  }
+}
+
+$("encoder-left").addEventListener("click", () => turnEncoder(encoderGoal - 1));
+$("encoder-right").addEventListener("click", () => turnEncoder(encoderGoal + 1));
+
 function hold(button, down) {
   if (button.classList.contains("held") === down) return;
   button.classList.toggle("held", down);
@@ -256,7 +380,13 @@ function hold(button, down) {
 }
 
 addEventListener("keydown", (e) => {
-  if (e.repeat || e.target.closest("input, select")) return;
+  if (e.target.closest("input, select")) return;
+  if ((e.key === "[" || e.key === "]") && encoderLines.length) {
+    e.preventDefault();
+    turnEncoder(encoderGoal + (e.key === "]" ? 1 : -1));
+    return;
+  }
+  if (e.repeat) return;
   const r = ROLES.find((x) => x.hotkey === e.key.toLowerCase());
   const b = r && document.querySelector(`#switches button[data-role="${r.role}"]`);
   if (b) { e.preventDefault(); hold(b, true); }
@@ -292,8 +422,13 @@ function drawWheels(s) {
     <div class="wheel"><span>Motor ${m.i + 1}${escNote(m.esc)}</span>
       <div class="bar"><div class="fill" style="width:${(100 * m.rpm) / scale}%"></div>
         <div class="target" style="left:${(100 * m.targetRPM) / scale}%"></div></div>
-      <span class="num">${Math.round(m.rpm).toLocaleString()} / ${Math.round(m.targetRPM).toLocaleString()}</span>
+      <span class="num">${Math.round(m.rpm).toLocaleString()} / ${Math.round(m.targetRPM).toLocaleString()}${lastDart(m)}</span>
     </div>`).join("");
+}
+
+// The wheel's real speed as the last dart went through it, which the RPM the firmware reads lags.
+function lastDart(m) {
+  return m.lastDartRpm > 0 ? `<small>last dart at ${Math.round(m.lastDartRpm).toLocaleString()}</small>` : "";
 }
 
 // A real ESC ignores the signal while it starts up, and has nothing to start on without the pack.
@@ -311,6 +446,21 @@ function drawLed(s) {
     : s.motors === undefined ? "LED" : "LED · not wired (set its pin in the console's Wiring tab)";
 }
 
+function drawMagazine(s) {
+  const m = s.magazine;
+  if (!m) return;
+  $("breech-lamp").classList.toggle("on", m.fitted && m.breech);
+  $("magazine-label").textContent = !m.fitted
+    ? "No magazine in: every push launches a dart."
+    : `${m.darts + (m.breech ? 1 : 0)} of ${m.capacity} left · ` +
+      `${m.breech ? "a dart in the breech" : "breech empty"} · ${m.launched} fired, ${m.dry} dry`;
+  if (document.activeElement !== $("mag-size")) $("mag-size").value = m.capacity;
+  if (document.activeElement !== $("mag-rate")) {
+    $("mag-rate").value = m.loadRate;
+    $("mag-rate-value").textContent = `${m.loadRate} dps`;
+  }
+}
+
 // A pulse is 25-40 ms and a refresh 100 ms, so the server hands over every pulse since the last
 // one; each keeps the lamp lit long enough to see.
 const PULSE_SHOWN_MS = 150;
@@ -325,9 +475,9 @@ function drawSolenoid(s) {
   const lit = Boolean(sol && (sol.on || performance.now() < solenoidLitUntil));
   $("solenoid-lamp").classList.toggle("hot", lit);
   $("solenoid-label").textContent = sol
-    ? `Solenoid · GPIO ${sol.pin} · ${lit ? "powered" : "off"}` +
+    ? (sol.esc ? `Pusher · ESC channel ${sol.esc.replace("esc", "")}` : `Solenoid · GPIO ${sol.pin}`) +
+      ` · ${lit ? "powered" : "off"}` +
       (lastPulseMs === null ? "" : ` · last pulse ${lastPulseMs.toFixed(1)} ms`)
-    : s.pusherEsc ? `Pusher on ESC channel ${s.pusherEsc.replace("esc", "")}, not a solenoid`
     : s.motors === undefined ? "Solenoid" : "Solenoid · not wired";
 }
 
@@ -336,6 +486,8 @@ function drawStatus(s) {
   // The firmware's rev state, not the wheels' speed: "idle" covers a dwell with the wheels still up.
   if (s.flywheelState !== undefined) chips.push(["Rev state: " + s.flywheelState, s.flywheelState !== "idle"]);
   if (s.firing !== undefined) chips.push([s.firing ? "Firing" : "Not firing", s.firing]);
+  // The mode the firmware is in, selector and safety applied: a blaster with no screen shows it nowhere else.
+  if (s.burstModeId) chips.push([`Mode ${s.burstModeId.toUpperCase()}`, false]);
   if (s.activeProfileIndex !== undefined) chips.push([`Slot ${s.activeProfileIndex + 1}`, false]);
   if (s.safetyEngaged) chips.push(["Safety on", true]);
   if (s.menuOpen) chips.push(["Menu open", true]);
@@ -357,12 +509,14 @@ let sinceBoot = null;
 async function poll() {
   const s = await call({ op: "snapshot", since_us: sinceUs });
   if (s.ok) {
+    potAt = s.potFraction ?? null;
     if (s.boots !== sinceBoot) { sinceBoot = s.boots; lastPulseMs = null; }
     sinceUs = s.uptimeUs;
     drawState(s);
     drawScreen(s.panel);
     drawLed(s);
     drawSolenoid(s);
+    drawMagazine(s);
     drawWheels(s);
     drawStatus(s);
     if (s.motors !== undefined && wiringFor !== s.boots) {
@@ -370,8 +524,7 @@ async function poll() {
       const w = await call({ op: "wiring" });
       if (w.ok) buildSwitches(w.settings);
     }
-    // The simulator counts a solenoid's pulses; an ESC-driven pusher has only the firmware's count.
-    const shots = (s.pusherEsc ? s.runtimeShotCounter : s.extends) ?? 0;
+    const shots = s.extends ?? 0;
     $("shots").textContent = `${shots} shot${shots === 1 ? "" : "s"} this boot`;
     if (shots > shownShots) { $("dart").classList.remove("fired"); void $("dart").offsetWidth; $("dart").classList.add("fired"); }
     shownShots = shots;
@@ -379,11 +532,30 @@ async function poll() {
       if (s.packMv) $("pack").value = s.packMv;
       $("pack-value").textContent = s.packMv ? `${(s.packMv / 1000).toFixed(1)} V` : "unplugged";
     }
+    if (potAt !== null && document.activeElement !== $("pot")) {
+      $("pot").value = Math.round(potAt * 100);
+    }
+    $("pot-value").textContent = `${$("pot").value}%`;
     $("pack-note").textContent = s.packMv ? "" : "On USB alone. Move the slider to plug the pack in.";
     if (document.activeElement !== $("speed")) $("speed").value = String(s.speed);
   }
   setTimeout(poll, POLL_MS);
 }
+
+$("mag-size").addEventListener("change", () => {
+  const size = Math.max(1, Math.min(200, Math.round(Number($("mag-size").value) || 1)));
+  act({ op: "magazine", capacity: size });
+});
+$("mag-rate").addEventListener("input", () => {
+  $("mag-rate-value").textContent = `${$("mag-rate").value} dps`;
+});
+$("mag-rate").addEventListener("change", () => act({ op: "magazine", loadRate: Number($("mag-rate").value) }));
+$("reload").addEventListener("click", () => act({ op: "reload" }));
+
+$("pot").addEventListener("input", () => {
+  $("pot-value").textContent = `${$("pot").value}%`;
+  act({ op: "pot", fraction: $("pot").value / 100 });
+});
 
 $("pack").addEventListener("input", () => {
   packTouched = true;

@@ -173,6 +173,15 @@ def board_name(board):
     return board_file(board)["name"]
 
 
+def fill_unused(board_value, config_value):
+    """The config's pin where the board leaves the slot unused, the board's otherwise."""
+    if isinstance(config_value, list):
+        ours = board_value if isinstance(board_value, list) else []
+        return [fill_unused(ours[i] if i < len(ours) else None, pin)
+                for i, pin in enumerate(config_value)]
+    return config_value if board_value in (None, 255) else board_value
+
+
 def pin_keys():
     """The device settings the schema shows as pins, by their name in the device config."""
     schema = json.loads((CONSOLE.parent.parent / "src" / "fixtures" / "schema.json").read_text(
@@ -193,7 +202,8 @@ def pin_keys():
 @pytest.mark.parametrize("path,board", blaster_cases())
 def test_an_unwired_blaster_set_up_with_a_blaster_config_stores_the_whole_config(
         page, serve, path, board):
-    # Every pin as the board has it and every other value as the file has it: a setting the
+    # Every pin as the board has it - and, on the board the file was saved on, as the file has
+    # those the board leaves unused - and every other value as the file has it: a setting the
     # firmware clamps on arrival is a blaster that runs differently from the file its builders
     # published.
     blaster = json.loads(path.read_text(encoding="utf-8"))
@@ -205,6 +215,8 @@ def test_an_unwired_blaster_set_up_with_a_blaster_config_stores_the_whole_config
     page.get_by_role("option", name=board_name(board), exact=True).click()
     page.get_by_role("combobox", name="Blaster config").click()
     page.get_by_role("option", name=f"{name} (built on {board_name(blaster['board'])})").click()
+    for note in blaster.get("notes", []):
+        expect(page.get_by_text(note, exact=True)).to_be_visible()
     page.get_by_role("button", name="Load the wiring and config, and restart").click()
 
     expect(page.get_by_text(f"Set up as {name} on {board_name(board)}.")).to_be_visible(
@@ -214,9 +226,17 @@ def test_an_unwired_blaster_set_up_with_a_blaster_config_stores_the_whole_config
     stored += [served.flash_json(f"/profile{slot}.cfg") for slot in range(len(blaster["profiles"]))]
     pins = pin_keys()
     device = {k: v for k, v in blaster["device"].items() if k not in pins}
-    device.update({k: v for k, v in board_file(board).items() if k in pins})
+    wiring = {k: v for k, v in board_file(board).items() if k in pins}
+    device.update(wiring)
+    if blaster["board"] == board:
+        device.update({k: fill_unused(wiring.get(k), v) for k, v in blaster["device"].items()
+                       if k in pins})
     device.update(boardId=board, wiringConfigured=True)
-    wanted = [device, *blaster["profiles"]]
+    profiles = blaster["profiles"]
+    if device.get("speedPotPin", 255) != 255:
+        # A speed pot sets rev RPM and stores it once it holds still, so the file's value never runs.
+        profiles = [{k: v for k, v in p.items() if k != "revRPM"} for p in profiles]
+    wanted = [device, *profiles]
     names = ["device", *(f"profile{slot}" for slot in range(len(blaster["profiles"])))]
     assert [d for s, w, n in zip(stored, wanted, names) for d in differences(s, w, n)] == []
 
@@ -817,17 +837,28 @@ def test_the_panel_offers_a_button_for_each_wired_switch_and_a_held_trigger_fire
     page.mouse.up()
     assert served.bench("extends")["at_us"]
     expect(page.get_by_text(re.compile(r"^Motor 2"))).to_be_visible()
+    expect(page.locator("#wheels small").filter(has_text=re.compile(r"^last dart at [\d,]+$"))
+           .first).to_be_visible()
     # Each pulse is the extend time for the pack: 25 ms at 16.8 V to 40 ms at 11.8 V by default, so
     # about 26 ms at the simulator's 16.4 V.
     expect(page.locator("#solenoid-label")).to_have_text(
         re.compile(r"^Solenoid · GPIO 24 · (powered|off) · last pulse 2[5-7]\.\d ms$"))
 
 
-def test_an_esc_driven_pusher_is_named_on_the_panel_rather_than_shown_as_a_solenoid(page, serve):
+def test_an_esc_driven_pusher_lights_and_counts_on_the_panel_as_a_fet_driven_one_does(page, serve):
     served = serve(preset="trifolium_v1_4", device={"pusherDrive": "esc"})
     open_panel(page, served)
-    expect(page.locator("#solenoid-label")).to_have_text("Pusher on ESC channel 3, not a solenoid",
-                                                         timeout=REBOOT_MS)
+    label = page.locator("#solenoid-label")
+    expect(label).to_have_text("Pusher · ESC channel 3 · off", timeout=REBOOT_MS)
+
+    served.wait_armed()
+    trigger = switch(page, "Trigger").bounding_box()
+    page.mouse.move(trigger["x"] + trigger["width"] / 2, trigger["y"] + trigger["height"] / 2)
+    page.mouse.down()
+    expect(page.get_by_text(re.compile(r"^[1-9]\d* shots? this boot$"))).to_be_visible(timeout=5000)
+    page.mouse.up()
+    expect(label).to_have_text(
+        re.compile(r"^Pusher · ESC channel 3 · (powered|off) · last pulse 2[5-7]\.\d ms$"))
 
 
 def test_a_wired_led_on_the_panel_is_lit_once_armed_and_blinks_below_the_cutoff(page, serve):
@@ -839,6 +870,15 @@ def test_a_wired_led_on_the_panel_is_lit_once_armed_and_blinks_below_the_cutoff(
     served.bench("pack", mv=12000)  # below a 4S pack's 13.2 V cutoff, which LED Warning's default names
     expect(label).to_have_text("LED · GPIO 27 · off", timeout=10000)
     expect(label).to_have_text("LED · GPIO 27 · on", timeout=5000)
+
+
+def test_the_panel_names_the_mode_the_firmware_is_in(page, serve):
+    served = serve()
+    open_panel(page, served)
+    status = page.locator("#status")
+    expect(status).to_contain_text("Mode BINARY", timeout=REBOOT_MS)  # the v1.2's, grounding none
+    page.locator("#selector").get_by_role("radio").nth(0).click()
+    expect(status).to_contain_text("Mode AUTO")
 
 
 def test_a_switch_select_fire_is_one_switch_with_a_position_per_pin_and_one_grounding_none(page, serve):
@@ -866,6 +906,95 @@ def test_a_switch_select_fire_is_one_switch_with_a_position_per_pin_and_one_grou
     none.click()
     expect(none).to_have_attribute("aria-checked", "true")
     served.until(lambda: mode() == at_none)
+
+
+def test_an_encoder_select_fire_is_a_knob_with_a_detent_per_combination_of_its_lines(page, serve):
+    served = serve(device={"selectFireType": "encoder"})
+    open_panel(page, served)
+    detents = page.get_by_role("radiogroup", name="Encoder").get_by_role("radio")
+    expect(detents).to_have_text(["0", "1", "2", "3"], timeout=REBOOT_MS)
+    expect(page.locator("#selector")).to_be_hidden()
+
+    def mode():
+        return served.bench("peek", names=["firingMode"])["values"]["firingMode"]
+
+    # The default profile: positions 1-3 are AUTO, BINARY and SEMI, and none is BINARY.
+    detents.nth(3).click()
+    expect(detents.nth(3)).to_have_attribute("aria-checked", "true")
+    expect(page.locator("#encoder-lines")).to_have_text("Position 3: GPIO 9 + GPIO 10 grounded")
+    served.until(lambda: mode() == 2)
+    page.keyboard.press("[")
+    expect(detents.nth(2)).to_have_attribute("aria-checked", "true")
+    served.until(lambda: mode() == 1)
+    detents.nth(1).click()
+    served.until(lambda: mode() == 0)
+
+
+def test_the_panel_loads_a_magazine_whose_breech_the_dart_switch_reads(page, serve):
+    served = serve(device={"dartSwitchPin": 20})
+    open_panel(page, served)
+    label = page.locator("#magazine-label")
+    expect(label).to_have_text("No magazine in: every push launches a dart.", timeout=REBOOT_MS)
+    expect(switch(page, "Dart")).to_have_count(0)  # the magazine is what fills the breech
+
+    def present():
+        return served.bench("peek", names=["dart"])["values"]["dart"]["present"]
+
+    size = page.locator("#mag-size")
+    size.fill("6")
+    size.press("Enter")
+    page.get_by_role("button", name="Reload magazine").click()
+    expect(label).to_have_text(re.compile(r"^6 of 6 left · a dart in the breech · 0 fired, 0 dry$"))
+    expect(page.locator("#breech-lamp")).to_have_class(re.compile(r"\bon\b"))
+    served.until(present)
+
+
+def test_with_no_speed_pot_wired_the_panel_has_no_pot_slider(page, serve):
+    open_panel(page, serve())
+    expect(page.locator("#switches button").first).to_be_visible(timeout=REBOOT_MS)
+    expect(page.locator("#pot")).to_be_hidden()
+
+
+def test_a_wired_speed_pot_is_a_slider_that_moves_the_rev_target(page, serve):
+    served = serve(device={"speedPotPin": 27})
+    open_panel(page, served)
+    pot = page.locator("#pot")
+    expect(pot).to_be_visible(timeout=REBOOT_MS)
+
+    def rev_rpm():
+        return served.bench("peek", names=["motors"])["values"]["motors"][1]["revRPM"]
+
+    served.until(lambda: rev_rpm() == 30000)  # the slider starts at full travel: Pot Max RPM
+    pot.fill("0")
+    served.until(lambda: rev_rpm() == 15000)  # Pot Min RPM
+    expect(page.locator("#pot-value")).to_have_text("0%")
+
+
+def test_an_encoder_select_fire_shows_each_combination_of_its_lines_in_place_of_the_switch(page, serve):
+    connect(open_console(page, serve(device={"selectFireType": "encoder"})))
+    page.get_by_role("tab", name="Profile").click()
+    encoder = page.get_by_role("group", name="Selector Encoder")
+    expect(encoder).to_be_visible()
+    expect(page.get_by_role("group", name="Selector Switch")).to_be_hidden()
+    rows = encoder.locator("tbody tr")
+    expect(rows.locator("td:nth-child(1)")).to_have_text(["0", "1", "2", "3"])
+    expect(rows.locator("td:nth-child(2)")).to_have_text(["none", "GP9", "GP10", "GP9 + GP10"])
+    # A mode and a profile picker per position, position 0's being the Default Mode and Profile.
+    expect(rows.locator("td:nth-child(3)").get_by_role("combobox")).to_have_count(4)
+    expect(rows.locator("td:nth-child(4)").get_by_role("combobox")).to_have_count(4)
+
+
+def test_a_profile_picked_for_an_encoder_position_is_written_to_the_device(page, serve):
+    served = serve(device={"selectFireType": "encoder"})
+    connect(open_console(page, served))
+    page.get_by_role("tab", name="Profile").click()
+    position3 = page.get_by_role("group", name="Selector Encoder").locator("tbody tr").nth(3)
+    position3.locator("td:nth-child(4)").get_by_role("combobox").click()
+    page.get_by_role("option", name="Low", exact=True).click()
+
+    with rebooting(page):
+        choose(page, "Write to Device", "Device Config (1)")
+    assert served.settings()["switchPositionProfile"][:3] == [0, 1, 0]
 
 
 def test_a_button_select_fire_makes_select_1_a_push_button_that_steps_the_mode(page, serve):

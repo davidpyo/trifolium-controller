@@ -59,6 +59,7 @@ const POLARITIES = [
   "device:revSwitchNormallyClosed",
   "device:menuButtonNormallyClosed",
   "device:cycleSwitchNormallyClosed",
+  "device:dartSwitchNormallyClosed",
   "device:idleSwitchNormallyClosed",
 ];
 
@@ -292,6 +293,11 @@ describe("grouping wiring into one row per control", () => {
   it("pairs a pin with its own polarity flag, by stored key", () => {
     const trigger = rows.find((r) => r.pin?.key === "device:triggerSwitchPin");
     expect(trigger?.polarity?.key).toBe("device:triggerSwitchNormallyClosed");
+  });
+
+  it("pairs the pot pin with its Reversed flag, in the same column", () => {
+    const pot = rows.find((r) => r.pin?.key === "device:speedPotPin");
+    expect(pot?.polarity?.key).toBe("device:speedPotReversed");
   });
 
   /** The select lines encode a position rather than being pressed, so they have no polarity. */

@@ -14,6 +14,7 @@
 #include "logging.h"
 #include "flywheelMotor.h"
 #include "menu.h"
+#include "menuCore.h" // motorRpmCeiling()
 #include "shotProfile.h"
 #include "profileStore.h"
 #include "deviceSettings.h"
@@ -65,6 +66,7 @@ uint8_t menuButtonPin = PIN_NOT_USED;
 uint8_t triggerSwitchPin = PIN_NOT_USED;
 uint8_t revSwitchPin = PIN_NOT_USED;
 uint8_t cycleSwitchPin = PIN_NOT_USED;
+uint8_t dartSwitchPin = PIN_NOT_USED;
 uint8_t idleSwitchPin = PIN_NOT_USED;
 uint8_t safetySwitchPin = PIN_NOT_USED;
 
@@ -76,7 +78,14 @@ bool wiringLive = false;
 // Same for the outputs: resolve() takes a pin away in RAM, leaving the stored config as written.
 uint8_t ledDataPin = PIN_NOT_USED;
 uint8_t batteryAdcPin = PIN_NOT_USED;
+uint8_t speedPotPin = PIN_NOT_USED;
 uint8_t escEnablePin = PIN_NOT_USED;
+
+// Stage 1's rev RPM as the speed pot sets it, before updateSpeedPot()'s limits; 0 with none wired.
+int32_t speedPotRpm = 0;
+// When the pot last changed the active profile's rev RPM, for persistSpeedPotWhenIdle() on core 1.
+volatile uint32_t speedPotChangedAt_ms = 0;
+volatile bool speedPotUnsaved = false;
 
 // deviceSettings.hasDisplay after the I2C pair has been judged. selectDisplayBus() re-checks, since
 // setSDA must not be reached on an illegal pin whatever this says.
@@ -138,6 +147,8 @@ uint32_t half =
     0; // 1 << (deviceSettings.EMAFilter - 1); computed in setup(), once activeProfile is loaded
 Driver* pusher;
 uint16_t solenoidExtendTime_ms = 0;
+// How much sooner than its push time the last push ended, so Target DPS can give that time back.
+static uint32_t pushCutShort_ms = 0;
 float solenoidVoltageTimeSlope =
     0; // relationship between voltage and solenoid extend time calculated at setup
 int16_t solenoidVoltageTimeIntercept = 0;
@@ -167,6 +178,20 @@ bool idleHoldActive = false;
 // The safety switch, debounced. Written on core 0 - seeded in setup() before bootSettingsLoaded so
 // core 1's first frame is already right - and read on either core through effectiveBurstMode().
 bool safetyEngaged = false;
+
+bool dartPresent = false;
+bool breechEmptiedSincePush = true; // cleared at each push, set by any empty reading
+static bool dartShownLastTick = false;
+static uint32_t dartShownSince_ms = 0;
+// When the pusher became free to push with no dart to push; 0 while no shot is waiting for one.
+uint32_t dartWaitSince_ms = 0;
+// Set when a trigger event queues shots into an empty queue, cleared by the push: the first push
+// of each press waits for the wheels to be back at speed, and the rest of a burst doesn't.
+static bool pushWaitsForSpeed = false;
+// When that push started waiting for the wheels; 0 while it isn't.
+static uint32_t speedWaitSince_ms = 0;
+// A rev is being held off for want of a dart, so it is logged once rather than every tick.
+static bool revHeldForDart = false;
 
 // SAFE while the switch is held, the selected mode otherwise. Every reader of the live mode goes
 // through this, so the override reaches firing, the flywheels and the panel from one place.
@@ -220,6 +245,9 @@ void cycleFiringMode();
 uint8_t selectShotProfileAtBoot();
 bool fwControlLoop();
 void mainFiringLogic();
+static bool dartSwitchShowsDart();
+static bool dartSensingOn();
+void updateSpeedPot();
 void resetFWControl();
 void registerShot();
 void applyMotorConfig();
@@ -278,6 +306,16 @@ int32_t atSpeedRpm(uint8_t motorIndex)
 {
     return max((int32_t)motorArr[motorIndex].targetRPM - deviceSettings.firingRPMTolerance,
                deviceSettings.minFiringRPM);
+}
+
+static bool wheelsAtSpeed()
+{
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && (int32_t)motorArr[i].motorRPM <= atSpeedRpm(i))
+            return false;
+    }
+    return true;
 }
 
 void logData()
@@ -352,11 +390,16 @@ void applyMaxAchievableDps()
 {
     float extendAtVoltage_ms =
         batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept;
-    float cycle_ms = extendAtVoltage_ms + deviceSettings.solenoidRetractTime_ms;
+    // With Dart Sensing a push can end the tick after Min Push, so the fastest cycle is that short.
+    float push_ms = dartSensingOn()
+                        ? min(extendAtVoltage_ms, deviceSettings.minPushTime_ms + 1.0f)
+                        : extendAtVoltage_ms;
+    float cycle_ms = push_ms + deviceSettings.solenoidRetractTime_ms;
     maxAchievableDPS = cycle_ms > 0 ? 1000.0f / cycle_ms : 0;
 }
 
-// Auto Timing's additive dwell on top of the existing voltage-compensated extend/retract cycle.
+// Auto Timing's additive dwell on top of the existing voltage-compensated extend/retract cycle. A
+// push that ended early left its cycle short by that much, which the dwell makes up.
 uint32_t computePusherDwellPadding_ms()
 {
     if (liveTargetDPS <= 0)
@@ -365,7 +408,8 @@ uint32_t computePusherDwellPadding_ms()
     float extendAtVoltage_ms =
         batteryMonitor->getVoltage_mv() * solenoidVoltageTimeSlope + solenoidVoltageTimeIntercept;
     float cycleTarget_ms = 1000.0f / liveTargetDPS;
-    float padding_ms = cycleTarget_ms - extendAtVoltage_ms - deviceSettings.solenoidRetractTime_ms;
+    float padding_ms = cycleTarget_ms - extendAtVoltage_ms - deviceSettings.solenoidRetractTime_ms +
+                       pushCutShort_ms;
     if (padding_ms < 0) // requested DPS isn't reachable - fire as fast as the hardware allows
         padding_ms = 0;
     return (uint32_t)padding_ms;
@@ -743,6 +787,11 @@ void setup()
         cycleSwitch.interval(deviceSettings.pusherDebounceTime_ms);
         cycleSwitch.setPressedState(deviceSettings.cycleSwitchNormallyClosed);
     }
+    if (pinDefined(dartSwitchPin))
+    {
+        pinMode(dartSwitchPin, INPUT_PULLUP);
+        dartShownLastTick = dartPresent = dartSwitchShowsDart();
+    }
     if (pinDefined(idleSwitchPin))
     {
         idleSwitch.attach(idleSwitchPin, INPUT_PULLUP);
@@ -978,6 +1027,11 @@ void setup()
             motorArr[i].attachEsc(new BidirDShotX1(escPin(i), dshotRate(deviceSettings.dshotMode)));
         }
     }
+    if (pinDefined(speedPotPin))
+    {
+        pinMode(speedPotPin, INPUT);
+        updateSpeedPot();
+    }
     dwellTime_ms = activeProfile.dwellTime_ms;
     idleTime_ms = activeProfile.idleTime_ms;
 
@@ -1002,6 +1056,115 @@ void loop()
     { // run main loop roughly every 1 ms
         mainFiringLogic();
         lastMainLoopTime = time_ms;
+    }
+}
+
+// A switch to ground, like the others: grounded means a dart, unless it is one that opens instead.
+static bool dartSwitchShowsDart()
+{
+    return (digitalRead(dartSwitchPin) == LOW) != deviceSettings.dartSwitchNormallyClosed;
+}
+
+static bool dartSensingOn()
+{
+    return deviceSettings.dartSensing && pinDefined(dartSwitchPin);
+}
+
+// With Rev Only With Dart on, a rev only starts with a dart in the breech.
+static bool dartAllowsRev()
+{
+    return !deviceSettings.revOnlyWithDart || !pinDefined(dartSwitchPin) || dartPresent;
+}
+
+static bool revStartWanted()
+{
+    const bool wanted =
+        shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched);
+    if (!wanted || dartAllowsRev())
+    {
+        revHeldForDart = false;
+        return wanted;
+    }
+    if (!revHeldForDart)
+        logger.info("No dart in the breech, not revving");
+    revHeldForDart = true;
+    shotsToFire = 0;
+    return false;
+}
+
+static bool dartReadyToPush()
+{
+    return !dartSensingOn() || (dartPresent && breechEmptiedSincePush);
+}
+
+// The pusher's jolt can shake the switch, so it is only listened to once Min Push has passed. The
+// raw switch, not the debounced dart: a debounce would only hold the pusher out longer.
+static bool dartHasLeft()
+{
+    return dartSensingOn() && time_ms > pusherTimer_ms + deviceSettings.minPushTime_ms &&
+           !dartSwitchShowsDart();
+}
+
+// Plasma times its own pushes against its own ramp, so it is left alone, as by the rampup timeout.
+static bool wheelsReadyToPush()
+{
+    return !pushWaitsForSpeed || behaviorFor(burstMode).managesOwnRevLifecycle() ||
+           wheelsAtSpeed();
+}
+
+// A press the wheels don't get back to speed for within the rampup timeout is dropped, as a
+// spin-up that doesn't get there is.
+static void waitForSpeed()
+{
+    if (speedWaitSince_ms == 0)
+    {
+        speedWaitSince_ms = time_ms;
+        return;
+    }
+    if (time_ms - speedWaitSince_ms < deviceSettings.rampupTimeout_ms)
+        return;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && (int32_t)motorArr[i].motorRPM <= atSpeedRpm(i))
+            logger.warn("Motor ", i + 1, " failed to reach target speed! motorRPM=",
+                        motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
+    }
+    logger.warn("Dropping ", shotsToFire, " queued shots");
+    shotsToFire = 0;
+    speedWaitSince_ms = 0;
+}
+
+static void waitForDart()
+{
+    if (dartWaitSince_ms == 0)
+    {
+        dartWaitSince_ms = time_ms;
+        return;
+    }
+    if (time_ms - dartWaitSince_ms < deviceSettings.dartWaitTimeout_ms)
+        return;
+    logger.warn("No dart in the breech for ", time_ms - dartWaitSince_ms, " ms, dropping ",
+                shotsToFire, " queued shots");
+    shotsToFire = 0;
+    dartWaitSince_ms = 0;
+}
+
+static void updateDartSwitch()
+{
+    if (!pinDefined(dartSwitchPin))
+        return;
+    const bool shows = dartSwitchShowsDart();
+    if (shows && !dartShownLastTick)
+        dartShownSince_ms = time_ms;
+    dartShownLastTick = shows;
+    if (!shows)
+        breechEmptiedSincePush = true;
+    const bool present =
+        shows && time_ms - dartShownSince_ms >= deviceSettings.dartSwitchDebounce_ms;
+    if (present != dartPresent)
+    {
+        dartPresent = present;
+        logger.info(present ? "Dart in the breech" : "Breech empty");
     }
 }
 
@@ -1057,6 +1220,7 @@ void mainFiringLogic()
         }
         safetyEngaged = safetySwitch.isPressed();
     }
+    updateDartSwitch();
     int8_t previousFiringMode = firingMode;
     updateFiringMode();
     burstMode = effectiveBurstMode(activeProfile.fireModes[firingMode].burstMode);
@@ -1093,9 +1257,61 @@ void mainFiringLogic()
             flywheelState == STATE_FULLSPEED,
             safetyEngaged,
         };
+        const bool queueWasEmpty = shotsToFire <= 0;
         behaviorFor(burstMode).update(ctx, event);
+        if (queueWasEmpty && shotsToFire > 0)
+            pushWaitsForSpeed = true;
     }
     batteryMonitor->update();
+    updateSpeedPot();
+}
+
+// Sets the active profile's rev RPM from the pot: stage 1 between Pot Min and Pot Max RPM,
+// stage 2 at that times the profile's ratio
+void updateSpeedPot()
+{
+    if (!pinDefined(speedPotPin))
+        return;
+    static constexpr int kEndDeadband = 12;     // raw counts at each end that still read as the end
+    static constexpr float kHysteresis = 0.01f; // a share of the whole travel
+    static float smoothed = -1.0f;
+    static float travel = -1.0f;
+    const int raw = analogRead(speedPotPin);
+    smoothed = smoothed < 0 ? raw : smoothed + (raw - smoothed) / 8.0f;
+    float now = (smoothed - kEndDeadband) / (1023.0f - 2 * kEndDeadband);
+    now = now < 0 ? 0 : now > 1 ? 1 : now;
+    if (travel < 0 || now == 0 || now == 1 || fabsf(now - travel) >= kHysteresis)
+        travel = now;
+
+    const float fromLow = deviceSettings.speedPotReversed ? 1.0f - travel : travel;
+    const int32_t lo = deviceSettings.speedPotMinRPM;
+    speedPotRpm = lo + (int32_t)((deviceSettings.speedPotMaxRPM - lo) * fromLow);
+
+    // A target on Min Firing RPM would leave the wheels nothing to clear it by, so the pot keeps a
+    // margin above it: the tolerance, up to 1000 RPM.
+    const int32_t floorRpm =
+        deviceSettings.minFiringRPM + min(deviceSettings.firingRPMTolerance, (int32_t)1000);
+    bool changed = false;
+    for (int i = 0; i < 4; i++)
+    {
+        if (!motorsEnabled[i])
+            continue;
+        const bool stage2 = deviceSettings.motorConfig[i].stage == STAGE_2;
+        int32_t rpm = stage2 ? (int32_t)(speedPotRpm * activeProfile.speedPotStage2Ratio)
+                             : speedPotRpm;
+        rpm = min(max(rpm, floorRpm), motorRpmCeiling(i));
+        if (activeProfile.revRPM[i] != rpm)
+        {
+            activeProfile.revRPM[i] = rpm;
+            changed = true;
+        }
+        motorArr[i].revRPM = rpm;
+    }
+    if (changed)
+    {
+        speedPotChangedAt_ms = millis();
+        speedPotUnsaved = true;
+    }
 }
 
 static uint32_t ledTime_ms = 0;
@@ -1283,6 +1499,12 @@ bool fwControlLoop()
         return true;
     }
 
+    if (shotsToFire <= 0 || flywheelState != STATE_FULLSPEED)
+    {
+        dartWaitSince_ms = 0;
+        speedWaitSince_ms = 0;
+    }
+
     switch (flywheelState)
     {
 
@@ -1299,7 +1521,7 @@ bool fwControlLoop()
             menuWasOpenForIdleHold = menuOpenNow;
         }
 
-        if (shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched))
+        if (revStartWanted())
         {
             enableFwControl = true;
             revStartTime_us = loopStartTimer_us;
@@ -1425,11 +1647,7 @@ bool fwControlLoop()
                                                        : motorArr[i].revRPM;
 
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
-        if ((!motorsEnabled[0] || (int32_t)motorArr[0].motorRPM > atSpeedRpm(0)) &&
-            (!motorsEnabled[1] || (int32_t)motorArr[1].motorRPM > atSpeedRpm(1)) &&
-            (!motorsEnabled[2] || (int32_t)motorArr[2].motorRPM > atSpeedRpm(2)) &&
-            (!motorsEnabled[3] || (int32_t)motorArr[3].motorRPM > atSpeedRpm(3))
-        ) {
+        if (wheelsAtSpeed()) {
             flywheelState = STATE_FULLSPEED;
             logger.info("STATE_FULLSPEED transition 1");
         } else if (!behaviorFor(burstMode).managesOwnRevLifecycle() &&
@@ -1474,10 +1692,23 @@ bool fwControlLoop()
         {
             lastRevTime_ms = time_ms;
 
-            if (shotsToFire > 0 && !firing &&
-                time_ms > pusherTimer_ms + deviceSettings.solenoidRetractTime_ms +
-                              computePusherDwellPadding_ms())
+            const bool pusherFree = shotsToFire > 0 && !firing &&
+                                    time_ms > pusherTimer_ms +
+                                                  deviceSettings.solenoidRetractTime_ms +
+                                                  computePusherDwellPadding_ms();
+            if (pusherFree && !wheelsReadyToPush())
+            {
+                waitForSpeed();
+            }
+            else if (pusherFree && !dartReadyToPush())
+            {
+                waitForDart();
+            }
+            else if (pusherFree)
             { // extend solenoid
+                dartWaitSince_ms = 0;
+                speedWaitSince_ms = 0;
+                pushWaitsForSpeed = false;
                 if (!deviceSettings.useRpmBaseShotCounter)
                 {
                     registerShot();
@@ -1489,6 +1720,7 @@ bool fwControlLoop()
 
                 pusher->drive(1.0f, deviceSettings.pusherReverseDirection);
                 firing = true;
+                breechEmptiedSincePush = false;
                 shotsToFire = max(0, shotsToFire - 1);
                 pusherTimer_ms = time_ms;
                 solenoidExtendTime_ms =
@@ -1512,12 +1744,18 @@ bool fwControlLoop()
                 }
                 lastShotExtendTime_ms = time_ms;
             }
-            else if (firing && time_ms > pusherTimer_ms + solenoidExtendTime_ms)
+            else if (firing && (time_ms > pusherTimer_ms + solenoidExtendTime_ms || dartHasLeft()))
             { // retract solenoid
+                const uint32_t fullPushEnd_ms = pusherTimer_ms + solenoidExtendTime_ms + 1;
+                pushCutShort_ms = time_ms < fullPushEnd_ms ? fullPushEnd_ms - time_ms : 0;
                 pusher->coast();
                 firing = false;
+                if (pushCutShort_ms)
+                    logger.info("Solenoid retracting, the dart left after ", time_ms - pusherTimer_ms,
+                                " ms");
+                else
+                    logger.info("Solenoid retracting");
                 pusherTimer_ms = time_ms;
-                logger.info("Solenoid retracting");
             }
         }
         break;
@@ -1601,6 +1839,62 @@ bool fwControlLoop()
     return true;
 }
 
+// The lowest grounded select line, or -1 when none is.
+static int8_t switchPosition()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        if (pinDefined(selectPins[i]))
+        {
+            selectSwitches[i]->update();
+            if (selectSwitches[i]->isPressed())
+                return i;
+        }
+    }
+    return -1;
+}
+
+// The wired select lines as the bits of a number, select0 the lowest, a grounded line a 1.
+static int8_t encoderReading()
+{
+    int8_t reading = 0;
+    uint8_t bit = 0;
+    for (int i = 0; i < 3; i++)
+    {
+        if (!pinDefined(selectPins[i]))
+            continue;
+        selectSwitches[i]->update();
+        if (selectSwitches[i]->isPressed())
+            reading |= 1 << bit;
+        bit++;
+    }
+    return reading;
+}
+
+// The encoder's position as an index into switchPositionAssignment, -1 for none grounded. A turn
+// from one detent to the next passes through the numbers in between as its lines change one at a
+// time, so a new number only counts once it has held for the debounce time.
+static int8_t settledEncoderPosition()
+{
+    static bool firstRead = true;
+    static int8_t pending = -1;
+    static uint32_t pendingSince_ms = 0;
+    const int8_t position = encoderReading() - 1;
+    if (firstRead || position == activeSwitchPosition)
+    {
+        firstRead = false;
+        pending = position;
+        pendingSince_ms = time_ms;
+        return position;
+    }
+    if (position != pending)
+    {
+        pending = position;
+        pendingSince_ms = time_ms;
+    }
+    return time_ms - pendingSince_ms >= debounceTime_ms ? position : activeSwitchPosition;
+}
+
 void updateFiringMode()
 {
     if (menuIsOpen())
@@ -1612,27 +1906,18 @@ void updateFiringMode()
     {
         return;
     }
-    else if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE)
+    else if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE ||
+             deviceSettings.selectFireType == ENCODER_SELECT_FIRE)
     {
         int8_t previousFiringMode = firingMode;
 
-        int8_t newActivePosition = -1; // -1 = no wired pin is currently grounded
-        for (int i = 0; i < 3; i++)
-        {
-            if (pinDefined(selectPins[i]))
-            {
-                selectSwitches[i]->update();
-                if (selectSwitches[i]->isPressed())
-                {
-                    newActivePosition = i;
-                    break;
-                }
-            }
-        }
+        int8_t newActivePosition = deviceSettings.selectFireType == ENCODER_SELECT_FIRE
+                                       ? settledEncoderPosition()
+                                       : switchPosition();
 
         if (newActivePosition != activeSwitchPosition)
         {
-            // The switch itself moved (even to/from "nothing grounded") - hand authority back to
+            // The selector itself moved (even to/from "nothing grounded") - hand authority back to
             // it, discarding any menu override from before this move.
             activeSwitchPosition = newActivePosition;
             screenOverrideMode = -1;
@@ -1704,20 +1989,17 @@ void resetFWControl()
 
 uint8_t selectShotProfileAtBoot()
 {
-    if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE)
+    if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE ||
+        deviceSettings.selectFireType == ENCODER_SELECT_FIRE)
     {
-        for (int i = 0; i < 3; i++)
-        {
-            if (pinDefined(selectPins[i]))
-            {
-                selectSwitches[i]->update();
-                if (selectSwitches[i]->isPressed())
-                {
-                    return i;
-                }
-            }
-        }
-        return deviceSettings.defaultProfileIndex;
+        const int8_t position = deviceSettings.selectFireType == ENCODER_SELECT_FIRE
+                                    ? encoderReading() - 1
+                                    : switchPosition();
+        const int8_t slot = position >= 0 ? deviceSettings.switchPositionProfile[position]
+                                          : NO_PROFILE;
+        return slot >= 0 && slot < ProfileStore::MAX_PROFILE_COUNT
+                   ? (uint8_t)slot
+                   : deviceSettings.defaultProfileIndex;
     }
     else if (deviceSettings.selectFireType == BUTTON_SELECT_FIRE)
     {
@@ -1799,6 +2081,23 @@ static void persistFiringModeWhenIdle()
     }
 }
 
+static const uint32_t SPEED_POT_SETTLE_MS = 1000;
+
+// The rev RPM the speed pot set, stored with the profile once the pot has held still for a second
+// and the wheels have stopped - a LittleFS write parks both cores.
+static void persistSpeedPotWhenIdle()
+{
+    if (!speedPotUnsaved || millis() - speedPotChangedAt_ms < SPEED_POT_SETTLE_MS)
+        return;
+    if (!driveTrainStopped())
+        return;
+    speedPotUnsaved = false; // cleared first: a move during the write marks it again
+    if (ProfileStore::saveProfile(activeProfileIndex, activeProfile))
+        logger.info("Stored the speed pot's rev RPM ", speedPotRpm);
+    else
+        speedPotUnsaved = true;
+}
+
 // One line at boot and every 3 s after, from core 1, the only core that writes to Serial. Stops
 // once a host has spoken - a reader taking the first JSON line would otherwise capture this.
 static void announceUnconfigured()
@@ -1829,6 +2128,7 @@ void loop1()
     {
         serviceMenuButton();
         persistFiringModeWhenIdle();
+        persistSpeedPotWhenIdle();
         return;
     }
 
@@ -1846,6 +2146,7 @@ void loop1()
         }
 
         persistFiringModeWhenIdle();
+        persistSpeedPotWhenIdle();
 
         if (millis() - lastUpdated > 100 || updateRuntimeNow)
         {

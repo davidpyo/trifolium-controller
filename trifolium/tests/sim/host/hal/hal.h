@@ -67,12 +67,15 @@ bool outputLevel(uint8_t pin);
 // Every pinMode() call since powerOn(), on any pin, valid or not.
 uint32_t pinModeCalls();
 
-// The raw 10-bit reading analogRead() returns for the pin.
-void setAnalog(uint8_t pin, int raw);
+// The raw 10-bit reading analogRead() returns for the pin. `rises` for a divider that charges from
+// power-on, as setAnalogRise() describes; a pot or anything else reads its value at once.
+void setAnalog(uint8_t pin, int raw, bool rises = false);
+// Whether the pin's reading was last given with `rises`.
+bool analogRises(uint8_t pin);
 
-// Every analog reading climbing toward its setAnalog() value from power-on, first order with time
-// constant `tau_us`, `charged_us` of it already done when this boot's clock started. 0 reads the
-// value at once.
+// Every rising analog reading climbing toward its setAnalog() value from power-on, first order with
+// time constant `tau_us`, `charged_us` of it already done when this boot's clock started. 0 reads
+// the value at once.
 void setAnalogRise(uint64_t tau_us, uint64_t charged_us);
 
 // Nesting depth of noInterrupts(); 0 when interrupts are on.
@@ -85,6 +88,11 @@ void setPinFunction(uint8_t pin, uint8_t gpioFunction);
 // Called after every digitalWrite() takes effect - how a test watches an output such as the pusher
 // gate. Survives powerOn(); pass nullptr to clear.
 void setWriteHook(std::function<void(uint8_t pin, bool level)> hook);
+
+// Asked for a pin's level when nothing outside the chip drives it - how a modelled part such as a
+// magazine's dart switch answers as time passes. Return 0 or 1, or -1 to leave the pin to its pull.
+// Survives powerOn(); pass nullptr to clear.
+void setInputHook(std::function<int(uint8_t pin)> hook);
 
 // ---- USB serial --------------------------------------------------------------------------------
 

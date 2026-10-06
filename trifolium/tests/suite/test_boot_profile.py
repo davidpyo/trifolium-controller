@@ -90,3 +90,58 @@ def walk(tree):
     for node in tree:
         yield node
         yield from walk(node.get("children", []))
+
+
+# The selector at power-on, with Variable FPS: each position boots the slot switchPositionProfile
+# names for it, and no position - or one left on Default - boots the Default Profile. The v1.2's
+# select lines are select0 and select2, so the switch's positions are 1 and 3.
+
+def selector_boot(b, roles, device):
+    return power_on_holding(b, roles, {"variableFPS": True, "bootAction": list(NONE), **device})
+
+
+@pytest.mark.parametrize("roles, slot", [(["select0"], 2), (["select2"], 1), ([], 0)])
+def test_each_switch_position_boots_the_slot_its_table_names(blaster, roles, slot):
+    b = selector_boot(blaster, roles, {"defaultProfileIndex": 0,
+                                       "switchPositionProfile": [2, 0, 1, -1, -1, -1, -1]})
+    assert b.peek("activeProfileIndex") == slot
+
+
+@pytest.mark.parametrize("roles, slot", [(["select0"], 0), (["select2"], 2), ([], 1)])
+def test_a_config_without_the_table_boots_position_n_as_slot_n(blaster, roles, slot):
+    b = selector_boot(blaster, roles, {})
+    assert b.peek("activeProfileIndex") == slot
+
+
+@pytest.mark.parametrize("roles, slot", [([], 2), (["select0"], 1), (["select2"], 0),
+                                         (["select0", "select2"], 1)])
+def test_each_encoder_position_boots_the_slot_its_table_names(blaster, roles, slot):
+    b = selector_boot(blaster, roles, {"selectFireType": "encoder", "defaultProfileIndex": 2,
+                                       "switchPositionProfile": [1, 0, 1, -1, -1, -1, -1]})
+    assert b.peek("activeProfileIndex") == slot
+
+
+@pytest.mark.parametrize("select_fire", ["switch", "encoder"])
+def test_a_position_left_on_default_boots_the_default_profile(blaster, select_fire):
+    b = selector_boot(blaster, ["select2"], {"selectFireType": select_fire, "defaultProfileIndex": 2,
+                                             "switchPositionProfile": [0] + [-1] * 6})
+    assert b.peek("activeProfileIndex") == 2
+
+
+def test_with_variable_fps_off_the_encoder_leaves_the_profile_alone(blaster):
+    b = power_on_holding(blaster, ["select0", "select2"],
+                         {"selectFireType": "encoder", "variableFPS": False,
+                          "bootAction": list(NONE), "switchPositionProfile": [2, 2, 2]})
+    assert b.peek("activeProfileIndex") == 0  # /active.cfg's, absent here
+
+
+@pytest.mark.parametrize("select_fire, rows", [("switch", [True, False, True]),
+                                               ("encoder", [True, True, True])])
+def test_the_menu_offers_a_profile_row_for_each_position_the_selector_reaches(
+        blaster, select_fire, rows):
+    b = blaster
+    b.flash_preset("trifolium_v1_2", {"selectFireType": select_fire, "variableFPS": True})
+    assert b.boot(100)
+    nodes = {n["key"]: n for n in walk(schema(b)["tree"]) if n.get("key")}
+    visible = [nodes[f"device:switchPositionProfile[{i}]"].get("visible", True) for i in range(7)]
+    assert visible == rows + [False] * 4

@@ -11,7 +11,7 @@ extern DeviceSettings deviceSettings;
 extern uint8_t pusherPin();
 extern bool wiringLive;
 
-// The nine pins as the conflict engine left them. deviceSettings still carries what the
+// The ten switch pins as the conflict engine left them. deviceSettings still carries what the
 // user asked for, so reporting from it names the role that *lost* a contested pin.
 #include "menuCore.h"
 
@@ -63,6 +63,7 @@ const char* roleOf(uint8_t pin)
         {deviceSettings.i2cSclPin, "i2cScl"},
         {deviceSettings.i2cSdaPin, "i2cSda"},
         {deviceSettings.batteryAdcPin, "batteryADC"},
+        {deviceSettings.speedPotPin, "speedPot"},
         // The role keeps the name "drvEN" even though the field behind it is pusherFetPin: it
         // names the physical function, it is what every board file called that pin, and two bench
         // walks match on the string.
@@ -73,6 +74,7 @@ const char* roleOf(uint8_t pin)
         {triggerSwitchPin, "trigger"},
         {revSwitchPin, "rev"},
         {cycleSwitchPin, "cycle"},
+        {dartSwitchPin, "dart"},
         {idleSwitchPin, "idle"},
         {safetySwitchPin, "safety"},
         {selectPins[0], "select0"},

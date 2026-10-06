@@ -18,6 +18,7 @@
 #include "batteryMonitor.h"
 #include "deviceSettings.h"
 #include "deviceStore.h"
+#include "enumIds.h"
 #include "flywheelMotor.h"
 #include "global.h"
 #include "menu.h"
@@ -59,9 +60,11 @@ extern bool displayAllowed;
 extern bool revSafetyLatched;
 extern bool firing;
 extern BatteryMonitor* batteryMonitor;
-extern uint8_t menuButtonPin, triggerSwitchPin, revSwitchPin, cycleSwitchPin, idleSwitchPin,
-    safetySwitchPin, ledDataPin, batteryAdcPin, escEnablePin;
+extern uint8_t menuButtonPin, triggerSwitchPin, revSwitchPin, cycleSwitchPin, dartSwitchPin,
+    idleSwitchPin, safetySwitchPin, ledDataPin, batteryAdcPin, speedPotPin, escEnablePin;
 extern uint8_t selectPins[3];
+extern bool dartPresent, breechEmptiedSincePush;
+extern uint32_t dartWaitSince_ms;
 extern uint8_t pusherPin();
 bool menuIsOpen();
 
@@ -168,6 +171,7 @@ class Host
         hal::powerOn();
         setPack(16400);
         hal::setWriteHook([this](uint8_t pin, bool level) { onWrite(pin, level); });
+        hal::setInputHook([this](uint8_t pin) { return dartSwitchLevel(pin); });
         BidirDShotX1::onCreate = [this](BidirDShotX1& esc)
         {
             for (int i = 0; i < 4; i++)
@@ -175,6 +179,9 @@ class Host
                 if (motorsEnabled[i] && deviceSettings.escPins[i] == esc.escPin())
                     wheels_[i].attach(esc);
             }
+            if (wiringLive && deviceSettings.pusherDrive == PUSHER_DRIVE_ESC &&
+                esc.escPin() == pusherPin())
+                esc.onFrame = [this](BidirDShotX1& e) { onPusherEscFrame(e); };
         };
     }
 
@@ -182,6 +189,7 @@ class Host
     {
         machine_.halt();
         hal::setWriteHook(nullptr);
+        hal::setInputHook(nullptr);
         BidirDShotX1::onCreate = nullptr;
     }
 
@@ -211,6 +219,8 @@ class Host
             setSwitch(req["role"] | "", req["pressed"] | false, out);
         else if (op == "analog")
             hal::setAnalog(req["pin"], req["raw"]);
+        else if (op == "pot")
+            setPot(req["fraction"] | 1.0f, out);
         else if (op == "pack")
         {
             setPack(req["mv"]);
@@ -268,6 +278,20 @@ class Host
             dartDelay_us_ = req["delay_us"] | dartDelay_us_;
             dartLoss_rpm_ = req["loss_rpm"] | dartLoss_rpm_;
         }
+        else if (op == "magazine")
+        {
+            mag_.capacity = req["capacity"] | mag_.capacity;
+            mag_.loadRate_dps = req["loadRate"] | mag_.loadRate_dps;
+            mag_.leave_us = (uint32_t)(req["leaveMs"] | (int)(mag_.leave_us / 1000)) * 1000;
+        }
+        else if (op == "magazine.reload")
+            reloadMagazine(hal::now_us());
+        else if (op == "magazine.get")
+            magazineState(out);
+        else if (op == "magazine.set")
+            restoreMagazine(req);
+        else if (op == "magazine.byHand")
+            mag_.byHand = req["value"] | true;
 
         // ---- flash
         else if (op == "flash.put")
@@ -319,6 +343,7 @@ class Host
             if (started_)
                 throw Error("already booted - one boot per process");
             started_ = true;
+            setPack(packMv_); // the flash is final now, so which ADC pin is the pot's is known
             machine_.start();
             status(out);
         }
@@ -380,7 +405,10 @@ class Host
                 w["attached"] = wheels_[i].attached;
                 w["rpm"] = wheels_[i].rpm;
                 w["peak"] = wheels_[i].peakRpm;
+                w["lastDartRpm"] = wheels_[i].lastDartRpm;
                 w["throttle"] = wheels_[i].throttle;
+                w["kv"] = wheels_[i].kv;
+                w["polePairs"] = wheels_[i].polePairs;
                 w["esc"] = !wheels_[i].powered                     ? "unpowered"
                            : wheels_[i].started(hal::now_us()) ? "up"
                                                                 : "starting";
@@ -438,11 +466,32 @@ class Host
 
     hal::Machine machine_;
     bool started_ = false;
+    int32_t packMv_ = 0; // what setPack() last gave
     SimFlywheel wheels_[4];
     sim::Panel panel_;
     bool dartsLoaded_ = true;
     uint32_t dartDelay_us_ = 15000;
     float dartLoss_rpm_ = 1700.0f;
+
+    // A magazine feeding the breech. The spring puts the next dart in the breech once the pusher is
+    // back, at the load rate; a push carries that dart past the dart switch and into the wheels,
+    // and a push with the breech empty is dry. Not fitted until one is loaded - until then every
+    // push launches a dart, as darts() says.
+    struct Magazine
+    {
+        bool fitted = false;
+        int capacity = 18;
+        int darts = 0; // in the magazine, not the one in the breech
+        float loadRate_dps = 100.0f;
+        uint32_t leave_us = 4000; // from the push to the dart clearing the switch
+        bool breech = false;
+        bool pusherOut = false;
+        uint64_t leavesAt_us = 0; // a pushed dart still on the switch until then
+        uint64_t feedsAt_us = 0;  // the spring has the next dart there then
+        uint32_t launched = 0;
+        uint32_t dry = 0;
+        bool byHand = false; // a test is holding the dart switch itself, until the next reload
+    } mag_;
     std::vector<uint64_t> extends_;
     std::vector<Edge> edges_[hal::kPinCount];
     std::string transcript_;
@@ -483,6 +532,8 @@ class Host
         else if (role == "trigger") pin = w.triggerSwitchPin, normallyClosed = w.triggerSwitchNormallyClosed;
         else if (role == "rev") pin = w.revSwitchPin, normallyClosed = w.revSwitchNormallyClosed;
         else if (role == "cycle") pin = w.cycleSwitchPin, normallyClosed = w.cycleSwitchNormallyClosed;
+        else if (role == "dart") pin = w.dartSwitchPin, normallyClosed = w.dartSwitchNormallyClosed,
+                                 mag_.byHand = true;
         else if (role == "idle") pin = w.idleSwitchPin, normallyClosed = w.idleSwitchNormallyClosed;
         else if (role == "safety") pin = w.safetySwitchPin, normallyClosed = w.safetySwitchNormallyClosed;
         else if (role == "select0") pin = w.select0Pin;
@@ -506,13 +557,37 @@ class Host
         }
     }
 
-    // BatteryMonitor: pack = adc_mv * 11, adc_mv = raw * 3300 / 1023. On every ADC pin, because
-    // before boot nothing has read which one the wiring uses, and no other input is analog.
+    // The speed pot turned `fraction` of the way from its grounded end, on the pin the wiring gives
+    // it - the firmware's own copy once booted, the config on flash before that. With none wired
+    // nothing reads it: it keeps its place, replayed onto each boot, for a wiring that has one.
+    void setPot(float fraction, JsonObject out)
+    {
+        const uint8_t pin = wiring().speedPotPin;
+        if (pin == PIN_NOT_USED)
+        {
+            out["pin"] = nullptr;
+            return;
+        }
+        const float at = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
+        hal::setAnalog(pin, (int)(at * 1023.0f + 0.5f));
+        out["pin"] = pin;
+    }
+
+    // BatteryMonitor: pack = adc_mv * 11, adc_mv = raw * 3300 / 1023. On every ADC pin but the
+    // speed pot's, because before boot nothing has read which one the wiring uses. A pack reading
+    // left on the pot's pin from before it was the pot's is cleared: a pot left alone reads 0.
     void setPack(int32_t mv)
     {
+        packMv_ = mv;
         const int raw = (int)((mv / 11.0) * 1023.0 / 3300.0 + 0.5);
+        const uint8_t pot = wiring().speedPotPin;
         for (uint8_t pin = 26; pin <= 29; pin++)
-            hal::setAnalog(pin, raw);
+        {
+            if (pin != pot)
+                hal::setAnalog(pin, raw, true);
+            else if (hal::analogRises(pin))
+                hal::setAnalog(pin, 0);
+        }
         for (SimFlywheel& w : wheels_)
         {
             w.packVoltage = mv / 1000.0f;
@@ -553,16 +628,154 @@ class Host
         }
     }
 
+    uint64_t feedInterval_us() const
+    {
+        return mag_.loadRate_dps > 0 ? (uint64_t)(1e6 / mag_.loadRate_dps) : UINT64_MAX / 2;
+    }
+
+    // The spring starts on the next dart once nothing is in its way: the breech empty, the last
+    // dart off the switch and the pusher back.
+    void feedFrom(uint64_t t)
+    {
+        if (mag_.fitted && !mag_.breech && !mag_.leavesAt_us && !mag_.feedsAt_us &&
+            !mag_.pusherOut && mag_.darts > 0)
+            mag_.feedsAt_us = t + feedInterval_us();
+    }
+
+    // What the magazine has done by `now`, applied lazily whenever anything asks.
+    void settleMagazine(uint64_t now)
+    {
+        if (mag_.leavesAt_us && now >= mag_.leavesAt_us)
+        {
+            const uint64_t left = mag_.leavesAt_us;
+            mag_.leavesAt_us = 0;
+            mag_.breech = false;
+            feedFrom(left);
+        }
+        if (mag_.feedsAt_us && now >= mag_.feedsAt_us)
+        {
+            mag_.feedsAt_us = 0;
+            mag_.breech = true;
+            mag_.darts--;
+        }
+    }
+
+    void reloadMagazine(uint64_t now)
+    {
+        settleMagazine(now);
+        mag_.fitted = true;
+        mag_.byHand = false;
+        mag_.darts = mag_.capacity;
+        mag_.launched = mag_.dry = 0;
+        feedFrom(now);
+    }
+
+    // True if the push carried a dart out of the breech.
+    bool pushFromBreech(uint64_t now)
+    {
+        settleMagazine(now);
+        mag_.pusherOut = true;
+        mag_.feedsAt_us = 0; // the pusher is in the way of a dart on its way up
+        if (!mag_.breech || mag_.leavesAt_us)
+        {
+            mag_.dry++;
+            return false;
+        }
+        mag_.launched++;
+        mag_.leavesAt_us = now + mag_.leave_us;
+        return true;
+    }
+
+    void pusherBack(uint64_t now)
+    {
+        settleMagazine(now);
+        mag_.pusherOut = false;
+        feedFrom(now);
+    }
+
+    // The dart switch closes to ground on a dart, as setSwitch() presses it, unless it is one that
+    // opens instead - and with no magazine in, the breech is empty. Only once the firmware has its
+    // wiring, so no other pin is ever taken for the dart switch's.
+    int dartSwitchLevel(uint8_t pin)
+    {
+        if (!wiringLive || mag_.byHand || pin != deviceSettings.dartSwitchPin)
+            return -1;
+        settleMagazine(hal::now_us());
+        const bool dart = mag_.fitted && mag_.breech;
+        return dart != deviceSettings.dartSwitchNormallyClosed ? 0 : -1;
+    }
+
+    // Pending times go out as what is left of them, since each boot's clock starts again at 0.
+    void magazineState(JsonObject out)
+    {
+        const uint64_t now = hal::now_us();
+        settleMagazine(now);
+        out["fitted"] = mag_.fitted;
+        out["capacity"] = mag_.capacity;
+        out["darts"] = mag_.darts;
+        out["loadRate"] = mag_.loadRate_dps;
+        out["leaveMs"] = mag_.leave_us / 1000;
+        out["breech"] = mag_.breech;
+        out["launched"] = mag_.launched;
+        out["dry"] = mag_.dry;
+        out["leavesInUs"] = mag_.leavesAt_us ? mag_.leavesAt_us - now : 0;
+        out["feedsInUs"] = mag_.feedsAt_us ? mag_.feedsAt_us - now : 0;
+    }
+
+    void restoreMagazine(JsonObjectConst req)
+    {
+        const uint64_t now = hal::now_us();
+        mag_.fitted = req["fitted"] | false;
+        mag_.capacity = req["capacity"] | mag_.capacity;
+        mag_.darts = req["darts"] | 0;
+        mag_.loadRate_dps = req["loadRate"] | mag_.loadRate_dps;
+        mag_.leave_us = (uint32_t)(req["leaveMs"] | 4) * 1000;
+        mag_.breech = req["breech"] | false;
+        mag_.launched = req["launched"] | 0u;
+        mag_.dry = req["dry"] | 0u;
+        const uint64_t leavesIn = req["leavesInUs"] | (uint64_t)0;
+        const uint64_t feedsIn = req["feedsInUs"] | (uint64_t)0;
+        mag_.leavesAt_us = leavesIn ? now + leavesIn : 0;
+        mag_.feedsAt_us = feedsIn ? now + feedsIn : 0;
+        mag_.pusherOut = false; // a reboot drops the gate
+        feedFrom(now);
+    }
+
     void onWrite(uint8_t pin, bool level)
     {
-        if (pin < hal::kPinCount && (edges_[pin].empty() || edges_[pin].back().level != level))
+        const bool changed =
+            pin < hal::kPinCount && (edges_[pin].empty() || edges_[pin].back().level != level);
+        if (changed)
             edges_[pin].push_back({hal::now_us(), level});
 
-        if (!level || !wiringLive || deviceSettings.pusherDrive != PUSHER_DRIVE_FET ||
-            pin != pusherPin())
+        if (wiringLive && deviceSettings.pusherDrive == PUSHER_DRIVE_FET && pin == pusherPin())
+            onPusher(level, changed);
+    }
+
+    // An ESC-driven pusher is a brushed motor in place of a solenoid: out while its channel is
+    // sent any throttle, back the moment it is sent none. Its pushes are kept as edges on the
+    // channel's pin, the way a FET's gate is, so edges() and the panel read either the same way.
+    void onPusherEscFrame(BidirDShotX1& esc)
+    {
+        const bool out = esc.lastThrottle != 0;
+        std::vector<Edge>& edges = edges_[esc.escPin()];
+        if (!edges.empty() ? edges.back().level == out : !out)
             return;
+        edges.push_back({hal::now_us(), out});
+        onPusher(out, true);
+    }
+
+    // The pusher going out or coming back, whatever drives it.
+    void onPusher(bool out, bool changed)
+    {
+        if (!out)
+        {
+            if (changed && mag_.fitted)
+                pusherBack(hal::now_us());
+            return;
+        }
         extends_.push_back(hal::now_us());
-        if (!dartsLoaded_)
+        if (mag_.fitted ? !(changed && pushFromBreech(hal::now_us())) : !dartsLoaded_)
             return;
         for (SimFlywheel& w : wheels_)
         {
@@ -739,9 +952,20 @@ class Host
         else if (name == "booted") v.set(started_ && booted());
         else if (name == "menuOpen") v.set(menuIsOpen());
         else if (name == "burstMode") v.set((int)burstMode);
+        else if (name == "burstModeId")
+            v.set(burstMode < kBurstModeIdCount ? kBurstModeIds[burstMode] : "?");
         else if (name == "bootReason") v.set((int)bootReason);
         else if (name == "requestRev") v.set(requestRev);
         else if (name == "rpmScale") v.set(rpmScale_);
+        else if (name == "dart")
+        {
+            v["present"] = dartPresent;
+            v["emptiedSincePush"] = breechEmptiedSincePush;
+            if (dartWaitSince_ms == 0)
+                v["waitMs"] = nullptr;
+            else
+                v["waitMs"] = millis() - dartWaitSince_ms;
+        }
         else if (name == "liveTargetDPS") v.set(liveTargetDPS);
         else if (name == "triggerTime_ms") v.set(triggerTime_ms);
         else if (name == "pusherValid") v.set(pusherValid);
@@ -783,6 +1007,7 @@ class Host
             v["trigger"] = triggerSwitchPin;
             v["rev"] = revSwitchPin;
             v["cycle"] = cycleSwitchPin;
+            v["dart"] = dartSwitchPin;
             v["idle"] = idleSwitchPin;
             v["safety"] = safetySwitchPin;
             v["select0"] = selectPins[0];
@@ -790,6 +1015,7 @@ class Host
             v["select2"] = selectPins[2];
             v["ledData"] = ledDataPin;
             v["batteryAdc"] = batteryAdcPin;
+            v["speedPot"] = speedPotPin;
             v["escEnable"] = escEnablePin;
         }
         else if (name == "pinConflicts")

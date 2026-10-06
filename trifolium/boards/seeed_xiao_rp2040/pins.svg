@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 910"
+     preserveAspectRatio="xMidYMid meet">
+  <!-- Marker overlay for board.svg, in its coordinate space: every marker sits on the pad centre the
+       art draws. Each GPIO pad is labelled with the name the module is sold under, D0-D10, and the
+       analog channel or bus pin it doubles as, which is what a build's own wiring is written in.
+
+       A bare XIAO has no connectors: which pads are a plug depends on what is soldered to them, so
+       there is no data-connector here. See the README for adding them. -->
+
+  <g fill="rgba(0,229,255,0.25)" stroke="#00e5ff" stroke-width="2">
+    <circle cx="58" cy="175" r="26" data-gpio="26" data-label="D0 (A0)" />
+    <circle cx="58" cy="276.6" r="26" data-gpio="27" data-label="D1 (A1)" />
+    <circle cx="58" cy="378.2" r="26" data-gpio="28" data-label="D2 (A2)" />
+    <circle cx="58" cy="479.8" r="26" data-gpio="29" data-label="D3 (A3)" />
+    <circle cx="58" cy="581.4" r="26" data-gpio="6" data-label="D4 (SDA)" />
+    <circle cx="58" cy="683" r="26" data-gpio="7" data-label="D5 (SCL)" />
+    <circle cx="58" cy="784.6" r="26" data-gpio="0" data-label="D6 (TX)" />
+    <circle cx="662" cy="175" r="26" data-pin="5V" />
+    <circle cx="662" cy="276.6" r="26" data-pin="GND" />
+    <circle cx="662" cy="378.2" r="26" data-pin="3V3" />
+    <circle cx="662" cy="479.8" r="26" data-gpio="3" data-label="D10 (MOSI)" />
+    <circle cx="662" cy="581.4" r="26" data-gpio="4" data-label="D9 (MISO)" />
+    <circle cx="662" cy="683" r="26" data-gpio="2" data-label="D8 (SCK)" />
+    <circle cx="662" cy="784.6" r="26" data-gpio="1" data-label="D7 (RX)" />
+  </g>
+</svg>

@@ -6,8 +6,8 @@
 // Build-time check that this file matches what main.cpp expects. Unrelated to the store schema
 // versions, which version the persisted flash JSON at runtime.
 #define CONFIG_VERSION_MAJOR 2
-#define CONFIG_VERSION_MINOR 1
-#define CONFIG_VERSION_PATCH 1
+#define CONFIG_VERSION_MINOR 2
+#define CONFIG_VERSION_PATCH 0
 
 inline uint32_t targetLoopTime_us = 1000;
 
@@ -37,6 +37,7 @@ inline const ShotProfile kDefaultProfile = {
     .spindownSpeed = 100,
     .revSafetyTimeout_ms = 0, // disabled
     .rpmMode = RPM_STAGE,
+    .speedPotStage2Ratio = 1.0f,
 
     .fireModes =
         {
@@ -46,7 +47,7 @@ inline const ShotProfile kDefaultProfile = {
         },
     .activeModeCount = 3,
     .defaultFiringMode = 1,
-    .switchPositionAssignment = {0, 1, 2},
+    .switchPositionAssignment = {0, 1, 2, NO_FIRE_MODE, NO_FIRE_MODE, NO_FIRE_MODE, NO_FIRE_MODE},
 };
 
 inline const DeviceSettings kDefaultDeviceSettings = {
@@ -60,6 +61,8 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .i2cSclPin = PIN_NOT_USED,
     .batteryAdcPin = PIN_NOT_USED,
     .escEnablePin = PIN_NOT_USED,
+    .speedPotPin = PIN_NOT_USED,
+    .speedPotReversed = false,
 
     .hasDisplay = true,
     .rotateDisplay = true,
@@ -69,6 +72,7 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .triggerSwitchPin = PIN_NOT_USED,
     .revSwitchPin = PIN_NOT_USED,
     .cycleSwitchPin = PIN_NOT_USED,
+    .dartSwitchPin = PIN_NOT_USED,
     .idleSwitchPin = PIN_NOT_USED,
     .safetySwitchPin = PIN_NOT_USED,
     .select0Pin = PIN_NOT_USED,
@@ -78,6 +82,7 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .revSwitchNormallyClosed = false,
     .triggerSwitchNormallyClosed = false,
     .cycleSwitchNormallyClosed = false,
+    .dartSwitchNormallyClosed = false,
     .idleSwitchNormallyClosed = false,
     .safetySwitchNormallyClosed = false,
     .menuButtonNormallyClosed = false,
@@ -115,6 +120,11 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .debounceTime_ms = 20,
     .menuButtonHoldTime_ms = 1500,
     .pusherDebounceTime_ms = 25,
+    .dartSwitchDebounce_ms = 10,
+    .dartSensing = false,
+    .dartWaitTimeout_ms = 1000,
+    .minPushTime_ms = 8,
+    .revOnlyWithDart = false,
     .voltageAveragingWindow = 5,
     .useRpmBaseShotCounter = true,
     .goodRpmShotReads = 5,
@@ -165,6 +175,8 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .firingRPMTolerance = 500,
     .minFiringRPM = 10000,
     .rampupTimeout_ms = 500,
+    .speedPotMinRPM = 15000,
+    .speedPotMaxRPM = 30000,
     .EMAFilter = 2,
     .iThreshold = 50,
     .throttleCap = 300,
@@ -184,4 +196,5 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .selectFireType = SWITCH_SELECT_FIRE,
     .variableFPS = true,
     .defaultProfileIndex = 1, // Medium - used when no select-switch position is active
+    .switchPositionProfile = {0, 1, 2, NO_PROFILE, NO_PROFILE, NO_PROFILE, NO_PROFILE},
 };

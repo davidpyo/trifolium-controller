@@ -15,6 +15,9 @@ from helpers import SIM  # noqa: E402
 
 from trifolium_sim import preset  # noqa: E402
 
+# A build on 3S with 6000 Kv motors of six pole pairs, unlike the simulator's stock 3200 Kv on 4S.
+THREE_CELL = {"batteryType": "3s", "motorConfig": [{"motorKv": 6000, "motorPolesDiv2": 6}] * 4}
+
 
 def free_port():
     with socket.socket() as s:
@@ -88,6 +91,47 @@ def bench(port, **req):
     with socket.create_connection(("127.0.0.1", port), timeout=10) as s:
         s.sendall((json.dumps(req) + "\n").encode())
         return json.loads(s.makefile().readline())
+
+
+def until(probe, timeout_s=10):
+    deadline = time.time() + timeout_s
+    while True:
+        got = probe()
+        if got or time.time() > deadline:
+            return got
+        time.sleep(0.1)
+
+
+def motors(control_port):
+    """Each simulated wheel's motor, as (Kv, pole pairs)."""
+    return [(w["kv"], w["polePairs"]) for w in bench(control_port, op="wheels")["wheels"]]
+
+
+def test_the_served_blaster_has_the_motors_and_the_pack_its_config_describes():
+    """The panel is the blaster as configured: its own motors on a charged pack of its own battery
+    type, not the simulator's stock 3200 Kv motors on 4S."""
+    proc, (_, control_port) = serve("--preset", "trifolium_v1_2", "--device", json.dumps(THREE_CELL))
+    try:
+        assert motors(control_port) == [(6000, 6)] * 4
+        assert bench(control_port, op="snapshot")["packMv"] == 3 * 4100
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+def test_a_config_that_changes_the_motors_and_battery_changes_them_at_its_reboot(served):
+    serial_port, control_port = served  # unwired: the stock motors, on 4S
+    assert motors(control_port) == [(3200, 7)] * 4
+    assert bench(control_port, op="snapshot")["packMv"] == 4 * 4100
+    boots = bench(control_port, op="state")["boots"]
+
+    ser = open_serial(serial_port)
+    ser.write(("LOAD_DEVICE\n" + json.dumps(preset("trifolium_v1_2", THREE_CELL)) + "\n").encode())
+    assert reply(ser, "LOAD_DEVICE")["rebooting"] is True
+    ser.close()
+    assert until(lambda: bench(control_port, op="state")["boots"] > boots)
+    assert until(lambda: motors(control_port) == [(6000, 6)] * 4)
+    assert bench(control_port, op="snapshot")["packMv"] == 3 * 4100
 
 
 def test_a_tool_on_the_serial_port_loads_a_preset_and_finds_the_board_armed_after_the_reboot(served):

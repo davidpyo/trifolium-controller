@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { optionIndexFor, optionValueAt, withSlotNames } from "./enumValue";
+import { optionIndexFor, optionValueAt, withIndexOptions, withSlotNames } from "./enumValue";
 import type { SchemaNode } from "./types";
 
 const idValued: SchemaNode = {
@@ -112,5 +112,24 @@ describe("profile slots named in the options", () => {
     expect(optionIndexFor(named, "profile_0")).toBe(4);
     expect(withSlotNames(idValued, ["Low"])).toBe(idValued);
     expect(withSlotNames(indexValued, ["Low"])).toBe(indexValued);
+  });
+});
+
+describe("mode pickers from the list as edited", () => {
+  it("offers a mode added since the firmware described the list, after Default", () => {
+    const edited = withIndexOptions(indexValued, ["Mode 1", "Mode 2", "Mode 3", "Mode 4"]);
+    expect(edited.options).toEqual(["Default", "Mode 1", "Mode 2", "Mode 3", "Mode 4"]);
+    expect(edited.hi).toBe(3);
+    expect(optionIndexFor(edited, 3)).toBe(4);
+    expect(optionValueAt(edited, 4)).toBe(3);
+    expect(optionValueAt(edited, 0)).toBe(-1);
+  });
+
+  it("drops a mode deleted since, and has no Default on a node based at 0", () => {
+    const defaultMode: SchemaNode = { ...indexValued, key: "profile:defaultFiringMode", lo: 0,
+                                      options: ["Mode 1", "Mode 2", "Mode 3"] };
+    const edited = withIndexOptions(defaultMode, ["Mode 1", "Mode 3"]);
+    expect(edited.options).toEqual(["Mode 1", "Mode 3"]);
+    expect(edited.hi).toBe(1);
   });
 });
