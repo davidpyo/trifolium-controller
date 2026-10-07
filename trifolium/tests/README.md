@@ -37,7 +37,7 @@ writes it.
 with the same winlibs MinGW, pinned by hash, whose 32-bit `long` matches the RP2040's. About 9
 minutes, 6 of them the suite. Each failed test becomes an error annotation on the run.
 
-The build is `pio run -e sim`, to `.pio/build/sim/trifolium-sim.exe`. `trifolium-sim --self-test`
+The build is `pio run -e sim`, to `.pio/build/sim/trifolium-sim(.exe)`. `trifolium-sim --self-test`
 checks the fakes against the parts they stand in for; `suite/test_self.py` runs it.
 
 The checks run from `trifolium/`, for example `python tests/checks/check_reset.py`. The suite runs
@@ -185,7 +185,8 @@ which is why the shots are one pull of a burst of three.
 Real code wherever it can be:
 - The Arduino API (`String`, `Print`, `Stream`, number formatting) is arduino-pico's own copy.
 - ArduinoJson, the Adafruit display stack, elapsedMillis and Bounce2 are the pinned libraries.
-- `char` is unsigned, and on Windows `long` is 32 bits, both as on the RP2040.
+- `char` is unsigned, and on Windows `long` is 32 bits, both as on the RP2040. On macOS `long` is
+  64 bits, so `micros()` never wraps there.
 
 The fake board:
 - **Two cores, one clock.** Each core is a thread, and only one runs at a time. The running core keeps
