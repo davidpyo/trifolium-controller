@@ -94,7 +94,7 @@ def test_a_motor_voltage_limit_caps_throttle_rising_with_sag_and_with_the_target
     b = blaster
     b.flash_profile(1, {"schemaVersion": 2, "revRPM": [20000, 20000, 20000, 45000]})
     limited = {"maxSpinupVoltage_mv": 10000}
-    armed_v12(b, {"motorConfig": [{}, limited, {}, limited]}, display=False)
+    armed_v12(b, {"motorConfig": [{"enabled": True}, limited, {}, limited]}, display=False)
 
     def peak_throttles():
         b.press("rev")
