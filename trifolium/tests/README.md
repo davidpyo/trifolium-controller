@@ -25,7 +25,7 @@ python -m pytest --no-build ...           # use the simulator as built
 - `[env:pico]`'s packages installed: `pio pkg install -e pico`, or any pico build. The fake core
   compiles arduino-pico's own ArduinoCore-API out of that package.
 - `pip install -r requirements.txt`, then `python -m playwright install chromium` for the console
-  tests.
+  tests, which load the built console: `npm ci && npm run build` in `tools/console`.
 
 `suite/test_factory_build.py` also builds `[env:pico]`, once, through `tools/release.py --board
 --blaster`, and unpacks the image's settings area with that package's `mklittlefs`, which

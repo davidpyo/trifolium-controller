@@ -32,6 +32,8 @@ sys.path.insert(0, str(PROJECT / "tools"))
 import build_site  # noqa: E402 - the site's own list entries, so the console is held to their format
 
 CONSOLE = PROJECT / "tools" / "console" / "dist" / "index.html"
+if not CONSOLE.is_file():
+    raise pytest.UsageError(f"{CONSOLE} is not built - run `npm ci && npm run build` in tools/console")
 SHIM = (SIM / "trifolium_sim" / "webserial_shim.js").read_text(encoding="utf-8")
 USB_SHIM = (SIM / "trifolium_sim" / "webusb_shim.js").read_text(encoding="utf-8")
 REBOOT_MS = 15000  # a reboot, the ESC arming after it, and the console's reconnect
