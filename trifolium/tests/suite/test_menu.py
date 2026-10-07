@@ -158,3 +158,24 @@ def test_change_direction_writes_the_next_absolute_direction_and_a_save_to_that_
     assert "Set: Reversed" in said
     assert set(sent) == {SPIN_DIRECTION_2, SAVE_SETTINGS}
     assert b.flash_get("/device.cfg") == stored
+
+
+def test_storage_discharge_drives_only_the_escs_this_boot_attached(blaster):
+    """Enabling a motor takes the reboot that closing the menu brings. Until then that motor has
+    no ESC, so a Storage Discharge started from the same menu visit must leave it alone."""
+    b = armed_v12(blaster, settle_ms=3000)
+    open_menu(b)
+    enter(b, "Advanced", "Motors & PID", "Motor 1")
+    select(b, "Enabled")
+    b.tap("menu")
+    assert b.panel().highlighted == "Enabled: ON"
+    for _ in range(2):  # up to Advanced
+        b.hold("menu", b.wiring()["menuButtonHoldTime_ms"] + 100)
+    enter(b, "Battery", "Storage Discharge")
+
+    assert b.run_ms(1000)
+    wheels = b.wheels()
+    assert not wheels[0]["attached"] and wheels[0]["rpm"] == 0
+    assert wheels[1]["rpm"] > 0 and wheels[3]["rpm"] > 0
+    b.tap("menu")
+    assert b.run_until(lambda: b.panel().shows("Stopped by you"), 1000, step_ms=10)

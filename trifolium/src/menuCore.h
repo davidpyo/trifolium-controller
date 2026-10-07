@@ -49,6 +49,10 @@ extern float maxAchievableDPS;               // applyMaxAchievableDps()'s output
 extern BatteryMonitor* batteryMonitor;
 extern DisplayManager displayManager;
 extern FlywheelMotor motorArr[4];
+// The gate for "this motor has an ESC object", which is not motorConfig[].enabled: attachEsc() runs
+// only for motorsEnabled[], and boot clears that for a pusher-channel collision or an undefined ESC
+// pin. sendThrottle() does not null-check.
+extern bool motorsEnabled[4];
 extern volatile bool directMotorControlActive; // see fwControlLoop()
 extern bool escDashboardOpen;                  // lets Rev spin flywheels while this screen is open
 

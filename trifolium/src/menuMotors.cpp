@@ -7,11 +7,6 @@ static const int32_t FLYWHEEL_TEST_THROTTLE = 400; // modest throttle (~20% of m
                                                    // to visibly/audibly spin without excessive draw
 static const unsigned long FLYWHEEL_TEST_DURATION_MS = 2000;
 
-// The gate for "this motor has an ESC object", which is not motorConfig[].enabled: attachEsc() runs
-// only for motorsEnabled[], and boot clears that for a pusher-channel collision or an undefined ESC
-// pin. sendThrottle() does not null-check.
-extern bool motorsEnabled[4];
-
 static bool testOneMotor(int motorIndex)
 {
     display.clearDisplay();
@@ -253,7 +248,7 @@ static void escDashboardFired()
         int16_t y = 14;
         for (int i = 0; i < 4; i++)
         {
-            if (!deviceSettings.motorConfig[i].enabled)
+            if (!motorsEnabled[i])
                 continue;
             String line = "M" + String(i + 1) + " ";
             line += motorArr[i].telemetryVoltageSeen
