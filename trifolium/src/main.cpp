@@ -169,6 +169,10 @@ bool revControlAllowed()
 
 bool revSafetyLatched = false;
 
+// Set by abortRev(), cleared by the next rev to reach full speed. Idle stays off meanwhile, so a
+// restarted ESC gets the zero throttle it needs to arm and a jammed wheel gets no idle throttle.
+bool revAborted = false;
+
 bool batteryWarningActive = false;
 
 // The pack read under Low V Cutoff with the wheels unloaded - see checkLowVoltageCutoff(). Cleared
@@ -206,10 +210,10 @@ burstFireType_t effectiveBurstMode(burstFireType_t selected)
 }
 
 // SAFE always spins fully down regardless, the menu needs motors stopped for bench testing, and a
-// flat pack gets no idle draw either.
+// flat pack and an aborted rev get no idle draw either.
 bool idleHoldWanted()
 {
-    return idleHoldActive && burstMode != SAFE && !menuIsOpen() && !batteryFlat;
+    return idleHoldActive && burstMode != SAFE && !menuIsOpen() && !batteryFlat && !revAborted;
 }
 
 Bounce2::Button revSwitch = Bounce2::Button();
@@ -352,6 +356,15 @@ int32_t atSpeedRpm(uint8_t motorIndex)
 {
     return max((int32_t)motorArr[motorIndex].targetRPM - deviceSettings.firingRPMTolerance,
                deviceSettings.minFiringRPM);
+}
+
+// A browned-out ESC restarts silent for 300+ ms, freezing motorRPM, so a reading counts only this
+// many polls, one a control tick. Polls, not ms: a loop stalled by a flash write is not silence.
+static const uint32_t kRpmStalePolls = 100;
+
+static bool rpmStale(uint8_t i)
+{
+    return motorsEnabled[i] && motorArr[i].pollsSinceErpm > kRpmStalePolls;
 }
 
 static bool wheelsAtSpeed()
@@ -1762,11 +1775,27 @@ static void kickMotorsToIdle()
     }
 }
 
-// The idle switch asking for idle. SAFE and a flat pack overrule it, as they do idle hold.
+// Ends a rev that cannot go on. The wheels take the ramp a released rev takes, with no dwell or
+// idle window, and no rev starts again until rev, the trigger and any console hold are let go.
+static void abortRev()
+{
+    flywheelState = STATE_IDLE;
+    shotsToFire = 0;
+    lastRevTime_ms = 0;
+    revSafetyLatched = true;
+    revAborted = true;
+    // Else the dwell holds the wheels up waiting on a fired shot's RPM drop.
+    pendingShotDetections = 0;
+    for (int i = 0; i < 4; i++)
+        motorArr[i].shotsUnderThreshold = 0;
+}
+
+// The idle switch asking for idle. SAFE, a flat pack and an aborted rev overrule it, as they do
+// idle hold.
 static bool idleSwitchHeld()
 {
     return pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE &&
-           !batteryFlat;
+           !batteryFlat && !revAborted;
 }
 
 bool fwControlLoop()
@@ -1971,14 +2000,11 @@ bool fwControlLoop()
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
         if (wheelsAtSpeed()) {
             flywheelState = STATE_FULLSPEED;
+            revAborted = false;
             logger.info("STATE_FULLSPEED transition 1");
         } else if (!behaviorFor(burstMode).managesOwnRevLifecycle() &&
                    loopStartTimer_us - revStartTime_us > deviceSettings.rampupTimeout_ms * 1000UL) {
-            // Spin down on the normal ramp, skipping dwell and idle, and latch until released.
-            flywheelState = STATE_IDLE;
-            shotsToFire = 0;
-            lastRevTime_ms = 0;
-            revSafetyLatched = true;
+            abortRev();
             for (int i = 0; i < 4; i++) {
                 if (motorsEnabled[i] && (int32_t)motorArr[i].motorRPM <= atSpeedRpm(i)) {
                     logger.warn("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
@@ -1995,7 +2021,15 @@ bool fwControlLoop()
                                     : (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
                                                           : motorArr[i].revRPM;
 
-        if ((!revControlAllowed() || !revRequestedNow()) && shotsToFire == 0 && !firing)
+        // A stroke under way finishes first. Pushes start further down this chain, so none can
+        // start before this aborts.
+        if ((rpmStale(0) || rpmStale(1) || rpmStale(2) || rpmStale(3)) && !firing)
+        {
+            abortRev();
+            logger.warn("No eRPM from an ESC for ", kRpmStalePolls,
+                        " polls - not firing, spinning down");
+        }
+        else if ((!revControlAllowed() || !revRequestedNow()) && shotsToFire == 0 && !firing)
         {
             flywheelState = STATE_IDLE;
             logger.info("State transition: FULLSPEED to IDLE 1");

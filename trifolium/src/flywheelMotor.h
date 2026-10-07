@@ -27,6 +27,7 @@ class FlywheelMotor
     // is not the same as armed - a disarmed ESC answers telemetry perfectly well. The boot arm loop
     // waits on it before it starts counting the zero-throttle dwell that does the arming.
     bool telemetryErpmSeen = false;
+    uint32_t pollsSinceErpm = 0; // telemetry reads since the last eRPM frame, motorRPM's source
 
     // Extended DShot Telemetry beyond eRPM - raw values, read by the menu's ESC dashboard. The
     // *Seen flags stay false until a frame of that type actually arrives.
