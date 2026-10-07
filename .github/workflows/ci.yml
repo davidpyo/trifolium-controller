@@ -5,8 +5,8 @@
 # console:   the web console's unit tests, build and smoke test.
 # firmware:  the pico build, the static checkers and the release tooling's self-tests.
 # simulator: the simulator suite, the console in Chromium and check_schema.py on its capture
-#            included. On Windows with the MinGW the simulator is built against: it relies on a
-#            32-bit long, as on the RP2040, and on a static libstdc++ for its heap count.
+#            included. On Windows with the MinGW the simulator is built against, whose 32-bit
+#            long matches the RP2040's.
 
 name: CI
 

@@ -20,7 +20,8 @@ python -m pytest --no-build ...           # use the simulator as built
 ```
 
 **Needs**
-- A host gcc on `PATH` to build it. On Windows: `scoop install mingw-winlibs`.
+- A host gcc or clang on `PATH` to build it. On Windows: `scoop install mingw-winlibs`; on macOS:
+  `xcode-select --install`.
 - `[env:pico]`'s packages installed: `pio pkg install -e pico`, or any pico build. The fake core
   compiles arduino-pico's own ArduinoCore-API out of that package.
 - `pip install -r requirements.txt`, then `python -m playwright install chromium` for the console
@@ -33,9 +34,8 @@ python -m pytest --no-build ...           # use the simulator as built
 writes it.
 
 **CI** (`.github/workflows/ci.yml`) runs the whole suite on every pull request, on a Windows runner
-with the same winlibs MinGW, pinned by hash: the simulator counts on a 32-bit `long` and a static
-libstdc++, which 64-bit Linux would not give it. About 9 minutes, 6 of them the suite. Each failed
-test becomes an error annotation on the run.
+with the same winlibs MinGW, pinned by hash, whose 32-bit `long` matches the RP2040's. About 9
+minutes, 6 of them the suite. Each failed test becomes an error annotation on the run.
 
 The build is `pio run -e sim`, to `.pio/build/sim/trifolium-sim.exe`. `trifolium-sim --self-test`
 checks the fakes against the parts they stand in for; `suite/test_self.py` runs it.
