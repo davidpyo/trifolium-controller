@@ -15,7 +15,6 @@ import json
 import re
 import socket
 import struct
-import subprocess
 import sys
 import time
 import zlib
@@ -24,7 +23,7 @@ import pytest
 
 pytest.importorskip("playwright")
 
-from helpers import SIM, differences  # noqa: E402
+from helpers import SIM, differences, start_server  # noqa: E402
 from playwright.sync_api import expect  # noqa: E402
 
 from trifolium_sim import PROJECT  # noqa: E402
@@ -38,20 +37,11 @@ USB_SHIM = (SIM / "trifolium_sim" / "webusb_shim.js").read_text(encoding="utf-8"
 REBOOT_MS = 15000  # a reboot, the ESC arming after it, and the console's reconnect
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 class Served:
     """serve.py in its own process: the WebSocket the page talks to, and the bench port."""
 
     def __init__(self, preset=None, device=None, profiles=None, instant_escs=True):
-        self.serial, self.control, self.ws, self.http = free_port(), free_port(), free_port(), free_port()
-        args = [sys.executable, "-m", "trifolium_sim.serve", "--display", "--port", str(self.serial),
-                "--control-port", str(self.control), "--ws-port", str(self.ws),
-                "--http-port", str(self.http)]
+        args = ["--display"]
         if instant_escs:
             args += ["--instant-escs"]
         if preset:
@@ -60,9 +50,7 @@ class Served:
             args += ["--device", json.dumps(device)]
         for slot, doc in (profiles or {}).items():
             args += ["--profile", f"{slot}={json.dumps(doc)}"]
-        self.proc = subprocess.Popen(args, cwd=str(SIM), stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT)
-        assert b"serial on socket://" in self.proc.stdout.readline()
+        self.proc, self.serial, self.control, self.ws, self.http = start_server(*args)
 
     def bench(self, op, **params):
         with socket.create_connection(("127.0.0.1", self.control), timeout=10) as s:
