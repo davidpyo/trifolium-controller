@@ -182,20 +182,31 @@ export interface RpmStagesProps {
   onEdit: (key: string, value: unknown) => void;
 }
 
+const PIN_NOT_USED = 255;
+
 export function RpmStages({ schema, device, profile, onEdit }: RpmStagesProps) {
   const stageMode = getByKey(profile, "profile:rpmMode") === "stage";
+  const potPin = getByKey(device, "device:speedPotPin");
+  const potSetsRev = typeof potPin === "number" && potPin !== PIN_NOT_USED;
 
   return (
     <Stack spacing={1.25}>
-      <Bank
-        schema={schema}
-        device={device}
-        profile={profile}
-        stageMode={stageMode}
-        array="revRPM"
-        label={stageMode ? "Rev RPM, by stage" : "Rev RPM, per motor"}
-        onEdit={onEdit}
-      />
+      {potSetsRev ? (
+        <Typography variant="caption" color="text.secondary">
+          A speed pot is wired, so it sets the rev RPM: stage 1 between Pot Min and Pot Max RPM on
+          the Device tab, and stage 2 at this profile&rsquo;s Stage 2 Ratio of that.
+        </Typography>
+      ) : (
+        <Bank
+          schema={schema}
+          device={device}
+          profile={profile}
+          stageMode={stageMode}
+          array="revRPM"
+          label={stageMode ? "Rev RPM, by stage" : "Rev RPM, per motor"}
+          onEdit={onEdit}
+        />
+      )}
       <Bank
         schema={schema}
         device={device}

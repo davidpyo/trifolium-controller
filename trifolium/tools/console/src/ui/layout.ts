@@ -31,10 +31,16 @@ export const RENDERED_ELSEWHERE: Record<string, string> = {
   // The boot gate rather than a pin, and the picker and the custom path are the two things
   // that set it. Rendered in the Wiring table's own footer, where what it arms is visible.
   "device:wiringConfigured": "the Wiring table footer",
-  // Only read when variableFPS is on and select-fire is SWITCH - selectShotProfileAtBoot()
-  // reaches it from no other branch - which is exactly when the Selector Switch editor renders.
-  // On the Device tab it showed unconditionally and did nothing most of the time.
-  "device:defaultProfileIndex": "the Selector Switch editor, on the none row",
+  // Only read when variableFPS is on and select-fire is a switch or encoder -
+  // selectShotProfileAtBoot() reaches them from no other branch - which is exactly when those
+  // editors render. On the Device tab they showed unconditionally and did nothing most of the time.
+  "device:defaultProfileIndex": "the selector editor, on the none row",
+  ...Object.fromEntries(
+    Array.from({ length: 7 }, (_, i) => [
+      `device:switchPositionProfile[${i}]`,
+      "the selector editor, in its Profile at boot column",
+    ]),
+  ),
   "profile:name": "the profile bar, beside the slot picker",
   // The RPM editor renders these in both modes - four per-motor rows, or one row per stage that
   // writes every enabled motor in it. The firmware's own stage rows are `derived` and keyless, so
@@ -65,7 +71,13 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
   { label: "Motors & PID", keys: [], absorb: ["Motors & PID"] },
   {
     label: "Flywheel / RPM",
-    keys: ["device:firingRPMTolerance", "device:minFiringRPM", "device:rampupTimeout_ms"],
+    keys: [
+      "device:firingRPMTolerance",
+      "device:minFiringRPM",
+      "device:rampupTimeout_ms",
+      "device:speedPotMinRPM",
+      "device:speedPotMaxRPM",
+    ],
   },
   {
     // Named keys first, then everything else the firmware groups here. These five apply whatever
@@ -86,6 +98,19 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:vibrationPulseMs",
     ],
     absorb: ["Solenoid / Pusher"],
+  },
+  {
+    // Everything the dart switch drives, in dartItems[] order (menuSolenoid.cpp). Its pin and
+    // polarity are wiring, so they stay in the Wiring table.
+    label: "Dart Switch",
+    keys: [
+      "device:dartSensing",
+      "device:revOnlyWithDart",
+      "device:dartSwitchDebounce_ms",
+      "device:dartWaitTimeout_ms",
+      "device:minPushTime_ms",
+    ],
+    absorb: ["Dart Switch"],
   },
   {
     // New grouping. Alternative shot-detection schemes would land here rather than under Device.
@@ -128,9 +153,10 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
     ],
   },
   {
-    // The nine switch pins and the six resting-state flags. Claimed rather than left to the
-    // trailing section because the firmware groups them deliberately - a switch's pin and whether
-    // it is normally closed are one fact about one switch - and "Other settings" throws that away.
+    // The pins, the switches' resting-state flags and the pot's direction. Claimed rather than left
+    // to the trailing section because the firmware groups them deliberately - a switch's pin and
+    // whether it is normally closed are one fact about one switch - and "Other settings" throws
+    // that away.
     //
     // Last, because it is the longest section and the one a user touches least once their board is
     // wired - and because the I2C pair in it follows Display Attached above, so the thing that
@@ -148,6 +174,7 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:revSwitchPin",
       "device:menuButtonPin",
       "device:cycleSwitchPin",
+      "device:dartSwitchPin",
       "device:idleSwitchPin",
       "device:select0Pin",
       "device:select1Pin",
@@ -166,13 +193,17 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:i2cSdaPin",
       "device:i2cSclPin",
       "device:batteryAdcPin",
+      "device:speedPotPin",
       "device:escEnablePin",
       "device:triggerSwitchNormallyClosed",
       "device:revSwitchNormallyClosed",
       "device:menuButtonNormallyClosed",
       "device:cycleSwitchNormallyClosed",
+      "device:dartSwitchNormallyClosed",
       "device:idleSwitchNormallyClosed",
       "device:safetySwitchNormallyClosed",
+      // The pot's counterpart to a polarity, shown in the same column of its row.
+      "device:speedPotReversed",
       // Boot actions are not wiring, but they are indexed by these same eight controls, so the
       // table gives each one a column rather than leaving them as eight unattached enums. Claimed
       // here so they do not also fall through into the trailing section - WiringTable finds its own
@@ -198,6 +229,7 @@ export const PROFILE_LAYOUT: SectionSpec[] = [
     label: "RPM & Timing",
     keys: [
       "profile:rpmMode",
+      "profile:speedPotStage2Ratio",
       "profile:dwellTime_ms",
       "profile:idleTime_ms",
       "profile:spindownSpeed",

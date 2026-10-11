@@ -71,6 +71,7 @@ MKLITTLEFS_SPEC = "earlephilhower/tool-mklittlefs-rp2040-earlephilhower@~5.10030
 
 BUILD_ENV = "pico"
 BUNDLE_KIND = "trifolium-config"
+PIN_NOT_USED = 255
 # LittleFS as the core mounts it: 256-byte pages in 4 KB blocks, the platform's FS_PAGE and FS_BLOCK.
 FS_PAGE = 256
 FS_BLOCK = 4096
@@ -219,15 +220,34 @@ def factory_problems(bundle, preset, device_version, profile_version, slots):
     return problems
 
 
-def factory_device(bundle, preset, pins, device_version):
-    """The board's pins and the config's every other setting - the console wizard's rule.
+def fill_unused(board_value, config_value):
+    """The config's pin where the board leaves the slot unused, unnamed or named as unused, and the
+    board's otherwise. ESC channels go one by one."""
+    if isinstance(config_value, list):
+        ours = board_value if isinstance(board_value, list) else []
+        return [fill_unused(ours[i] if i < len(ours) else None, pin)
+                for i, pin in enumerate(config_value)]
+    return config_value if board_value is None or board_value == PIN_NOT_USED else board_value
 
-    A pin the board does not name is left out, so the firmware's default stands, as it would on a
-    bare board.
+
+def saved_on(bundle, preset):
+    """Whether the config was saved on this board, under its id or one it used to have."""
+    board = bundle.get("board")
+    return board == preset.get("id") or board in (preset.get("aliases") or [])
+
+
+def factory_device(bundle, preset, pins, device_version):
+    """The board's pins and the config's every other setting - the console wizard's rule. On the
+    board the config was saved on, a pin the board leaves unused is the config's, since that is the
+    blaster's own wiring - on a bare module, which claims no pins, all of it.
+
+    A pin neither names is left out, so the firmware's default stands.
     """
     wiring = {k: v for k, v in preset.items() if k not in PRESET_DESCRIPTIVE_KEYS}
     settings = {k: v for k, v in bundle["device"].items() if k not in pins}
-    return {**wiring, **settings, "boardId": preset["id"], "wiringConfigured": True,
+    own = ({k: fill_unused(wiring.get(k), v) for k, v in bundle["device"].items() if k in pins}
+           if saved_on(bundle, preset) else {})
+    return {**wiring, **settings, **own, "boardId": preset["id"], "wiringConfigured": True,
             "schemaVersion": device_version}
 
 
@@ -322,7 +342,10 @@ def factory(version, blaster_path, board):
     with open(os.path.join(RELEASE_DIR, name), "wb") as f:
         f.write(factory_uf2(program, settings, region[0], program[0][2]))
     blaster_name = bundle["device"].get("blasterName") or os.path.basename(blaster_path)
-    print(f"\n  {name}\n    {blaster_name}'s settings and profiles, with {preset.get('name', board)}'s pins")
+    pins_from = f"{preset.get('name', board)}'s pins"
+    if saved_on(bundle, preset):
+        pins_from += ", and the config's wherever the board leaves one unused"
+    print(f"\n  {name}\n    {blaster_name}'s settings and profiles, with {pins_from}")
     print(f"\nflashing it replaces everything the blaster holds, every time:\n  {RELEASE_DIR}")
 
 
@@ -465,6 +488,19 @@ def self_test():
            device["pusherDrive"] == "esc" and device["blasterName"] == "Kit", str(device))
     expect("a pin the board does not name is left to the firmware's default",
            "safetySwitchPin" not in device, str(device))
+    own_board = dict(preset, cycleSwitchPin=255, escPins=[0, 1, 255, 255], aliases=["board_x_old"])
+    on_it = dict(bundle, board="board_x", device=dict(bundle["device"], cycleSwitchPin=5,
+                                                       escPins=[0, 1, 2, 3]))
+    pins_too = pins | {"cycleSwitchPin", "escPins"}
+    device = factory_device(on_it, own_board, pins_too, 3)
+    expect("on the board it was saved on, the config fills the pins the board leaves unused",
+           device["cycleSwitchPin"] == 5 and device["safetySwitchPin"] == 5
+           and device["escPins"] == [0, 1, 2, 3], str(device))
+    expect("and the pins the board names are still the board's",
+           device["menuButtonPin"] == 19 and device["pusherFetPin"] == 24, str(device))
+    expect("a config saved under one of the board's old ids counts as saved on it",
+           factory_device(dict(on_it, board="board_x_old"), own_board, pins_too, 3)
+           ["cycleSwitchPin"] == 5)
     expect("the device is the board, wired", device["boardId"] == "board_x"
            and device["wiringConfigured"] is True and device["schemaVersion"] == 3, str(device))
     expect("the board's description is not written to the device",

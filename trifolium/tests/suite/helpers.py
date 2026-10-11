@@ -120,12 +120,14 @@ def same(a, b):
 
 
 def differences(got, want, where):
-    """Where `got` fails to hold what `want` names. Floats to the precision a stored float keeps."""
+    """Where `got` fails to hold what `want` names. Floats to the precision a stored float keeps.
+    A list the file carries shorter than the store's is checked over the entries it has: the stores
+    fill the rest from their defaults, as they do a key the file leaves out."""
     if isinstance(want, dict):
         got = got if isinstance(got, dict) else {}
         return [d for k, v in want.items() for d in differences(got.get(k), v, f"{where}.{k}")]
     if isinstance(want, list):
-        if not isinstance(got, list) or len(got) != len(want):
+        if not isinstance(got, list) or len(got) < len(want):
             return [f"{where}: {got!r}, the file says {want!r}"]
         return [d for i, (g, w) in enumerate(zip(got, want)) for d in differences(g, w, f"{where}[{i}]")]
     if isinstance(want, float):

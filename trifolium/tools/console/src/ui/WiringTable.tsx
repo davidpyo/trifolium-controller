@@ -44,14 +44,21 @@ const identify = (text: string): string =>
     .replace(/(pin|switch|button)$/g, "");
 
 /**
- * device:triggerSwitchPin -> device:triggerSwitchNormallyClosed, for the switches that have one.
+ * device:triggerSwitchPin -> device:triggerSwitchNormallyClosed, for the switches that have one,
+ * and device:speedPotPin -> device:speedPotReversed for an input that reads a position instead.
  *
- * Returns null where the name does not end in "Pin", which is not a curiosity: `escPins[0]` does
+ * Returns nothing where the name does not end in "Pin", which is not a curiosity: `escPins[0]` does
  * not, so the naive replace returned the key unchanged and the row rendered its own pin editor a
  * second time, in the polarity column.
  */
-const polarityKeyFor = (pinKey: string): string | null =>
-  pinKey.endsWith("Pin") ? pinKey.replace(/Pin$/, "NormallyClosed") : null;
+const polarityFor = (pinKey: string, byKey: Map<string, SchemaNode>): SchemaNode | undefined =>
+  pinKey.endsWith("Pin")
+    ? (byKey.get(pinKey.replace(/Pin$/, "NormallyClosed")) ??
+      byKey.get(pinKey.replace(/Pin$/, "Reversed")))
+    : undefined;
+
+/** A reversed flag shares the Normally Closed column, so its cell says which it is. */
+const isReversal = (node: SchemaNode | undefined): boolean => !!node?.key?.endsWith("Reversed");
 
 export interface Row {
   id: string;
@@ -79,12 +86,11 @@ export function collectWiring(schema: Schema): Row[] {
     const id = identify(pin.label);
     const bootAction = bootActions.find((b) => identify(b.label) === id);
     if (bootAction) claimed.add(bootAction);
-    const polarityKey = polarityKeyFor(pin.key!);
     return {
       id: pin.key!,
       label,
       pin,
-      polarity: polarityKey ? byKey.get(polarityKey) : undefined,
+      polarity: polarityFor(pin.key!, byKey),
       bootAction,
     };
   });
@@ -126,7 +132,7 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
     ...(anyBootAction ? [{ label: "Held At Boot", help: helpFor("device:bootAction[0]") }] : []),
   ];
 
-  const cell = (node: SchemaNode | undefined, width: number) => {
+  const cell = (node: SchemaNode | undefined, width: number, caption?: string) => {
     if (!node) return <TableCell sx={cellSx} />;
     // A row the device hides is one this configuration cannot use - a boot action on a pin that is
     // not wired. Saying so beats an editor that writes a value nothing reads.
@@ -141,11 +147,20 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
     }
     return (
       <TableCell sx={{ ...cellSx, width }}>
-        <FieldControl
-          node={node}
-          value={getByKey(device, node.key!)}
-          onChange={(v) => onEdit(node.key!, v)}
-        />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
+          <FieldControl
+            node={node}
+            value={getByKey(device, node.key!)}
+            onChange={(v) => onEdit(node.key!, v)}
+          />
+          {caption && (
+            <HelpTip help={helpFor(node.key)}>
+              <Typography variant="caption" color="text.secondary">
+                {caption}
+              </Typography>
+            </HelpTip>
+          )}
+        </Box>
       </TableCell>
     );
   };
@@ -203,7 +218,8 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
                   </Box>
                 </TableCell>
                 {cell(row.pin, 150)}
-                {anyPolarity && cell(row.polarity, 60)}
+                {anyPolarity &&
+                  cell(row.polarity, 60, isReversal(row.polarity) ? "Reversed" : undefined)}
                 {anyBootAction &&
                   cell(row.bootAction && withSlotNames(row.bootAction, profileNames), 160)}
               </TableRow>
@@ -236,7 +252,7 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
           color="text.disabled"
           sx={{ display: "block", mt: 0.5, cursor: "help" }}
         >
-          &#x27F3; Every field here takes effect on the next boot.
+          &#x27F3; Pins and switch polarities take effect on the next boot.
         </Typography>
       </Tooltip>
     </Box>

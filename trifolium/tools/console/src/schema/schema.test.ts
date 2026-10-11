@@ -278,9 +278,19 @@ describe("enum option index vs stored value", () => {
     expect(node!.options?.[0]).toBe("Default");
   });
 
+  it("switch position profile has a -1 floor and one more option than slots", () => {
+    const node = nodeFor("device:switchPositionProfile[0]");
+    expect(node).toBeDefined();
+    expect(node!.lo).toBe(-1);
+    expect(node!.hi).toBe(2);
+    expect(node!.options?.length).toBe(4);
+    expect(node!.options?.[0]).toBe("Default");
+  });
+
   it("every other enum is a plain 0-based ordinal", () => {
+    const perPosition = /^(profile:switchPositionAssignment|device:switchPositionProfile)\[/;
     const offset = allNodes()
-      .filter((n) => n.kind === "enum" && n.key && !n.key.includes("switchPositionAssignment"))
+      .filter((n) => n.kind === "enum" && n.key && !perPosition.test(n.key))
       .filter((n) => (n.lo ?? 0) !== 0)
       .map((n) => `${n.label} (lo=${n.lo})`);
     expect(offset).toEqual([]);

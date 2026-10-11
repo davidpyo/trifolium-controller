@@ -55,7 +55,7 @@ SHIM = HERE / "webserial_shim.js"
 CONSOLE = PROJECT / "tools" / "console" / "dist" / "index.html"
 FLYWHEEL_STATES = {IDLE: "idle", ACCELERATING: "accelerating", FULLSPEED: "at speed"}
 PIN_NOT_USED = 255
-DEFAULT_PACK_MV = 16400
+PACK_MV_PER_CELL = 4100  # a charged pack, a little off the top
 PULSE_WINDOW_US = 500_000  # longer than any extend, so a pulse under way at the last look is whole
 
 
@@ -64,39 +64,52 @@ def driven_high(b, pin):
     return bool(level["output"] and level["outputLevel"])
 
 
-def solenoid(b, pin, since_us):
-    """The pusher's FET pin: whether the solenoid is powered now, and the length of each pulse that
-    ended after `since_us`. A pulse is shorter than the panel's refresh, so they come from edges."""
-    rise, pulses = None, []
+def charged_pack_mv(settings):
+    """A charged pack of the battery type the blaster is set up for."""
+    return int(settings.get("batteryType", "4s").rstrip("s")) * PACK_MV_PER_CELL
+
+
+def pusher(b, pin, since_us, esc=None):
+    """The pusher's gate - a FET's pin, or the channel of an ESC driving a brushed pusher, whose
+    edges the simulator keeps the same way: whether it is powered now, and the length of each pulse
+    that ended after `since_us`. A pulse is shorter than the panel's refresh, so they come from
+    edges."""
+    rise, pulses, on = None, [], False
     for at, level in b.edges(pin, max(0, since_us - PULSE_WINDOW_US)):
+        on = level
         if level:
             rise = at
         elif rise is not None:
             if at > since_us:
                 pulses.append(at - rise)
             rise = None
-    return {"pin": pin, "on": driven_high(b, pin), "pulses": pulses}
+    return {"pin": pin, "esc": esc, "on": on if esc else driven_high(b, pin), "pulses": pulses}
 
 
 def snapshot(b, since_us=0):
     """What the panel draws, in one request. `since_us` is the last one's `uptimeUs`."""
     reply = {"state": b.state, "boots": b.boot_count, "uptime_ms": b.uptime_ms,
-             "uptimeUs": b.uptime_us, "packMv": b.pack_mv}
+             "uptimeUs": b.uptime_us, "packMv": b.pack_mv, "potFraction": b.pot_fraction}
     if b.state != "running" or not b.peek("booted"):
         return reply
     panel = b.panel(pixels=True)
     values = b.peek("motors", "battery", "flywheelState", "firing", "runtimeShotCounter",
-                    "safetyEngaged", "menuOpen", "activeProfileIndex", "wiringLive")
+                    "safetyEngaged", "menuOpen", "activeProfileIndex", "wiringLive",
+                    "burstModeId")
     values["flywheelState"] = FLYWHEEL_STATES.get(values["flywheelState"], values["flywheelState"])
+    values["magazine"] = b.magazine_state()
     settings = b.wiring()
     led = settings.get("ledDataPin", PIN_NOT_USED)
     if led != PIN_NOT_USED:
         values["led"] = {"pin": led, "on": driven_high(b, led)}
     fet = settings.get("pusherFetPin", PIN_NOT_USED)
     if settings.get("pusherDrive") == "esc":
-        values["pusherEsc"] = settings.get("pusherEscChannel")
+        channel = settings.get("pusherEscChannel", "esc3")
+        pin = settings["escPins"][int(channel.replace("esc", "")) - 1]
+        if pin != PIN_NOT_USED:
+            values["solenoid"] = pusher(b, pin, since_us or 0, esc=channel)
     elif fet != PIN_NOT_USED:
-        values["solenoid"] = solenoid(b, fet, since_us or 0)
+        values["solenoid"] = pusher(b, fet, since_us or 0)
     return {**reply, **values, "panel": {"on": panel.on, "pixels": panel.pixels},
             "wheels": b.wheels(), "extends": len(b.extends())}
 
@@ -112,6 +125,15 @@ def control(b, req):
         return {}
     if op == "pack":
         b.set_pack(req["mv"], rise_ms=req.get("riseMs", 0))
+        return {}
+    if op == "pot":
+        b.pot(req["fraction"])
+        return {}
+    if op == "magazine":
+        b.magazine(capacity=req.get("capacity"), load_rate=req.get("loadRate"))
+        return {}
+    if op == "reload":
+        b.reload()
         return {}
     if op == "panel":
         panel = b.panel(pixels=req.get("pixels", False))
@@ -134,7 +156,7 @@ def control(b, req):
         if req.get("source") == "usb":
             b.set_pack(0)
         else:
-            b.set_pack(req.get("mv") or b.pack_mv or DEFAULT_PACK_MV)
+            b.set_pack(req.get("mv") or b.pack_mv or charged_pack_mv(b.wiring()))
         b.power_cycle()
         b.power_on()
         return {}
@@ -150,8 +172,8 @@ def control(b, req):
     raise ValueError(f"unknown op {op!r}")
 
 
-CONTROL = ("press release tap pack panel peek wheels extends wiring power_cycle power_on state "
-           "flash snapshot speed").split()
+CONTROL = ("press release tap pack pot magazine reload panel peek wheels extends wiring power_cycle "
+           "power_on state flash snapshot speed").split()
 
 
 class Host:
@@ -329,6 +351,25 @@ class Server:
         self.scanned = self.announced_end = len(self.b.transcript)
         self.boots = self.b.boot_count
         self.enumerated_at = 0.0
+        self.motors = None        # the motorConfig the wheels were last matched to
+        self.battery_type = None  # the battery type the pack was last charged for
+        self._match_hardware()
+
+    def _match_hardware(self):
+        """The simulated blaster is the one its config describes: each wheel is the motor its
+        motorConfig names, and a change of battery type swaps in a charged pack of that type -
+        unless the pack is unplugged. Called at each boot, once the config is the boot's."""
+        settings = self.b.wiring()
+        motors = [(m["motorKv"], m["motorPolesDiv2"]) for m in settings.get("motorConfig", [])]
+        if motors != self.motors:
+            self.motors = motors
+            for i, (kv, pole_pairs) in enumerate(motors):
+                self.b.wheel(i, kv=kv, poles=pole_pairs)
+        battery = settings.get("batteryType")
+        if battery != self.battery_type:
+            self.battery_type = battery
+            if self.b.pack_mv > 0:
+                self.b.set_pack(charged_pack_mv(settings))
 
     def _listen(self, port):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -577,6 +618,7 @@ class Server:
             self.b.run_until_reboot(ANNOUNCED_REBOOT_MS)  # unpaced: there the moment it says so
         if self.b.boot_count != self.boots:
             self.boots = self.b.boot_count
+            self._match_hardware()
             self._drop_host(drain=True)  # re-enumeration: the host has to open the port again
             self.enumerated_at = time.monotonic() + ENUMERATION_S / self.speed
 

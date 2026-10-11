@@ -89,6 +89,31 @@ static ToggleItem pusherReverseItem("Reverse Direction", "device:pusherReverseDi
                                     &deviceSettings.pusherReverseDirection);
 static NumericItem<uint16_t> pusherDebounceItem("Debounce (ms)", "device:pusherDebounceTime_ms",
                                                 &deviceSettings.pusherDebounceTime_ms, 0, 200, 1);
+static ToggleItem dartSensingItem("Dart Sensing", "device:dartSensing", &deviceSettings.dartSensing);
+static NumericItem<uint16_t> dartDebounceItem("Dart Debounce (ms)", "device:dartSwitchDebounce_ms",
+                                              &deviceSettings.dartSwitchDebounce_ms, 0, 50, 1);
+static NumericItem<uint16_t> dartWaitItem("Dart Wait (ms)", "device:dartWaitTimeout_ms",
+                                          &deviceSettings.dartWaitTimeout_ms, 200, 5000, 100);
+static NumericItem<uint16_t> minPushItem("Min Push (ms)", "device:minPushTime_ms",
+                                         &deviceSettings.minPushTime_ms, 0, 60, 1);
+static ToggleItem revOnlyWithDartItem("Rev Only With Dart", "device:revOnlyWithDart",
+                                      &deviceSettings.revOnlyWithDart);
+
+// The stored pin, like ledIsWired() in menuDevice.cpp, so the rule beside it can say the same.
+static bool dartSwitchIsWired()
+{
+    return deviceSettings.dartSwitchPin != PIN_NOT_USED;
+}
+static constexpr VisibilityTerm kDartSwitchWiredTerms[] = {{"device:dartSwitchPin", "255", true}};
+static constexpr VisibilityCondition kDartSwitchWired = {kDartSwitchWiredTerms, 1};
+
+static bool dartSensingIsOn()
+{
+    return deviceSettings.dartSwitchPin != PIN_NOT_USED && deviceSettings.dartSensing;
+}
+static constexpr VisibilityTerm kDartSensingOnTerms[] = {{"device:dartSwitchPin", "255", true},
+                                                         {"device:dartSensing", "true", false}};
+static constexpr VisibilityCondition kDartSensingOn = {kDartSensingOnTerms, 2};
 
 static bool pusherIsSolenoid()
 {
@@ -116,4 +141,23 @@ static MenuItem* solenoidItems[] = {
     &solenoidExtendLowItem,   &solenoidLowVoltageItem, &vibrationPulseItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem solenoidSubmenu("Solenoid / Pusher", solenoidItems, 9);
+SubmenuItem solenoidSubmenu("Solenoid / Pusher", solenoidItems,
+                            sizeof(solenoidItems) / sizeof(solenoidItems[0]));
+
+
+static MenuItem* dartItems[] = {
+    &dartSensingItem, &revOnlyWithDartItem, &dartDebounceItem, &dartWaitItem, &minPushItem,
+};
+SubmenuItem dartSwitchSubmenu("Dart Switch", dartItems, sizeof(dartItems) / sizeof(dartItems[0]));
+struct DartItemsInit
+{
+    DartItemsInit()
+    {
+        dartSwitchSubmenu.setVisibleWhen(dartSwitchIsWired, &kDartSwitchWired);
+        dartSensingItem.setVisibleWhen(dartSwitchIsWired, &kDartSwitchWired);
+        revOnlyWithDartItem.setVisibleWhen(dartSwitchIsWired, &kDartSwitchWired);
+        dartDebounceItem.setVisibleWhen(dartSwitchIsWired, &kDartSwitchWired);
+        dartWaitItem.setVisibleWhen(dartSensingIsOn, &kDartSensingOn);
+        minPushItem.setVisibleWhen(dartSensingIsOn, &kDartSensingOn);
+    }
+} dartItemsInit;

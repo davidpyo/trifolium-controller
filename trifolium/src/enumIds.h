@@ -26,7 +26,7 @@ inline const char* const kLedWarningModeIds[] = {"none", "low_batt", "warn_batt"
 inline const char* const kFlywheelControlIds[] = {"pid", "tbh"};
 inline const char* const kBatteryTypeIds[] = {"3s", "4s", "5s", "6s"};
 inline const char* const kMotorStageIds[] = {"stage1", "stage2"};
-inline const char* const kSelectFireTypeIds[] = {"off", "switch", "button", "screen"};
+inline const char* const kSelectFireTypeIds[] = {"off", "switch", "button", "screen", "encoder"};
 inline const char* const kRpmModeIds[] = {"custom", "stage"};
 inline const char* const kBurstModeIds[] = {"auto", "burst",    "binary", "safe",
                                             "semi", "devotion", "plasma"};

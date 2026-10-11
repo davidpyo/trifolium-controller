@@ -18,18 +18,20 @@ extern uint8_t menuButtonPin;
 extern uint8_t triggerSwitchPin;
 extern uint8_t revSwitchPin;
 extern uint8_t cycleSwitchPin;
+extern uint8_t dartSwitchPin;
 extern uint8_t idleSwitchPin;
 extern uint8_t safetySwitchPin;
 extern uint8_t selectPins[3];
 extern uint8_t ledDataPin;
 extern uint8_t batteryAdcPin;
+extern uint8_t speedPotPin;
 extern uint8_t escEnablePin;
 extern bool displayAllowed;
 extern bool wiringLive;
 
 namespace
 {
-// 9 switch pins + 4 motors + the pusher + 2 I2C + the ADC + the LED + ESC enable is 19, and every
+// 10 switch pins + 4 motors + the pusher + 2 I2C + 2 ADC + the LED + ESC enable is 21, and every
 // one of those can also carry a warning; nothing reaches the cap in practice.
 const uint8_t kMaxEntries = 40;
 PinConflicts::Entry entries_[kMaxEntries];
@@ -47,7 +49,7 @@ struct PinSlot
     const char* field;
 };
 
-const uint8_t kSlotCount = 9;
+const uint8_t kSlotCount = 10;
 
 // Seeds the runtime pins from the stored ones and returns the slot table. Splitting live from
 // stored here is the whole safety property: everything below writes only through `live`.
@@ -59,6 +61,7 @@ void seedSlots(PinSlot* out)
     out[n++] = {&revSwitchPin, &deviceSettings.revSwitchPin, "revSwitchPin"};
     out[n++] = {&menuButtonPin, &deviceSettings.menuButtonPin, "menuButtonPin"};
     out[n++] = {&cycleSwitchPin, &deviceSettings.cycleSwitchPin, "cycleSwitchPin"};
+    out[n++] = {&dartSwitchPin, &deviceSettings.dartSwitchPin, "dartSwitchPin"};
     out[n++] = {&idleSwitchPin, &deviceSettings.idleSwitchPin, "idleSwitchPin"};
     out[n++] = {&selectPins[0], &deviceSettings.select0Pin, "select0Pin"};
     out[n++] = {&selectPins[1], &deviceSettings.select1Pin, "select1Pin"};
@@ -73,7 +76,7 @@ struct Claim
     const char* name;
 };
 
-// 4 ESC channels + the pusher + ESC enable + the ADC + 2 I2C + the LED is 10.
+// 4 ESC channels + the pusher + ESC enable + 2 ADC + 2 I2C + the LED is 11.
 const uint8_t kMaxClaims = 20;
 
 const char* const kEscNames[4] = {"esc1", "esc2", "esc3", "esc4"};
@@ -102,6 +105,15 @@ void resolveCapabilities()
         logger.error("GPIO ", (int)pin, " has no ADC channel - only ", (int)ADC_FIRST_PIN, "-",
                      (int)ADC_LAST_PIN, " do. Battery monitoring is off; a reading from any other "
                      "pin would be noise the low-voltage cutoff acted on.");
+    }
+    if (pinDefined(speedPotPin) && !adcPinUsable(speedPotPin))
+    {
+        const uint8_t pin = speedPotPin;
+        speedPotPin = PIN_NOT_USED;
+        PinConflicts::record("speedPotPin", pin, "notAnAdcPin", PinConflicts::Action::PinCleared);
+        logger.error("GPIO ", (int)pin, " has no ADC channel - only ", (int)ADC_FIRST_PIN, "-",
+                     (int)ADC_LAST_PIN, " do. The speed pot is off, so the flywheels run at the "
+                     "profile's RPM.");
     }
 
     const bool anyI2cPin =
@@ -165,14 +177,16 @@ void resolveDrivenOutputs(Claim* claims, uint8_t& n)
         }
     }
 
-    // Two outputs and a bus, each of which simply detaches: losing the ESC power gate, the battery
-    // reading or the panel costs a capability rather than the blaster.
+    // Three pins and a bus, each of which simply detaches: losing the ESC power gate, the battery
+    // reading, the speed pot or the panel costs a capability rather than the blaster.
     struct Output
     {
         uint8_t* live;
         const char* field;
     };
-    const Output outputs[] = {{&escEnablePin, "escEnablePin"}, {&batteryAdcPin, "batteryAdcPin"}};
+    const Output outputs[] = {{&escEnablePin, "escEnablePin"},
+                              {&batteryAdcPin, "batteryAdcPin"},
+                              {&speedPotPin, "speedPotPin"}};
     for (const Output& out : outputs)
     {
         if (!pinDefined(*out.live))
@@ -285,6 +299,7 @@ void resolve()
     seedSlots(slot);
     ledDataPin = deviceSettings.ledDataPin;
     batteryAdcPin = deviceSettings.batteryAdcPin;
+    speedPotPin = deviceSettings.speedPotPin;
     escEnablePin = deviceSettings.escEnablePin;
     displayAllowed = deviceSettings.hasDisplay;
 

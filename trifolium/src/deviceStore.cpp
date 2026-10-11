@@ -27,10 +27,12 @@ void clearWiring(DeviceSettings& s)
     s.i2cSclPin = PIN_NOT_USED;
     s.batteryAdcPin = PIN_NOT_USED;
     s.escEnablePin = PIN_NOT_USED;
+    s.speedPotPin = PIN_NOT_USED;
     s.menuButtonPin = PIN_NOT_USED;
     s.triggerSwitchPin = PIN_NOT_USED;
     s.revSwitchPin = PIN_NOT_USED;
     s.cycleSwitchPin = PIN_NOT_USED;
+    s.dartSwitchPin = PIN_NOT_USED;
     s.idleSwitchPin = PIN_NOT_USED;
     s.safetySwitchPin = PIN_NOT_USED;
     s.select0Pin = PIN_NOT_USED;
@@ -80,11 +82,14 @@ DeviceSettings factoryResetSettings()
     s.i2cSclPin = deviceSettings.i2cSclPin;
     s.batteryAdcPin = deviceSettings.batteryAdcPin;
     s.escEnablePin = deviceSettings.escEnablePin;
+    s.speedPotPin = deviceSettings.speedPotPin;
+    s.speedPotReversed = deviceSettings.speedPotReversed;
 
     s.menuButtonPin = deviceSettings.menuButtonPin;
     s.triggerSwitchPin = deviceSettings.triggerSwitchPin;
     s.revSwitchPin = deviceSettings.revSwitchPin;
     s.cycleSwitchPin = deviceSettings.cycleSwitchPin;
+    s.dartSwitchPin = deviceSettings.dartSwitchPin;
     s.idleSwitchPin = deviceSettings.idleSwitchPin;
     s.safetySwitchPin = deviceSettings.safetySwitchPin;
     s.select0Pin = deviceSettings.select0Pin;
@@ -104,6 +109,7 @@ DeviceSettings factoryResetSettings()
     s.triggerSwitchNormallyClosed = deviceSettings.triggerSwitchNormallyClosed;
     s.revSwitchNormallyClosed = deviceSettings.revSwitchNormallyClosed;
     s.cycleSwitchNormallyClosed = deviceSettings.cycleSwitchNormallyClosed;
+    s.dartSwitchNormallyClosed = deviceSettings.dartSwitchNormallyClosed;
     s.idleSwitchNormallyClosed = deviceSettings.idleSwitchNormallyClosed;
     s.safetySwitchNormallyClosed = deviceSettings.safetySwitchNormallyClosed;
 
@@ -135,6 +141,8 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["i2cSclPin"] = settings.i2cSclPin;
     doc["batteryAdcPin"] = settings.batteryAdcPin;
     doc["escEnablePin"] = settings.escEnablePin;
+    doc["speedPotPin"] = settings.speedPotPin;
+    doc["speedPotReversed"] = settings.speedPotReversed;
 
     doc["hasDisplay"] = settings.hasDisplay;
     doc["rotateDisplay"] = settings.rotateDisplay;
@@ -144,6 +152,7 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["triggerSwitchPin"] = settings.triggerSwitchPin;
     doc["revSwitchPin"] = settings.revSwitchPin;
     doc["cycleSwitchPin"] = settings.cycleSwitchPin;
+    doc["dartSwitchPin"] = settings.dartSwitchPin;
     doc["idleSwitchPin"] = settings.idleSwitchPin;
     doc["safetySwitchPin"] = settings.safetySwitchPin;
     doc["select0Pin"] = settings.select0Pin;
@@ -153,6 +162,7 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["revSwitchNormallyClosed"] = settings.revSwitchNormallyClosed;
     doc["triggerSwitchNormallyClosed"] = settings.triggerSwitchNormallyClosed;
     doc["cycleSwitchNormallyClosed"] = settings.cycleSwitchNormallyClosed;
+    doc["dartSwitchNormallyClosed"] = settings.dartSwitchNormallyClosed;
     doc["idleSwitchNormallyClosed"] = settings.idleSwitchNormallyClosed;
     doc["safetySwitchNormallyClosed"] = settings.safetySwitchNormallyClosed;
     doc["menuButtonNormallyClosed"] = settings.menuButtonNormallyClosed;
@@ -173,6 +183,11 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["debounceTime_ms"] = settings.debounceTime_ms;
     doc["menuButtonHoldTime_ms"] = settings.menuButtonHoldTime_ms;
     doc["pusherDebounceTime_ms"] = settings.pusherDebounceTime_ms;
+    doc["dartSwitchDebounce_ms"] = settings.dartSwitchDebounce_ms;
+    doc["dartSensing"] = settings.dartSensing;
+    doc["dartWaitTimeout_ms"] = settings.dartWaitTimeout_ms;
+    doc["minPushTime_ms"] = settings.minPushTime_ms;
+    doc["revOnlyWithDart"] = settings.revOnlyWithDart;
     doc["voltageAveragingWindow"] = settings.voltageAveragingWindow;
     doc["useRpmBaseShotCounter"] = settings.useRpmBaseShotCounter;
     doc["goodRpmShotReads"] = settings.goodRpmShotReads;
@@ -207,6 +222,8 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["firingRPMTolerance"] = settings.firingRPMTolerance;
     doc["minFiringRPM"] = settings.minFiringRPM;
     doc["rampupTimeout_ms"] = settings.rampupTimeout_ms;
+    doc["speedPotMinRPM"] = settings.speedPotMinRPM;
+    doc["speedPotMaxRPM"] = settings.speedPotMaxRPM;
     doc["EMAFilter"] = settings.EMAFilter;
     doc["iThreshold"] = settings.iThreshold;
     doc["throttleCap"] = settings.throttleCap;
@@ -226,6 +243,9 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["selectFireType"] = enumIdOf(settings.selectFireType, kSelectFireTypeIds, kSelectFireTypeIdCount);
     doc["variableFPS"] = settings.variableFPS;
     doc["defaultProfileIndex"] = settings.defaultProfileIndex;
+    JsonArray positionProfile = doc["switchPositionProfile"].to<JsonArray>();
+    for (uint8_t i = 0; i < SELECTOR_POSITIONS; i++)
+        positionProfile.add(settings.switchPositionProfile[i]);
 }
 
 void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
@@ -271,6 +291,8 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
     out.i2cSdaPin = doc["i2cSdaPin"] | out.i2cSdaPin;
     out.i2cSclPin = doc["i2cSclPin"] | out.i2cSclPin;
     out.batteryAdcPin = doc["batteryAdcPin"] | out.batteryAdcPin;
+    out.speedPotPin = doc["speedPotPin"] | out.speedPotPin;
+    out.speedPotReversed = doc["speedPotReversed"] | out.speedPotReversed;
     out.escEnablePin = doc["escEnablePin"] | out.escEnablePin;
 
     out.hasDisplay = doc["hasDisplay"] | out.hasDisplay;
@@ -281,6 +303,7 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
     out.triggerSwitchPin = doc["triggerSwitchPin"] | out.triggerSwitchPin;
     out.revSwitchPin = doc["revSwitchPin"] | out.revSwitchPin;
     out.cycleSwitchPin = doc["cycleSwitchPin"] | out.cycleSwitchPin;
+    out.dartSwitchPin = doc["dartSwitchPin"] | out.dartSwitchPin;
     out.idleSwitchPin = doc["idleSwitchPin"] | out.idleSwitchPin;
     // Absent on a config written before the safety switch existed, leaving it unused - so a stored
     // wiring that predates it keeps behaving exactly as it did, with no schema bump to carry.
@@ -294,6 +317,7 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
         doc["triggerSwitchNormallyClosed"] | out.triggerSwitchNormallyClosed;
     out.cycleSwitchNormallyClosed =
         doc["cycleSwitchNormallyClosed"] | out.cycleSwitchNormallyClosed;
+    out.dartSwitchNormallyClosed = doc["dartSwitchNormallyClosed"] | out.dartSwitchNormallyClosed;
     out.idleSwitchNormallyClosed = doc["idleSwitchNormallyClosed"] | out.idleSwitchNormallyClosed;
     out.safetySwitchNormallyClosed =
         doc["safetySwitchNormallyClosed"] | out.safetySwitchNormallyClosed;
@@ -326,6 +350,11 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
     out.debounceTime_ms = doc["debounceTime_ms"] | out.debounceTime_ms;
     out.menuButtonHoldTime_ms = doc["menuButtonHoldTime_ms"] | out.menuButtonHoldTime_ms;
     out.pusherDebounceTime_ms = doc["pusherDebounceTime_ms"] | out.pusherDebounceTime_ms;
+    out.dartSwitchDebounce_ms = doc["dartSwitchDebounce_ms"] | out.dartSwitchDebounce_ms;
+    out.dartSensing = doc["dartSensing"] | out.dartSensing;
+    out.dartWaitTimeout_ms = doc["dartWaitTimeout_ms"] | out.dartWaitTimeout_ms;
+    out.minPushTime_ms = doc["minPushTime_ms"] | out.minPushTime_ms;
+    out.revOnlyWithDart = doc["revOnlyWithDart"] | out.revOnlyWithDart;
     out.voltageAveragingWindow = doc["voltageAveragingWindow"] | out.voltageAveragingWindow;
     out.useRpmBaseShotCounter = doc["useRpmBaseShotCounter"] | out.useRpmBaseShotCounter;
     out.goodRpmShotReads = doc["goodRpmShotReads"] | out.goodRpmShotReads;
@@ -375,6 +404,8 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
     out.firingRPMTolerance = doc["firingRPMTolerance"] | out.firingRPMTolerance;
     out.minFiringRPM = doc["minFiringRPM"] | out.minFiringRPM;
     out.rampupTimeout_ms = doc["rampupTimeout_ms"] | out.rampupTimeout_ms;
+    out.speedPotMinRPM = doc["speedPotMinRPM"] | out.speedPotMinRPM;
+    out.speedPotMaxRPM = doc["speedPotMaxRPM"] | out.speedPotMaxRPM;
     out.EMAFilter = doc["EMAFilter"] | out.EMAFilter;
     out.iThreshold = doc["iThreshold"] | out.iThreshold;
     out.throttleCap = doc["throttleCap"] | out.throttleCap;
@@ -401,6 +432,12 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
                                       kSelectFireTypeIdCount, out.selectFireType);
     out.variableFPS = doc["variableFPS"] | out.variableFPS;
     out.defaultProfileIndex = doc["defaultProfileIndex"] | out.defaultProfileIndex;
+    JsonArrayConst positionProfile = doc["switchPositionProfile"];
+    if (!positionProfile.isNull())
+    {
+        for (uint8_t i = 0; i < SELECTOR_POSITIONS && i < positionProfile.size(); i++)
+            out.switchPositionProfile[i] = positionProfile[i] | out.switchPositionProfile[i];
+    }
 }
 
 LoadResult loadDeviceSettings(DeviceSettings& out)

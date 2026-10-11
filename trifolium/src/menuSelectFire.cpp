@@ -1,7 +1,7 @@
 #include "menuCore.h"
 #include "enumIds.h"
 
-static const char* const selectFireTypeLabels[] = {"Off", "Switch", "Button", "Screen"};
+static const char* const selectFireTypeLabels[] = {"Off", "Switch", "Button", "Screen", "Encoder"};
 static_assert(sizeof(selectFireTypeLabels) / sizeof(selectFireTypeLabels[0]) == kSelectFireTypeIdCount, "selectFireTypeLabels is out of step");
 static EnumItem<selectFireType_t> selectFireTypeItem("Select-Fire Type", "device:selectFireType",
                                                      &deviceSettings.selectFireType,
@@ -16,11 +16,12 @@ static_assert(sizeof(burstModeLabels) / sizeof(burstModeLabels[0]) == kBurstMode
 static_assert(kSelectableBurstModeCount == kBurstModeIdCount,
               "every selectable burst mode needs a stored id");
 
-// Up here rather than beside selectFireTypeIsSwitch() near the bottom, because DefaultModeItem
-// below is the first of the two users and a condition has to be declared before it is pointed at.
-static constexpr VisibilityTerm kSelectFireIsSwitchTerms[] = {
-    {"device:selectFireType", "switch", false}};
-static constexpr VisibilityCondition kSelectFireIsSwitch = {kSelectFireIsSwitchTerms, 1};
+// Switch or encoder, said as what it is not: a condition's terms can only be ANDed.
+static constexpr VisibilityTerm kSelectLinesPickModeTerms[] = {
+    {"device:selectFireType", "off", true},
+    {"device:selectFireType", "button", true},
+    {"device:selectFireType", "screen", true}};
+static constexpr VisibilityCondition kSelectLinesPickMode = {kSelectLinesPickModeTerms, 3};
 
 class DefaultModeItem : public MenuItem
 {
@@ -28,7 +29,7 @@ class DefaultModeItem : public MenuItem
     DefaultModeItem(const char* label, const char* key, uint8_t* value)
         : MenuItem(label, key), value_(value)
     {
-        setVisibleWhenData(&kSelectFireIsSwitch);
+        setVisibleWhenData(&kSelectLinesPickMode);
     }
 
     String valueText() const override
@@ -60,7 +61,12 @@ class DefaultModeItem : public MenuItem
         return *value_ > lastIndex() ? lastIndex() : *value_;
     }
 
-    bool isVisible() const override { return deviceSettings.selectFireType == SWITCH_SELECT_FIRE; }
+    bool isVisible() const override
+    {
+        return deviceSettings.selectFireType != NO_SELECT_FIRE &&
+               deviceSettings.selectFireType != BUTTON_SELECT_FIRE &&
+               deviceSettings.selectFireType != SCREEN_SELECT_FIRE;
+    }
 
     ItemKind kind() const override { return ItemKind::Enum; }
     bool bounds(ItemBounds& out) const override
@@ -144,10 +150,11 @@ class ScreenFireModeItem : public MenuItem
     static uint8_t lastIndex() { return activeProfile.activeModeCount - 1; }
     void syncOverride()
     {
-        // On a switch build the switch owns the mode; this is a temporary override that
-        // updateFiringMode() discards when the switch next moves. Nothing to do otherwise -
+        // On a switch or encoder build the selector owns the mode; this is a temporary override
+        // that updateFiringMode() discards when the selector next moves. Nothing to do otherwise -
         // persistFiringModeWhenIdle() already stores the live selection to /modeN.cfg.
-        if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE)
+        if (deviceSettings.selectFireType == SWITCH_SELECT_FIRE ||
+            deviceSettings.selectFireType == ENCODER_SELECT_FIRE)
             screenOverrideMode = *value_;
     }
     int8_t* value_;
@@ -450,7 +457,7 @@ static void deleteFireMode()
     else if (activeProfile.defaultFiringMode > removed)
         activeProfile.defaultFiringMode--;
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < SELECTOR_POSITIONS; i++)
     {
         if (activeProfile.switchPositionAssignment[i] == (int8_t)removed)
             activeProfile.switchPositionAssignment[i] = NO_FIRE_MODE;
@@ -571,6 +578,18 @@ MenuItem* activeFireModeTargetDpsTarget()
     return &fireModeTargetDpsItem;
 }
 
+// Whether this boot's selector can reach the position at `index` in the per-position tables: a
+// switch has one line per position, an encoder one position per combination of its lines.
+bool selectorReaches(uint8_t index)
+{
+    if (deviceSettings.selectFireType != ENCODER_SELECT_FIRE)
+        return index < 3 && pinDefined(selectPins[index]);
+    uint8_t lines = 0;
+    for (uint8_t i = 0; i < 3; i++)
+        lines += pinDefined(selectPins[i]) ? 1 : 0;
+    return index + 1 < (1 << lines);
+}
+
 class SwitchPositionItem : public MenuItem
 {
   public:
@@ -611,7 +630,7 @@ class SwitchPositionItem : public MenuItem
         return isUsable(assigned) ? (uint8_t)(assigned + 1) : 0;
     }
 
-    bool isVisible() const override { return pinDefined(selectPins[position_]); }
+    bool isVisible() const override { return selectorReaches(position_); }
 
     ItemKind kind() const override { return ItemKind::Enum; }
     bool bounds(ItemBounds& out) const override
@@ -646,25 +665,36 @@ static SwitchPositionItem switchPosition1Item("Position 2", "profile:switchPosit
                                               1);
 static SwitchPositionItem switchPosition2Item("Position 3", "profile:switchPositionAssignment[2]",
                                               2);
+static SwitchPositionItem switchPosition3Item("Position 4", "profile:switchPositionAssignment[3]",
+                                              3);
+static SwitchPositionItem switchPosition4Item("Position 5", "profile:switchPositionAssignment[4]",
+                                              4);
+static SwitchPositionItem switchPosition5Item("Position 6", "profile:switchPositionAssignment[5]",
+                                              5);
+static SwitchPositionItem switchPosition6Item("Position 7", "profile:switchPositionAssignment[6]",
+                                              6);
 
 static MenuItem* switchPositionItems[] = {
-    &switchPosition0Item,
-    &switchPosition1Item,
-    &switchPosition2Item,
+    &switchPosition0Item, &switchPosition1Item, &switchPosition2Item, &switchPosition3Item,
+    &switchPosition4Item, &switchPosition5Item, &switchPosition6Item,
 };
+static_assert(sizeof(switchPositionItems) / sizeof(switchPositionItems[0]) == SELECTOR_POSITIONS,
+              "a row per selector position");
 static SubmenuItem switchPositionsSubmenu("Set Selector Switch Modes", switchPositionItems,
                                           sizeof(switchPositionItems) /
                                               sizeof(switchPositionItems[0]));
 
-static bool selectFireTypeIsSwitch()
+static bool selectLinesPickMode()
 {
-    return deviceSettings.selectFireType == SWITCH_SELECT_FIRE;
+    return deviceSettings.selectFireType != NO_SELECT_FIRE &&
+           deviceSettings.selectFireType != BUTTON_SELECT_FIRE &&
+           deviceSettings.selectFireType != SCREEN_SELECT_FIRE;
 }
 struct SwitchPositionsInit
 {
     SwitchPositionsInit()
     {
-        switchPositionsSubmenu.setVisibleWhen(selectFireTypeIsSwitch, &kSelectFireIsSwitch);
+        switchPositionsSubmenu.setVisibleWhen(selectLinesPickMode, &kSelectLinesPickMode);
     }
 
 } switchPositionsInit;

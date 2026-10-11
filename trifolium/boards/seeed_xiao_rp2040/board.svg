@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 910"
+     preserveAspectRatio="xMidYMid meet">
+  <!-- Seeed XIAO RP2040, drawn in the RP2040-Zero's style: a yellow outline, a white silkscreen and
+       a background of its own so the art is legible on any page.
+
+       Set from the module's published pinout rather than traced. The board is 17.5 x 21 mm at 40
+       units a millimetre, with its two rows of seven castellations on the 2.54 mm pitch, centred on
+       its length. Each pad carries its GPIO number, as the pin pickers name it; the D0-D10 names the
+       module is sold under are on the markers, in pins.svg. -->
+
+  <rect width="100%" height="100%" fill="#101014" />
+
+  <!-- The board. -->
+  <rect x="10" y="60" width="700" height="840" rx="56" fill="none" stroke="#f5c542"
+        stroke-width="10" />
+
+  <!-- The castellated pads, under the markers pins.svg draws on them. -->
+  <g fill="none" stroke="#f5c542" stroke-width="5">
+    <circle cx="58" cy="175" r="31" />
+    <circle cx="58" cy="276.6" r="31" />
+    <circle cx="58" cy="378.2" r="31" />
+    <circle cx="58" cy="479.8" r="31" />
+    <circle cx="58" cy="581.4" r="31" />
+    <circle cx="58" cy="683" r="31" />
+    <circle cx="58" cy="784.6" r="31" />
+    <circle cx="662" cy="175" r="31" />
+    <circle cx="662" cy="276.6" r="31" />
+    <circle cx="662" cy="378.2" r="31" />
+    <circle cx="662" cy="479.8" r="31" />
+    <circle cx="662" cy="581.4" r="31" />
+    <circle cx="662" cy="683" r="31" />
+    <circle cx="662" cy="784.6" r="31" />
+  </g>
+
+  <!-- The USB-C shell, over the board's top edge. -->
+  <rect x="190" y="10" width="340" height="190" rx="40" fill="#101014" stroke="#f5c542"
+        stroke-width="10" />
+
+  <!-- Pin numbers, each one just inside its own pad. -->
+  <g fill="#ffffff" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" font-size="42">
+    <text x="108" y="189" text-anchor="start">26</text>
+    <text x="108" y="290.6" text-anchor="start">27</text>
+    <text x="108" y="392.2" text-anchor="start">28</text>
+    <text x="108" y="493.8" text-anchor="start">29</text>
+    <text x="108" y="595.4" text-anchor="start">6</text>
+    <text x="108" y="697" text-anchor="start">7</text>
+    <text x="108" y="798.6" text-anchor="start">0</text>
+    <text x="612" y="189" text-anchor="end">5V</text>
+    <text x="612" y="290.6" text-anchor="end">GND</text>
+    <text x="612" y="392.2" text-anchor="end">3V3</text>
+    <text x="612" y="493.8" text-anchor="end">3</text>
+    <text x="612" y="595.4" text-anchor="end">4</text>
+    <text x="612" y="697" text-anchor="end">2</text>
+    <text x="612" y="798.6" text-anchor="end">1</text>
+  </g>
+
+  <!-- The label on the chip, the two buttons and the RGB LED between them: landmarks for finding
+       your way around the module, not anything a wire lands on. -->
+  <g fill="none" stroke="#ffffff" stroke-width="4" opacity="0.6">
+    <rect x="230" y="300" width="260" height="330" rx="16" />
+    <rect x="212" y="790" width="76" height="62" rx="10" />
+    <rect x="336" y="796" width="48" height="48" rx="6" />
+    <rect x="432" y="790" width="76" height="62" rx="10" />
+  </g>
+  <g fill="#ffffff" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" opacity="0.75">
+    <text x="360" y="455" font-size="40" text-anchor="middle">XIAO</text>
+    <text x="360" y="505" font-size="40" text-anchor="middle">RP2040</text>
+    <text x="250" y="772" font-size="30" text-anchor="middle">RESET</text>
+    <text x="360" y="772" font-size="30" text-anchor="middle">RGB</text>
+    <text x="470" y="772" font-size="30" text-anchor="middle">BOOT</text>
+  </g>
+</svg>

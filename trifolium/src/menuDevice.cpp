@@ -507,15 +507,17 @@ static PinItem esc4PinItem("ESC 4 Pin", "device:escPins[3]", &deviceSettings.esc
 static PinItem i2cSdaPinItem("I2C SDA Pin", "device:i2cSdaPin", &deviceSettings.i2cSdaPin);
 static PinItem i2cSclPinItem("I2C SCL Pin", "device:i2cSclPin", &deviceSettings.i2cSclPin);
 
-// The one pin a capability really does narrow - see AdcPinItem.
+// The pins a capability really does narrow - see AdcPinItem.
 static AdcPinItem batteryAdcPinItem("Battery ADC Pin", "device:batteryAdcPin",
                                     &deviceSettings.batteryAdcPin);
+static AdcPinItem speedPotPinItem("Speed Pot Pin", "device:speedPotPin",
+                                  &deviceSettings.speedPotPin);
 
 // Driven LOW at boot and again by the low-voltage cutoff, to cut power to the ESCs and the pusher.
 static PinItem escEnablePinItem("ESC Enable Pin", "device:escEnablePin",
                                 &deviceSettings.escEnablePin);
 
-// The nine switch/button pins, in the order the conflict engine resolves them (pinConflicts.cpp).
+// The ten switch/button pins, in the order the conflict engine resolves them (pinConflicts.cpp).
 // Safety first, because a detached safety switch reads as disengaged.
 static PinItem safetyPinItem("Safety Pin", "device:safetySwitchPin",
                              &deviceSettings.safetySwitchPin);
@@ -525,6 +527,7 @@ static PinItem revPinItem("Rev Pin", "device:revSwitchPin", &deviceSettings.revS
 static PinItem menuButtonPinItem("Menu Button Pin", "device:menuButtonPin",
                                  &deviceSettings.menuButtonPin);
 static PinItem cyclePinItem("Cycle Pin", "device:cycleSwitchPin", &deviceSettings.cycleSwitchPin);
+static PinItem dartPinItem("Dart Switch Pin", "device:dartSwitchPin", &deviceSettings.dartSwitchPin);
 static PinItem idlePinItem("Idle Pin", "device:idleSwitchPin", &deviceSettings.idleSwitchPin);
 static PinItem select0PinItem("Select 0 Pin", "device:select0Pin", &deviceSettings.select0Pin);
 static PinItem select1PinItem("Select 1 Pin", "device:select1Pin", &deviceSettings.select1Pin);
@@ -559,28 +562,44 @@ static PolarityItem menuButtonPolarityItem("Menu Button Normally Closed",
                                            &deviceSettings.menuButtonNormallyClosed);
 static PolarityItem cyclePolarityItem("Cycle Normally Closed", "device:cycleSwitchNormallyClosed",
                                       &deviceSettings.cycleSwitchNormallyClosed);
+static PolarityItem dartPolarityItem("Dart Switch Normally Closed",
+                                     "device:dartSwitchNormallyClosed",
+                                     &deviceSettings.dartSwitchNormallyClosed);
 static PolarityItem idlePolarityItem("Idle Normally Closed", "device:idleSwitchNormallyClosed",
                                      &deviceSettings.idleSwitchNormallyClosed);
 static PolarityItem safetyPolarityItem("Safety Normally Closed",
                                        "device:safetySwitchNormallyClosed",
                                        &deviceSettings.safetySwitchNormallyClosed);
 
-// Outputs and buses first, then the inputs in conflict-resolution order, then the polarities.
+static ToggleItem speedPotReversedItem("Pot Reversed", "device:speedPotReversed",
+                                       &deviceSettings.speedPotReversed);
+static bool speedPotIsWired()
+{
+    return deviceSettings.speedPotPin != PIN_NOT_USED;
+}
+static constexpr VisibilityTerm kSpeedPotWiredTerms[] = {{"device:speedPotPin", "255", true}};
+static constexpr VisibilityCondition kSpeedPotWired = {kSpeedPotWiredTerms, 1};
+
+// Outputs and buses first, then the inputs in conflict-resolution order, then the polarities and
+// the pot's direction.
 static MenuItem* wiringItems[] = {&boardIdItem,            &wiringConfiguredItem,
                                   &esc1PinItem,            &esc2PinItem,
                                   &esc3PinItem,            &esc4PinItem,
                                   &i2cSdaPinItem,          &i2cSclPinItem,
-                                  &batteryAdcPinItem,      &escEnablePinItem,
-                                  &pusherFetPinItem,       &ledDataPinItem,
-                                  &safetyPinItem,          &triggerPinItem,
-                                  &revPinItem,             &menuButtonPinItem,
-                                  &cyclePinItem,           &idlePinItem,
+                                  &batteryAdcPinItem,      &speedPotPinItem,
+                                  &escEnablePinItem,       &pusherFetPinItem,
+                                  &ledDataPinItem,         &safetyPinItem,
+                                  &triggerPinItem,         &revPinItem,
+                                  &menuButtonPinItem,      &cyclePinItem,
+                                  &dartPinItem,            &idlePinItem,
                                   &select0PinItem,         &select1PinItem,
                                   &select2PinItem,         &triggerPolarityItem,
                                   &revPolarityItem,        &menuButtonPolarityItem,
-                                  &cyclePolarityItem,      &idlePolarityItem,
-                                  &safetyPolarityItem};
-static SubmenuItem wiringSubmenu("Wiring", wiringItems, 27);
+                                  &cyclePolarityItem,      &dartPolarityItem,
+                                  &idlePolarityItem,       &safetyPolarityItem,
+                                  &speedPotReversedItem};
+static SubmenuItem wiringSubmenu("Wiring", wiringItems,
+                                 sizeof(wiringItems) / sizeof(wiringItems[0]));
 struct WiringSubmenuInit
 {
     WiringSubmenuInit()
@@ -590,6 +609,8 @@ struct WiringSubmenuInit
         i2cSdaPinItem.setVisibleWhen(displayFitted, &kDisplayFitted);
         i2cSclPinItem.setVisibleWhen(displayFitted, &kDisplayFitted);
         pusherFetPinItem.setVisibleWhen(usesFetPusher, &kUsesFetPusher);
+        speedPotReversedItem.setVisibleWhen(speedPotIsWired, &kSpeedPotWired);
+        speedPotReversedItem.setOffDevice();
     }
 } wiringSubmenuInit;
 

@@ -79,9 +79,9 @@ PRESET_DESCRIPTIVE_KEYS = {"kind", "presetVersion", "id", "name", "notes", "unre
 # whole point of a board being separate from a blaster is that it cannot.
 PRESET_ALLOWED_KEYS = {
     "boardId", "wiringConfigured",
-    "escPins", "i2cSdaPin", "i2cSclPin", "batteryAdcPin", "escEnablePin",
-    "menuButtonPin", "triggerSwitchPin", "revSwitchPin", "cycleSwitchPin", "idleSwitchPin",
-    "safetySwitchPin", "select0Pin", "select1Pin", "select2Pin",
+    "escPins", "i2cSdaPin", "i2cSclPin", "batteryAdcPin", "speedPotPin", "escEnablePin",
+    "menuButtonPin", "triggerSwitchPin", "revSwitchPin", "cycleSwitchPin", "dartSwitchPin",
+    "idleSwitchPin", "safetySwitchPin", "select0Pin", "select1Pin", "select2Pin",
     "pusherDrive", "pusherFetPin", "ledDataPin",
 }
 
@@ -487,6 +487,10 @@ def check_bundle(bundle, schema, device_version=None):
         problems.append("no device object")
     if not isinstance(bundle.get("profiles"), list) or not bundle["profiles"]:
         problems.append("no profiles")
+    shown = bundle.get("notes")
+    if shown is not None and (not isinstance(shown, list)
+                              or not all(isinstance(note, str) for note in shown)):
+        problems.append("notes is not a list of strings - the console would show none of them")
     if problems:
         return problems, warnings, notes
 
@@ -734,6 +738,10 @@ def self_test():
            check_bundle(dict(good, bundleVersion=BUNDLE_VERSION + 1), schema)[0] != [])
     expect("a missing bundleVersion is caught",
            check_bundle({k: v for k, v in good.items() if k != "bundleVersion"}, schema)[0] != [])
+    expect("notes as a list of lines pass",
+           check_bundle(dict(good, notes=["Fit a LiPo alarm."]), schema)[0] == [])
+    expect("notes that are not a list of lines are caught",
+           check_bundle(dict(good, notes="Fit a LiPo alarm."), schema)[0] != [])
 
     # The constants are read from the console rather than restated. The first version of this file
     # guessed "trifolium-config-bundle" and rejected every real save, so the agreement is asserted.

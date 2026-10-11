@@ -133,7 +133,7 @@ static const char* const kPusherChannelLocked =
         &deviceSettings.motorConfig[N].motorPolesDiv2, 1, 10, 1);                                  \
     static NumericItem<int32_t> motor##N##KvItem(                                                  \
         "Kv", "device:motorConfig[" #N "].motorKv", &deviceSettings.motorConfig[N].motorKv, 500,   \
-        5000, 10);                                                                                 \
+        10000, 10);                                                                                \
     static void motor##N##TestFired()                                                              \
     {                                                                                              \
         if (!motorsEnabled[N])                                                                     \

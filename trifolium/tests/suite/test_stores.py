@@ -9,9 +9,10 @@ import pytest
 from helpers import armed_v12, flatten, keyed_nodes, same, schema
 
 WIRING = {"boardId", "wiringConfigured", "escPins", "i2cSdaPin", "i2cSclPin", "batteryAdcPin",
-          "escEnablePin", "menuButtonPin", "triggerSwitchPin", "revSwitchPin", "cycleSwitchPin",
-          "idleSwitchPin", "safetySwitchPin", "select0Pin", "select1Pin", "select2Pin",
-          "pusherDrive", "pusherFetPin", "pusherEscChannel", "ledDataPin"}
+          "speedPotPin", "escEnablePin", "menuButtonPin", "triggerSwitchPin", "revSwitchPin",
+          "cycleSwitchPin", "dartSwitchPin", "idleSwitchPin", "safetySwitchPin", "select0Pin",
+          "select1Pin", "select2Pin", "pusherDrive", "pusherFetPin", "pusherEscChannel",
+          "ledDataPin"}
 
 
 # What a dump carries around the config: the reply's framing, and the version the save re-stamps.

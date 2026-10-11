@@ -35,6 +35,18 @@ def test_pid_settles_on_target_and_overshoots_it_by_less_than_one_and_a_half_per
     assert motor(b)["motorRPM"] == pytest.approx(TARGET, rel=0.01)
 
 
+def test_each_wheel_keeps_the_speed_the_last_dart_met_it_at(blaster):
+    b = armed_v12(blaster, display=False)
+    assert b.wheels()[1]["lastDartRpm"] == 0
+    b.press("select2")  # a mode that fires
+    b.press("rev")
+    b.run_ms(2000)
+    b.tap("trigger")
+    assert b.run_until(lambda: b.wheels()[1]["lastDartRpm"] > 0, 500)
+    # The speed before the dart took its share: a reading after would be ~1,700 RPM lower.
+    assert b.wheels()[1]["lastDartRpm"] == pytest.approx(TARGET, rel=0.01)
+
+
 def test_pid_holds_the_integral_at_zero_until_the_first_crossing(blaster):
     b = armed_v12(blaster, display=False)
     b.press("rev")

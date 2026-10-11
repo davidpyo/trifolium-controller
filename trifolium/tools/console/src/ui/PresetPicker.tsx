@@ -127,7 +127,7 @@ export function PresetPicker({
           value={blasterId}
           disabled={busy}
           onChange={(e) => setBlasterId(e.target.value)}
-          helperText="A published build's settings and profiles, in place of the firmware defaults. The pins stay the board's."
+          helperText="A published build's settings and profiles, in place of the firmware defaults. The pins are the board's, and a config saved on this board also brings any the board leaves unused."
         >
           <MenuItem value={NO_BLASTER}>None (firmware defaults)</MenuItem>
           {BLASTERS.map((b) => (
@@ -137,6 +137,12 @@ export function PresetPicker({
           ))}
         </TextField>
       )}
+
+      {blaster?.notes.map((note) => (
+        <Typography key={note} variant="caption" color="text.secondary">
+          {note}
+        </Typography>
+      ))}
 
       <Alert severity="warning" sx={{ py: 0 }}>
         Pick the board you actually have. A wrong choice drives the wrong pins on real hardware.

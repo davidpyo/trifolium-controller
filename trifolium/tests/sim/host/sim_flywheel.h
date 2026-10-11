@@ -44,6 +44,7 @@ struct SimFlywheel
     float rpm = 0.0f;
     uint16_t throttle = 0;
     float peakRpm = 0.0f;
+    float lastDartRpm = 0.0f; // the speed the last dart met the wheel at, 0 before any
     bool attached = false;
 
     void setPowered(bool on)
@@ -137,6 +138,7 @@ struct SimFlywheel
         }
         if (hitLoss_ > 0 && now >= hitAt_us_)
         {
+            lastDartRpm = rpm;
             rpm = std::max(0.0f, rpm - hitLoss_);
             hitLoss_ = 0;
         }

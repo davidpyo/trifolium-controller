@@ -19,16 +19,26 @@ def test_dump_schema_streams_the_menu_tree_rather_than_holding_it(blaster):
     assert b.heap()["peak"] - before < 2048
 
 
+def held(b):
+    """What stays on the heap. The display's redraw on core 1 holds a String or two for the moment
+    it draws, so one reading can land mid-frame; a leak is in every reading, a frame's are not."""
+    readings = []
+    for _ in range(5):
+        readings.append(b.heap()["live"])
+        b.run_ms(2)
+    return min(readings)
+
+
 def test_every_command_the_menu_and_firing_give_back_what_they_take(blaster):
     b = armed_v12(blaster)
-    baseline = b.heap()["live"]
+    baseline = held(b)
     for line in DUMPS:
         assert b.command(line, parse=False), line
-        assert b.heap()["live"] == baseline, line
+        assert held(b) == baseline, line
 
     ack = b.command("LOAD_PROFILE 2\n" + json.dumps({"schemaVersion": 2, "dwellTime_ms": 2000}))
     assert ack["ok"] is True and ack["rebooting"] is False
-    assert b.heap()["live"] == baseline
+    assert held(b) == baseline
 
     open_menu(b)
     close_menu(b)
@@ -37,7 +47,7 @@ def test_every_command_the_menu_and_firing_give_back_what_they_take(blaster):
     b.tap("trigger")
     b.release("rev")
     b.run_ms(3000)
-    assert b.heap()["live"] == baseline
+    assert held(b) == baseline
     assert b.heap()["refused"] == 0
 
 

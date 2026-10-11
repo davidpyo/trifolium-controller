@@ -1,0 +1,37 @@
+{
+  "kind": "trifolium-wiring-preset",
+  "presetVersion": 1,
+  "id": "seeed_xiao_rp2040",
+  "name": "Seeed XIAO RP2040",
+  "notes": [
+    "A bare Seeed XIAO RP2040, with nothing assigned. It is a module a blaster is built around, so this preset claims no pins: a blaster config saved on it brings that blaster's wiring with it.",
+    "The module brings out GPIO 0-4, 6, 7 and 26-29, as D0-D10. Only 26-29 (A0-A3) read analog, so a battery divider or a speed pot goes on one of those."
+  ],
+  "schemaVersion": 3,
+  "boardId": "seeed_xiao_rp2040",
+  "wiringConfigured": true,
+  "escPins": [
+    255,
+    255,
+    255,
+    255
+  ],
+  "i2cSdaPin": 255,
+  "i2cSclPin": 255,
+  "batteryAdcPin": 255,
+  "speedPotPin": 255,
+  "escEnablePin": 255,
+  "menuButtonPin": 255,
+  "triggerSwitchPin": 255,
+  "revSwitchPin": 255,
+  "cycleSwitchPin": 255,
+  "dartSwitchPin": 255,
+  "idleSwitchPin": 255,
+  "safetySwitchPin": 255,
+  "select0Pin": 255,
+  "select1Pin": 255,
+  "select2Pin": 255,
+  "pusherDrive": "fet",
+  "pusherFetPin": 255,
+  "ledDataPin": 255
+}

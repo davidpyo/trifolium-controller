@@ -63,6 +63,15 @@ describe("the blasters this console ships", () => {
     expect(kit.label).toBe("Kit (built on Trifolium v1.4)");
   });
 
+  it("carry their file's notes, and none when it has none", () => {
+    const [noted, plain] = collectBlasters({
+      "../blasters/a.json": bundle({ notes: ["Fit a LiPo alarm.", 5 as unknown as string] }),
+      "../blasters/b.json": bundle({ device: { blasterName: "Plain" } }),
+    });
+    expect(noted.notes).toEqual(["Fit a LiPo alarm."]);
+    expect(plain.notes).toEqual([]);
+  });
+
   it("skips a file that is not a full backup", () => {
     const board = { kind: "trifolium-wiring-preset" } as unknown as ConfigBundle;
     expect(collectBlasters({ "../blasters/board.json": board })).toEqual([]);
@@ -88,7 +97,7 @@ describe("setting a device up as a blaster", () => {
     expect(loads[2].payload).toMatchObject({ name: "Medium", schemaVersion: schema.profileSchemaVersion });
   });
 
-  it("keeps the board's pins and takes every other setting from the config", () => {
+  it("on another board, keeps the board's pins and takes every other setting from the config", () => {
     // A config saved on one board need not line up with another's pins. How the pusher is driven
     // is not a pin, so the config's choice stands.
     const config = bundle({
@@ -109,11 +118,46 @@ describe("setting a device up as a blaster", () => {
     expect(device.wiringConfigured).toBe(true);
   });
 
-  it("leaves a pin the board does not name as the device has it", () => {
+  it("on another board, leaves a pin the board does not name as the device has it", () => {
     const config = bundle({ device: { safetySwitchPin: 5, escPins: [0, 1, 2, 3] } });
     const device = blasterLoads(config, board, schema)[0].payload;
     expect(device).not.toHaveProperty("safetySwitchPin");
     expect(device).not.toHaveProperty("escPins");
+  });
+
+  it("on the board it was saved on, fills only the pins the board leaves unused", () => {
+    const wired: Preset = {
+      ...board,
+      wiring: { ...board.wiring, cycleSwitchPin: 255, escPins: [0, 1, 255, 255] },
+    };
+    const config = bundle({
+      board: "trifolium_v1_2",
+      device: { menuButtonPin: 8, cycleSwitchPin: 5, safetySwitchPin: 6, escPins: [0, 1, 2, 3] },
+    });
+    const device = blasterLoads(config, wired, schema)[0].payload;
+    expect(device.menuButtonPin).toBe(19); // the board names it
+    expect(device.cycleSwitchPin).toBe(5); // the board leaves it unused
+    expect(device.safetySwitchPin).toBe(6); // the board does not name it
+    expect(device.escPins).toEqual([0, 1, 2, 3]);
+  });
+
+  it("takes a bare module's whole wiring from a config saved on it", () => {
+    const bare: Preset = {
+      ...board,
+      id: "module",
+      wiring: { boardId: "module", wiringConfigured: true, triggerSwitchPin: 255, escPins: [255, 255, 255, 255] },
+    };
+    const config = bundle({ board: "module", device: { triggerSwitchPin: 28, escPins: [1, 2, 4, 3] } });
+    const device = blasterLoads(config, bare, schema)[0].payload;
+    expect(device.triggerSwitchPin).toBe(28);
+    expect(device.escPins).toEqual([1, 2, 4, 3]);
+    expect(device.boardId).toBe("module");
+  });
+
+  it("counts a config saved under one of the board's old ids as saved on it", () => {
+    const renamed: Preset = { ...board, aliases: ["trifolium_v1_2_fet"] };
+    const config = bundle({ board: "trifolium_v1_2_fet", device: { cycleSwitchPin: 5 } });
+    expect(blasterLoads(config, renamed, schema)[0].payload.cycleSwitchPin).toBe(5);
   });
 
   it("knows the pins from the schema, an array of them by its name", () => {

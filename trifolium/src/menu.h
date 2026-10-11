@@ -542,6 +542,7 @@ extern SubmenuItem batterySubmenu;
 
 // menuSolenoid.cpp
 extern SubmenuItem solenoidSubmenu;
+extern SubmenuItem dartSwitchSubmenu;
 
 // menuProfile.cpp
 extern SubmenuItem profileSwitchSubmenu;
