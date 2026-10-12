@@ -341,6 +341,11 @@ export function App() {
    * the bench. Ten cheap DUMP_BOOT retries cost nothing against a device that is already up.
    */
   const connect = async (choose: boolean) => {
+    // The flow the reboot paused reads the device itself once it is back.
+    if (transport.awaitingReconnect) {
+      await transport.connect(choose);
+      return;
+    }
     if (!(await transport.connect(choose))) return;
     if (!(await transport.waitReady())) return;
     await readSchemaAndValues();

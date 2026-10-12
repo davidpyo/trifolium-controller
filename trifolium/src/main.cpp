@@ -1221,11 +1221,19 @@ void mainFiringLogic()
         safetyEngaged = safetySwitch.isPressed();
     }
     updateDartSwitch();
-    int8_t previousFiringMode = firingMode;
+    static int8_t firingModeLastTick = -1;
+    if (firingModeLastTick == -1)
+        firingModeLastTick = firingMode;
     updateFiringMode();
     burstMode = effectiveBurstMode(activeProfile.fireModes[firingMode].burstMode);
-    if (firingMode != previousFiringMode)
+    if (firingMode != firingModeLastTick)
+    {
         liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
+        // A mode change ends a burst in flight, as letting go does in AUTO..
+        if (shotsToFire > 1)
+            shotsToFire = 1;
+    }
+    firingModeLastTick = firingMode;
 
     requestRev = false;
 

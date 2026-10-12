@@ -31,7 +31,7 @@ import { HelpTip } from "./Help";
  * A control's identity, reduced so the three rows describing it agree.
  *
  * Pins and polarities are matched on their stored key, which is stable. Boot actions have only an
- * index (`bootAction[3]`), and the index order is the firmware's `bootButton_t` - not something this
+ * index (`bootAction[2]`), and the index order is the firmware's `bootButton_t` - not something this
  * file should hold a second copy of - so those are matched on the label instead: "Rev Switch" and
  * "Rev Pin" both reduce to "rev". A boot action that fails to match still gets its own row, so a
  * renamed label costs the grouping rather than the field.

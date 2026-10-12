@@ -335,6 +335,8 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
             out.bootAction[i] =
                 enumFromJson(bootAction[i], kBootActionIds, kBootActionIdCount, out.bootAction[i]);
     }
+    // Held whenever the pusher rests on it, so an action there would fire on an ordinary boot.
+    out.bootAction[BOOT_BTN_CYCLE] = BOOT_ACTION_NONE;
 
     // enumFromJson() leaves an unrecognised value at the default. escPin() indexes a 4-element array
     // with pusherEscChannel, and a hand-written config reaches this before any clamp runs.

@@ -80,10 +80,24 @@ def test_every_switch_offers_the_three_slots_as_boot_actions(blaster):
     b.flash_preset("trifolium_v1_2")
     assert b.boot(100)
     nodes = [n for n in walk(schema(b)["tree"]) if (n.get("key") or "").startswith("device:bootAction[")]
-    assert len(nodes) == 8
+    assert len(nodes) == 7  # every switch but the cycle switch
+    assert "device:bootAction[3]" not in [n["key"] for n in nodes]
     for node in nodes:
         assert node["optionValues"][-3:] == ["profile_0", "profile_1", "profile_2"], node["key"]
         assert node["options"][-3:] == ["Slot 1", "Slot 2", "Slot 3"], node["key"]
+
+
+def test_the_cycle_switch_has_no_boot_action_even_one_a_stored_config_names(blaster):
+    """The pusher rests on it, so it is held at an ordinary power-on: an action there would fire
+    every time. A config that maps one has it dropped as it loads."""
+    b = blaster
+    actions = ["none"] * 8
+    actions[3] = "bootloader"
+    b.flash_preset("trifolium_v1_2", {"cycleSwitchPin": 20, "bootAction": actions})
+    b.press("cycle")
+    assert b.boot(100)
+    assert b.state == "running"
+    assert b.command("DUMP_DEVICE")["bootAction"][3] == "none"
 
 
 def walk(tree):

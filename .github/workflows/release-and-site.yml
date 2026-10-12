@@ -8,6 +8,9 @@
 # site:    on every run, builds the console from source and deploys the Pages site: the console,
 #          its offline copy, and every release's .uf2 for the console's firmware list
 #          (tools/build_site.py). Pages must be set to deploy from GitHub Actions.
+# wiki:    on every run, copies trifolium/wiki/ over this repository's GitHub wiki, so the wiki
+#          follows main. The wiki has to exist first: create any page once in the Wiki tab. A page
+#          edited or added in the Wiki tab is overwritten or removed by the next run.
 #
 # The site copies the releases as they are when it deploys, so a release published, edited or
 # deleted by hand has to redeploy it. A release event runs on the release's tag, which Pages will
@@ -108,6 +111,35 @@ jobs:
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "$TAG" --generate-notes trifolium/release/*.uf2
+
+  wiki:
+    needs: tests
+    if: >-
+      ${{ github.event_name != 'release' && !cancelled() &&
+      (needs.tests.result == 'success' || needs.tests.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # what lets the job's own token push to this repository's .wiki.git
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Publish trifolium/wiki/
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.wiki.git" _wiki
+          rsync -a --delete --exclude .git trifolium/wiki/ _wiki/
+          cd _wiki
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki already matches trifolium/wiki/"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Publish trifolium/wiki/ from ${GITHUB_SHA::7}"
+          git push
 
   site:
     needs: [tests, release]

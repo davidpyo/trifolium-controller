@@ -316,7 +316,7 @@ struct RpmLoggingItemsInit
 } rpmLoggingItemsInit;
 
 // What each switch does when held at power-on. Rows are indexed by bootButton_t and each is hidden
-// unless its pin is wired, so a build with no menu button or no cycle switch doesn't show them.
+// unless its pin is wired. The cycle switch has none: it rests pressed whenever the pusher does.
 static const char* const bootActionLabels[] = {"None",   "Bootloader", "ESC Passthrough", "Idle Hold",
                                                "Slot 1", "Slot 2",     "Slot 3"};
 static_assert(sizeof(bootActionLabels) / sizeof(bootActionLabels[0]) == kBootActionIdCount, "bootActionLabels is out of step");
@@ -326,7 +326,6 @@ static_assert(sizeof(bootActionLabels) / sizeof(bootActionLabels[0]) == kBootAct
 BOOT_ACTION_ITEM(bootActionMenuItem, "Menu Button", "device:bootAction[0]", BOOT_BTN_MENU);
 BOOT_ACTION_ITEM(bootActionTriggerItem, "Trigger", "device:bootAction[1]", BOOT_BTN_TRIGGER);
 BOOT_ACTION_ITEM(bootActionRevItem, "Rev Switch", "device:bootAction[2]", BOOT_BTN_REV);
-BOOT_ACTION_ITEM(bootActionCycleItem, "Cycle Switch", "device:bootAction[3]", BOOT_BTN_CYCLE);
 BOOT_ACTION_ITEM(bootActionIdleItem, "Idle Switch", "device:bootAction[4]", BOOT_BTN_IDLE);
 BOOT_ACTION_ITEM(bootActionSelect0Item, "Select 0", "device:bootAction[5]", BOOT_BTN_SELECT0);
 BOOT_ACTION_ITEM(bootActionSelect1Item, "Select 1", "device:bootAction[6]", BOOT_BTN_SELECT1);
@@ -347,10 +346,6 @@ static bool revBootPinWired()
 {
     return pinDefined(revSwitchPin) && !deviceSettings.dualStageTrigger;
 }
-static bool cyclePinWired()
-{
-    return pinDefined(cycleSwitchPin);
-}
 static bool idlePinWired()
 {
     return pinDefined(idleSwitchPin);
@@ -369,10 +364,11 @@ static bool select2PinWired()
 }
 
 static MenuItem* bootActionItems[] = {
-    &bootActionMenuItem,    &bootActionTriggerItem, &bootActionRevItem,     &bootActionCycleItem,
-    &bootActionIdleItem,    &bootActionSelect0Item, &bootActionSelect1Item, &bootActionSelect2Item,
+    &bootActionMenuItem,    &bootActionTriggerItem, &bootActionRevItem,     &bootActionIdleItem,
+    &bootActionSelect0Item, &bootActionSelect1Item, &bootActionSelect2Item,
 };
-static SubmenuItem bootActionSubmenu("Boot Actions", bootActionItems, 8);
+static SubmenuItem bootActionSubmenu("Boot Actions", bootActionItems,
+                                     sizeof(bootActionItems) / sizeof(bootActionItems[0]));
 
 // How the pusher is driven, and the one field that says onto what. Off-device: they are wiring and
 // travel with the pin they select, so the four move together or the state is incoherent.
@@ -411,7 +407,6 @@ struct BootActionItemsInit
         bootActionMenuItem.setVisibleWhen(menuPinWired);
         bootActionTriggerItem.setVisibleWhen(triggerPinWired);
         bootActionRevItem.setVisibleWhen(revBootPinWired);
-        bootActionCycleItem.setVisibleWhen(cyclePinWired);
         bootActionIdleItem.setVisibleWhen(idlePinWired);
         bootActionSelect0Item.setVisibleWhen(select0PinWired);
         bootActionSelect1Item.setVisibleWhen(select1PinWired);

@@ -134,7 +134,7 @@ enum bootButton_t : uint8_t
     BOOT_BTN_MENU,
     BOOT_BTN_TRIGGER,
     BOOT_BTN_REV,
-    BOOT_BTN_CYCLE,
+    BOOT_BTN_CYCLE, // a slot kept for the layout: the cycle switch has no boot action
     BOOT_BTN_IDLE,
     BOOT_BTN_SELECT0,
     BOOT_BTN_SELECT1,

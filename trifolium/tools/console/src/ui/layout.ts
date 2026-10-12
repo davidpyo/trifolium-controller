@@ -204,14 +204,14 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:safetySwitchNormallyClosed",
       // The pot's counterpart to a polarity, shown in the same column of its row.
       "device:speedPotReversed",
-      // Boot actions are not wiring, but they are indexed by these same eight controls, so the
-      // table gives each one a column rather than leaving them as eight unattached enums. Claimed
-      // here so they do not also fall through into the trailing section - WiringTable finds its own
-      // nodes in the schema, so the order in this list is not what it renders.
+      // Boot actions are not wiring, but they are indexed by these same controls - all but the
+      // cycle switch, which has none - so the table gives each one a column rather than leaving
+      // them as unattached enums. Claimed here so they do not also fall through into the trailing
+      // section - WiringTable finds its own nodes in the schema, so the order in this list is not
+      // what it renders.
       "device:bootAction[0]",
       "device:bootAction[1]",
       "device:bootAction[2]",
-      "device:bootAction[3]",
       "device:bootAction[4]",
       "device:bootAction[5]",
       "device:bootAction[6]",

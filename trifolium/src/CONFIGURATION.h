@@ -7,7 +7,7 @@
 // versions, which version the persisted flash JSON at runtime.
 #define CONFIG_VERSION_MAJOR 2
 #define CONFIG_VERSION_MINOR 2
-#define CONFIG_VERSION_PATCH 0
+#define CONFIG_VERSION_PATCH 1
 
 inline uint32_t targetLoopTime_us = 1000;
 
@@ -97,7 +97,7 @@ inline const DeviceSettings kDefaultDeviceSettings = {
             BOOT_ACTION_BOOTLOADER,      // menu
             BOOT_ACTION_ESC_PASSTHROUGH, // trigger
             BOOT_ACTION_BOOTLOADER,      // rev
-            BOOT_ACTION_NONE,            // cycle
+            BOOT_ACTION_NONE,            // cycle, which has no boot action
             BOOT_ACTION_NONE,            // idle
             BOOT_ACTION_NONE,            // select0
             BOOT_ACTION_NONE,            // select1
