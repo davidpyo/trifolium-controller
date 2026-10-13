@@ -1848,27 +1848,6 @@ bool fwControlLoop()
             flywheelState = STATE_ACCELERATING;
             currentSpindownSpeed = 0; // reset spindownSpeed
             resetFWControl();
-            if (deviceSettings.flywheelControl == TBH_CONTROL)
-            {
-                for (int i = 0; i < 4; i++)
-                {
-                    if (motorsEnabled[i])
-                    {
-                        // for optimal rev let's set throttle to max until first crossing
-                        motorArr[i].PIDOutput = motorArr[i].limitThrottle(
-                            (maxThrottle * motorArr[i].targetRPM / throttleReferenceVoltage_mv() *
-                             1000 / motorArr[i].m_config->m_motorKv) +
-                                deviceSettings.throttleCap,
-                            maxThrottle, throttleReferenceVoltage_mv(), deviceSettings.batteryType);
-                        // premptly setup TBH variable to reduce overshoot
-                        motorArr[i].PIDIntegral =
-                            (2 *
-                             map(((motorArr[i].targetRPM * 1000) / motorArr[i].m_config->m_motorKv),
-                                 0, throttleReferenceVoltage_mv(), 0, maxThrottle)) -
-                            motorArr[i].PIDOutput;
-                    }
-                }
-            }
             if (deviceSettings.useRpmLogging)
             {
                 if (!rpmLogger.startCapture(deviceSettings.rpmLogLength))
@@ -2104,7 +2083,8 @@ bool fwControlLoop()
                 if (motorsEnabled[i])
                 {
                     motorArr[i].updateTBH(throttleReferenceVoltage_mv(), flywheelState,
-                                          maxThrottle, deviceSettings.batteryType);
+                                          maxThrottle, deviceSettings.batteryType,
+                                          deviceSettings.throttleCap);
                 }
             }
             break;

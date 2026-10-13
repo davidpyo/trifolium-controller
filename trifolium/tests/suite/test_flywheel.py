@@ -117,6 +117,21 @@ def test_a_motor_voltage_limit_caps_throttle_rising_with_sag_and_with_the_target
     assert peak_throttles()[0] == pytest.approx(1999 * 10000 / 14000, rel=0.01)
 
 
+@pytest.mark.parametrize("control", ["pid", "tbh"])
+def test_voltage_limited_spinup_recovers_from_battery_sag(blaster, control):
+    b = armed_v12(blaster, {
+        "flywheelControl": control,
+        "motorConfig": [{}, {"maxSpinupVoltage_mv": 10000}, {},
+                        {"maxSpinupVoltage_mv": 10000}],
+    }, display=False)
+    b.press("rev")
+    b.run_ms(20)
+    startup_throttle = b.escs()[1]["lastThrottle"]
+    b.set_pack(13300)  # still above the cutoff, but needs more throttle for the same motor voltage
+    assert b.run_until(lambda: motor(b)["motorRPM"] >= TARGET - 500, 450)
+    assert b.escs()[1]["lastThrottle"] > startup_throttle
+
+
 def test_open_loop_spin_down_only_ever_lowers_the_throttle(blaster):
     b = armed_v12(blaster, display=False)
     b.press("rev")

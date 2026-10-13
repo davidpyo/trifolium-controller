@@ -46,7 +46,7 @@ class FlywheelMotor
     void updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, int32_t maxThrottle,
                    uint8_t EMAFilter, uint32_t half, uint8_t iThreshold, int batteryType);
     void updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywheelState, int32_t maxThrottle,
-                   int batteryType);
+                   int batteryType, int32_t throttleCap);
     void updateOpenLoop(int32_t batteryVoltage_mv, int32_t maxThrottle);
     void resetControl(flywheelControlType_t mode);
     void sendThrottle(int32_t value);

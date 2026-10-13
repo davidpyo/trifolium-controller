@@ -15,12 +15,13 @@ void FlywheelMotor::sendThrottle(int32_t value)
 
 void FlywheelMotor::resetControl(flywheelControlType_t mode)
 {
+    firstCrossing = false;
+    PIDErrorPrior = 1;
     switch (mode)
     {
     case PID_CONTROL:
         PIDOutput = 0;
         PIDIntegral = 0; // stop reset PID
-        firstCrossing = false;
         break;
     case TBH_CONTROL:
         PIDIntegral = 0; // reset TBH to target RPM value
@@ -140,7 +141,7 @@ void FlywheelMotor::updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, in
 }
 
 void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywheelState,
-                              int32_t maxThrottle, int batteryType)
+                              int32_t maxThrottle, int batteryType, int32_t throttleCap)
 {
     /*
     so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput
@@ -162,6 +163,17 @@ void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywhee
     }
 
     PIDError = targetRPM - motorRPM;
+
+    if (!firstCrossing)
+    {
+        // Recompute startup drive as the pack sags or the target rises. A clamped accumulator
+        // cannot recover on its own until the first crossing.
+        int32_t openLoopThrottle =
+            maxThrottle * targetRPM / batteryVoltage_mv * 1000 / m_config->m_motorKv;
+        PIDOutput = limitThrottle(openLoopThrottle + throttleCap, maxThrottle,
+                                  batteryVoltage_mv, batteryType);
+        PIDIntegral = 2 * openLoopThrottle - PIDOutput;
+    }
 
     if (signbit(PIDError) && !firstCrossing)
     {

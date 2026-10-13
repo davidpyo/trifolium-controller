@@ -32,14 +32,11 @@ def test_tbh_brings_the_wheels_to_speed_on_the_first_rev_and_every_rev_after(bla
         assert peak < 30000 * 1.10
 
 
-def test_tbh_first_rev_after_boot_is_no_faster_than_every_rev_after(blaster):
-    """Current behaviour: resetControl(TBH_CONTROL) never clears firstCrossing, so from the second
-    rev on TBH integrates from the first tick. The ESC's current limit bounds the spin-up either
-    way, so the later revs come out only a few ms sooner, with a little more overshoot."""
+def test_tbh_restarts_its_startup_control_on_every_rev(blaster):
     b = armed_v12(blaster, {"flywheelControl": "tbh"})
     (first, first_peak), (second, second_peak) = rev_once(b), rev_once(b)
-    assert second <= first
-    assert second_peak > first_peak
+    assert second == pytest.approx(first, abs=2)
+    assert second_peak == pytest.approx(first_peak, rel=0.001)
 
 
 def test_the_menu_button_held_at_power_on_reboots_into_the_bootloader(blaster):
