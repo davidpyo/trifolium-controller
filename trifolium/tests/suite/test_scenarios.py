@@ -61,7 +61,7 @@ def test_a_boot_action_never_fires_on_a_reboot_only_from_power_on(blaster):
     assert b.state == "running"
 
 
-def test_below_the_cutoff_the_status_led_blinks_and_above_it_holds_steady(blaster):
+def test_the_status_led_blinks_under_the_cutoff_and_only_a_flat_pack_keeps_it_blinking(blaster):
     b = blaster
     b.flash_preset("trifolium_v1_2", {"ledDataPin": 22})
     assert b.boot(3000)
@@ -69,13 +69,24 @@ def test_below_the_cutoff_the_status_led_blinks_and_above_it_holds_steady(blaste
     assert len(b.edges(22)) == 1  # on at boot, nothing since
 
     b.set_pack(12400)  # 3.1 V per cell, under the 3.3 V cutoff
-    b.run_ms(3000)
-    toggles = len(b.edges(22)) - 1
-    assert 5 <= toggles <= 7
-
+    b.run_ms(600)  # not yet the second at rest that makes it flat
+    assert len(b.edges(22)) > 1
     b.set_pack(16400)
     b.run_ms(100)
+    assert b.peek("batteryFlat") is False
     assert b.pin(22)["outputLevel"] is True
+    steady = len(b.edges(22))
+    b.run_ms(1000)
+    assert len(b.edges(22)) == steady
+
+    b.set_pack(12400)
+    b.run_ms(3000)
+    assert b.peek("batteryFlat") is True
+    toggles = len(b.edges(22)) - steady
+    assert 5 <= toggles <= 7
+    b.set_pack(16400)  # back over the line with the load off, still flat
+    b.run_ms(1000)
+    assert len(b.edges(22)) - steady > toggles
 
 
 def test_a_trigger_wired_to_an_esc_pin_is_detached_and_reported_and_the_esc_keeps_it(blaster):

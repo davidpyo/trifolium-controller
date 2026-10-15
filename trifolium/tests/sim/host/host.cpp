@@ -58,6 +58,7 @@ extern uint32_t triggerTime_ms;
 extern bool pusherValid;
 extern bool displayAllowed;
 extern bool revSafetyLatched;
+extern bool batteryFlat;
 extern bool firing;
 extern BatteryMonitor* batteryMonitor;
 extern uint8_t menuButtonPin, triggerSwitchPin, revSwitchPin, cycleSwitchPin, dartSwitchPin,
@@ -971,6 +972,7 @@ class Host
         else if (name == "pusherValid") v.set(pusherValid);
         else if (name == "displayAllowed") v.set(displayAllowed);
         else if (name == "revSafetyLatched") v.set(revSafetyLatched);
+        else if (name == "batteryFlat") v.set(batteryFlat);
         else if (name == "firing") v.set(firing);
         else if (name == "activeProfileIndex") v.set(activeProfileIndex);
         else if (name == "battery")

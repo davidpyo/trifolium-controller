@@ -171,6 +171,11 @@ bool revSafetyLatched = false;
 
 bool batteryWarningActive = false;
 
+// The pack read under Low V Cutoff with the wheels unloaded - see checkLowVoltageCutoff(). Cleared
+// only by a restart, which swapping the battery forces anyway: with the load off, a flat pack reads
+// back over the line within milliseconds, and that is no reason to rev on it again.
+bool batteryFlat = false;
+
 // Idle-hold's standing request: set by the BOOT_ACTION_IDLE_HOLD dispatch at power-on or the root
 // menu's Idle Mode toggle. Neither persists it - any reboot starts false.
 bool idleHoldActive = false;
@@ -200,10 +205,11 @@ burstFireType_t effectiveBurstMode(burstFireType_t selected)
     return safetyEngaged ? SAFE : selected;
 }
 
-// SAFE always spins fully down regardless, and the menu needs motors stopped for bench testing.
+// SAFE always spins fully down regardless, the menu needs motors stopped for bench testing, and a
+// flat pack gets no idle draw either.
 bool idleHoldWanted()
 {
-    return idleHoldActive && burstMode != SAFE && !menuIsOpen();
+    return idleHoldActive && burstMode != SAFE && !menuIsOpen() && !batteryFlat;
 }
 
 Bounce2::Button revSwitch = Bounce2::Button();
@@ -1078,8 +1084,19 @@ static bool dartAllowsRev()
 
 static bool revStartWanted()
 {
+    static bool revRefusedForBattery = false;
     const bool wanted =
         shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched);
+    if (!wanted)
+        revRefusedForBattery = false;
+    else if (batteryFlat)
+    {
+        if (!revRefusedForBattery)
+            logger.warn("Battery flat, not revving - restart with a charged pack");
+        revRefusedForBattery = true;
+        shotsToFire = 0;
+        return false;
+    }
     if (!wanted || dartAllowsRev())
     {
         revHeldForDart = false;
@@ -1325,39 +1342,66 @@ void updateSpeedPot()
 static uint32_t ledTime_ms = 0;
 static bool ledOn = true;
 
+static const uint32_t kFlatPackHold_ms = 1000;
+
+static bool wheelsUnloaded()
+{
+    return flywheelState == STATE_IDLE && !enableFwControl && pendingShotDetections == 0;
+}
+
+// Unloaded, and every enabled wheel's target down to zero.
+static bool wheelsStopped()
+{
+    if (!wheelsUnloaded())
+        return false;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && motorArr[i].targetRPM != 0)
+            return false;
+    }
+    return true;
+}
+
 void checkLowVoltageCutoff()
 {
     if (batteryMonitor->isDefined() && time_ms > 2000)
     {
         uint8_t cells = cellCount(deviceSettings.batteryType);
-        bool belowCutoff =
-            batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageCutoffPerCell_mv * cells;
-        // On the way into cutoff only: this runs every control loop iteration, so reporting each
-        // pass would put hundreds of lines a second on the port.
-        static bool cutoffReported = false;
-        if (belowCutoff)
+        const int32_t pack_mv = batteryMonitor->getVoltage_mv();
+        bool belowCutoff = pack_mv < deviceSettings.lowVoltageCutoffPerCell_mv * cells;
+
+        // Not until the pack has first read at or over the line: some dividers climb from near
+        // zero for tens of seconds after power-on, and USB power alone reads nothing. A pack
+        // plugged in already flat is not caught; the LED and LOW BATT still show it.
+        static bool cutoffArmed = false;
+        cutoffArmed = cutoffArmed || !belowCutoff;
+
+        static uint32_t flatSince_ms = 0; // 0 while the unloaded reading is at or over the line
+        if (!cutoffArmed || batteryFlat || !belowCutoff || !wheelsUnloaded())
+            flatSince_ms = 0;
+        else if (flatSince_ms == 0)
+            flatSince_ms = time_ms;
+        else if (time_ms - flatSince_ms >= kFlatPackHold_ms)
         {
-            if (pinDefined(escEnablePin))
-                digitalWrite(escEnablePin, LOW); // cut power to ESCs and pusher
-            if (!cutoffReported)
-            {
-                cutoffReported = true;
-                logger.error("Battery low, shutting down! ", batteryMonitor->getVoltage_mv(), "mv");
-            }
+            batteryFlat = true;
+            lastRevTime_ms = 0; // ends a post-rev idle window along with the other idle sources
+            logger.error("Battery flat, ", pack_mv, "mv with the wheels unloaded - no rev or idle "
+                         "until restart");
         }
-        else
-        {
-            cutoffReported = false;
-        }
+
+        if (batteryFlat && pinDefined(escEnablePin) && wheelsStopped())
+            digitalWrite(escEnablePin, LOW); // cut power to ESCs and pusher
+
         // Non-cutoff early warning - lowVoltageWarningPerCell_mv is above the cutoff, so this
-        // trips first as the battery depletes.
+        // trips first as the battery depletes. A flat pack keeps it up whatever it reads after.
         batteryWarningActive =
-            batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageWarningPerCell_mv * cells;
+            batteryFlat || pack_mv < deviceSettings.lowVoltageWarningPerCell_mv * cells;
 
         if (pinDefined(ledDataPin))
         {
             bool shouldBlink =
-                (deviceSettings.ledWarningMode == LED_WARNING_LOW_BATT && belowCutoff) ||
+                (deviceSettings.ledWarningMode == LED_WARNING_LOW_BATT &&
+                 (belowCutoff || batteryFlat)) ||
                 (deviceSettings.ledWarningMode == LED_WARNING_WARN_BATT && batteryWarningActive);
             if (!shouldBlink)
             {
@@ -1471,6 +1515,13 @@ static void kickMotorsToIdle()
     }
 }
 
+// The idle switch asking for idle. SAFE and a flat pack overrule it, as they do idle hold.
+static bool idleSwitchHeld()
+{
+    return pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE &&
+           !batteryFlat;
+}
+
 bool fwControlLoop()
 {
     if (directMotorControlActive)
@@ -1511,6 +1562,16 @@ bool fwControlLoop()
     {
         dartWaitSince_ms = 0;
         speedWaitSince_ms = 0;
+    }
+
+    if (!revControlAllowed())
+    {
+        lastRevTime_ms = 0;
+        if (flywheelState == STATE_ACCELERATING)
+        {
+            flywheelState = STATE_IDLE;
+            logger.info("State transition: ACCELERATING to IDLE, rev not allowed");
+        }
     }
 
     switch (flywheelState)
@@ -1589,18 +1650,16 @@ bool fwControlLoop()
                 // logger.info("Holding for dwell");
             }
         }
-        else if (((pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE) ||
-                  idleHoldWanted()) &&
-                 motorArr[0].targetRPM == 0 && motorArr[1].targetRPM == 0 &&
-                 motorArr[2].targetRPM == 0 && motorArr[3].targetRPM == 0)
+        else if ((idleSwitchHeld() || idleHoldWanted()) && motorArr[0].targetRPM == 0 &&
+                 motorArr[1].targetRPM == 0 && motorArr[2].targetRPM == 0 &&
+                 motorArr[3].targetRPM == 0)
         { // idle switch pressed from a full stop, or idle-hold engaging from a dead stop -
           // open-loop kick straight to idle RPM, since updateOpenLoop() only ever ratchets
           // throttle down, never up
             enableFwControl = false;
             kickMotorsToIdle();
         }
-        else if ((pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE) ||
-                 idleHoldWanted() ||
+        else if (idleSwitchHeld() || idleHoldWanted() ||
                  (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0))
         { // idle flywheels - post-dwell idle window, the idle switch held, or idle-hold standing
           // at idle

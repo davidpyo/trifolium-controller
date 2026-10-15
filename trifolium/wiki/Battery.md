@@ -7,10 +7,20 @@ The two per-cell voltage limits share one range, 3000 to 3800 mV/cell, centered 
 | Setting | Range | Takes effect | What it does |
 |---|---|---|---|
 | **Battery Type** | 3S / 4S / 5S / 6S | `Live` | Cell count of the pack you are running. Sets how the per-cell voltage settings below scale to a real cutoff, and feeds the RPM ceiling for every motor. |
-| **Low V Cutoff** | 3000 to 3800 mV/cell, ±50 | `Live` | Hard cutoff. Below this per-cell voltage the blaster refuses to spin up at all, protecting the pack. Default 3300. |
+| **Low V Cutoff** | 3000 to 3800 mV/cell, ±50 | `Live` | Hard cutoff. Once a rev and its dwell are over, a pack reading below this per-cell voltage for a second counts as flat, and the blaster will not rev, idle or fire again until it restarts, protecting the pack. Default 3300. See [How the cutoff trips](#how-the-cutoff-trips). |
 | **Low V Warning** | 3000 to 3800 mV/cell, ±50 | `Live` | An earlier heads-up: the home screen blinks `LOW BATT` once you cross this, well before the hard cutoff. Does not stop you from firing. Default 3700. Set it above your cutoff so it trips first. |
 | **Volt Calibration** | 0.5 to 1.5, ±0.1 | `Live` | Correction factor if the displayed battery voltage does not match a multimeter reading. |
 | **Storage Discharge** | action | `Live` | Spins all motors at a low, steady draw to bleed the pack down to a safe storage voltage, then stops automatically. Better for LiPo longevity between sessions than storing at full charge. On ESC-driver boards this skips the pusher's channel, described under [Motors and PID](Motors-and-PID). |
+
+## How the cutoff trips
+
+A pack sags well below its resting voltage while the flywheels draw hard, and is back within milliseconds once they stop. So the cutoff only judges the pack while the wheels are not under load:
+
+- **Never during a rev.** Revving, firing and the dwell after a shot never count, however low the pack sags. A rev in progress is never cut short.
+- **A second off the load.** From the moment the dwell lets the wheels coast down, the reading has to stay below the cutoff for a full second. Coasting, idling and standing still all count, whether the idle comes from Idle Hold, the idle switch or the idle time after a rev, so neither a blaster left idling nor one revved again and again is left unprotected. A rev started within that second goes ahead, and the count starts over when it ends.
+- **Then until restart.** The wheels stop, any idle included, queued shots are dropped, and rev, fire and idle are all refused. `LOW BATT` stays up even if the pack reads above the cutoff again with the load off, because a drained pack recovers on paper the moment it stops working. Swapping the battery restarts the blaster, which clears it.
+- **Not straight after power-on.** On some boards the reading climbs from near zero for tens of seconds after power-on, and USB power alone reads nothing. The cutoff only starts watching once the reading has reached it, so a slow reading never trips it. A pack already below the cutoff when you plug it in is not caught.
+- **ESC Enable**, on a board with that circuit, switches the ESCs off once a flat pack has brought the wheels to a stop, never while they are still spinning down.
 
 ## Battery Type does more than set the cutoff
 
