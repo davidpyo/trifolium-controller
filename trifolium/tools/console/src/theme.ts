@@ -1,4 +1,4 @@
-import { createTheme } from "@mui/material/styles";
+import { alpha, createTheme } from "@mui/material/styles";
 
 // No webfont. MUI defaults to Roboto pulled from Google Fonts, which cannot load from a file://
 // origin (opaque origin, CORS blocks the stylesheet) and would leave the page rendering in a
@@ -38,11 +38,42 @@ const noPickOnOpeningRelease = {
   },
 };
 
-export const buildTheme = (mode: "light" | "dark") =>
-  createTheme({
+/**
+ * A slim pill on a clear track that takes the accent colour under the pointer. Chromium and Safari
+ * draw it from the ::-webkit-scrollbar rules. Chromium ignores those rules wherever the standard
+ * scrollbar-width or scrollbar-color is set, so the standard pair is given only to browsers
+ * without the WebKit ones, which is Firefox.
+ */
+function scrollbars(mode: "light" | "dark", accent: string) {
+  const ink = mode === "dark" ? "#c9d4e3" : "#3a4658";
+  const thumb = alpha(ink, mode === "dark" ? 0.28 : 0.32);
+  return {
+    "*::-webkit-scrollbar": { width: 10, height: 10 },
+    "*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner": {
+      background: "transparent",
+    },
+    "*::-webkit-scrollbar-thumb": {
+      backgroundColor: thumb,
+      borderRadius: 999,
+      // The clear border insets the pill from the edge.
+      border: "2px solid transparent",
+      backgroundClip: "padding-box",
+      minHeight: 36,
+    },
+    "*::-webkit-scrollbar-thumb:hover": { backgroundColor: alpha(accent, 0.7) },
+    "*::-webkit-scrollbar-thumb:active": { backgroundColor: accent },
+    "@supports not selector(::-webkit-scrollbar)": {
+      "*": { scrollbarWidth: "thin", scrollbarColor: `${thumb} transparent` },
+    },
+  };
+}
+
+export const buildTheme = (mode: "light" | "dark") => {
+  const accent = mode === "dark" ? "#7cc4ff" : "#0a58a8";
+  return createTheme({
     palette: {
       mode,
-      primary: { main: mode === "dark" ? "#7cc4ff" : "#0a58a8" },
+      primary: { main: accent },
       // The page ground sits a step below the panels on it, so a section reads as a surface.
       background:
         mode === "dark"
@@ -62,6 +93,7 @@ export const buildTheme = (mode: "light" | "dark") =>
       MuiCssBaseline: {
         styleOverrides: {
           body: { fontVariantNumeric: "tabular-nums" },
+          ...scrollbars(mode, accent),
         },
       },
       MuiButton: { defaultProps: { disableElevation: true } },
@@ -75,3 +107,4 @@ export const buildTheme = (mode: "light" | "dark") =>
       },
     },
   });
+};
