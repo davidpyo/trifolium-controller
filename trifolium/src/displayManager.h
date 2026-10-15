@@ -24,6 +24,14 @@ class BoardDisplay : public Adafruit_SSD1306
     }
 };
 
+// Which half of a half-press pairing is firing, for the home screen to light.
+enum class PairStage : uint8_t
+{
+    NONE,
+    FULL,
+    HALF,
+};
+
 class DisplayManager
 {
   public:
@@ -50,8 +58,10 @@ class DisplayManager
     // Call every loop1() tick (core 1): flushes a pending showText()/requestBootupSplash().
     void flushMailbox();
 
-    // Runtime telemetry screen - core 1 only.
-    void renderTelemetry(const char* fireModeString, const char* profileName,
+    // Runtime telemetry screen - core 1 only. halfModeString is the selected mode's half press, or
+    // null when it has none.
+    void renderTelemetry(const char* fireModeString, const char* halfModeString,
+                         PairStage pairStage, const char* profileName,
                          const char* blasterName, FlywheelMotor motorArr[4], const bool motors[4],
                          const motorStage_t motorStage[4], uint32_t displayShotCounter,
                          bool isBatteryAdcDefined, int32_t batteryVoltage_mv, bool showCurrentRpm,
@@ -76,6 +86,8 @@ class DisplayManager
     static const int16_t BODY_HEIGHT = 4;
     static const int16_t HEAD_HEIGHT = 2;
     void drawDart(int16_t dartX, int16_t midY);
+    int16_t printLit(const char* text, int16_t x, int16_t y, bool lit);
+    void drawModePair(const char* full, const char* half, PairStage stage, int16_t y);
 
     Adafruit_SSD1306& display_;
     bool hasDisplay_ = false;

@@ -16,6 +16,7 @@ struct FireModeConfig
     bool reversible;
     uint32_t binaryTriggerTimeout_ms;
     bool includeInCycle;
+    int8_t revStageMode; // the mode a dual-stage trigger's half press fires, or NO_FIRE_MODE
 
     String effectiveName() const
     {
@@ -23,13 +24,20 @@ struct FireModeConfig
     }
 };
 
+// Neither end of a half-press pairing can be SAFE, which has nothing to fire, or PLASMA, which
+// holds its own rev request and would keep it if a full press took over.
+inline bool halfPressCapable(burstFireType_t mode)
+{
+    return mode != SAFE && mode != PLASMA;
+}
+
 // Factory for a CONFIGURATION.h fireModes[] entry
 inline FireModeConfig fireMode(uint32_t burstLength, burstFireType_t burstMode, float targetDPS,
                                bool reversible = false, uint32_t binaryTriggerTimeout_ms = 2000,
                                bool includeInCycle = true, const char* name = "")
 {
-    return FireModeConfig{name,     burstLength,   burstMode, targetDPS,
-                          reversible, binaryTriggerTimeout_ms, includeInCycle};
+    return FireModeConfig{name,       burstLength,             burstMode,      targetDPS,
+                          reversible, binaryTriggerTimeout_ms, includeInCycle, NO_FIRE_MODE};
 }
 
 struct ShotProfile

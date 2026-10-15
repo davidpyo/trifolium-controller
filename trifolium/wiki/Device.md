@@ -29,7 +29,7 @@ Hold a switch while powering on and the blaster does something other than start 
 
 | Setting | Range | Takes effect | What it does |
 |---|---|---|---|
-| **Home Screen** | Counter / Fire Mode / Both | `Live` | Counter: Big shot counter. Fire Mode: Mode name on top, with the bottom zone drawn by whichever firing mode is active. Both: Mode on top, with a smaller shot counter in place of that animation. |
+| **Home Screen** | Counter / Fire Mode / Both | `Live` | Counter: Big shot counter. Fire Mode: Mode name on top, with the bottom zone drawn by whichever firing mode is active. Both: Mode on top, with a smaller shot counter in place of that animation. A mode with a [Half Press](Firing-Modes#half-press) shows both of its modes. |
 | **Show Current RPM** | on / off | `Live` | Adds a live-RPM grid to the home screen, grouped by Stage (top row is Stage 2, bottom row is Stage 1). |
 | **Show DPS** | on / off | `Live` | Adds a `<real>/<set>` darts-per-second line, where "real" is the actual measured extend-to-extend interval. |
 | **Brightness** | 5 to 255, ±5 | `Live` | Screen contrast, adjusting as you turn it. Some OLED panels show only a subtle difference, which can be the panel rather than a bug. |
@@ -42,7 +42,7 @@ Hold a switch while powering on and the blaster does something other than start 
 | **Blaster Name** | 14 chars | `Live` | Shown on the home screen and the About screen. Uses the on-device text editor. |
 | **LED Warning** | No Warning / Low Batt / Warning Batt | `Live` · `conditional` | What battery condition blinks the status LED, if your board has one. Hidden entirely on boards with no LED wired. |
 | **Safety Switch** | wired / not | `Reboot` · `conditional` | A switch that forces the blaster to SAFE while engaged, whatever firing mode is selected: the flywheels spin down, and it will not rev or fire. It beats everything, including the ESC dashboard. A blaster with no safety pin wired never shows this. Set the pin on the console's Wiring page. |
-| **Dual Stage Trigger** | on / off | `Live` · `conditional` | On: the trigger's own two contact stages replace a separate Rev switch, so a light press revs and a full press fires. Hidden when no rev pin is wired at all. Note that Plasma ignores the rev stage entirely. |
+| **Dual Stage Trigger** | on / off | `Live` · `conditional` | On: the trigger's own two contact stages replace a separate Rev switch, so a light press revs and a full press fires. On firmware 2.3.0 and later, a fire mode's [Half Press](Firing-Modes#half-press) can make the light press fire a mode of its own too. Hidden when no rev pin is wired at all. Note that Plasma ignores the rev stage entirely. |
 | **Switch Debounce (ms)** | 5 to 50, ±5 | `Live` | Debounce window for Trigger, Rev, all 3 Select switches, and the Menu button. Lower reacts faster to intentional fast double-taps but is more sensitive to switch bounce, and higher is the opposite. |
 | **Menu Hold Time** | 1 to 5s, ±0.5s | `Live` | How long you have to hold Menu for it to count as a hold, meaning open the menu or go back, instead of a short press. |
 | **Volt Avg Window** | 1 to 20 | `Live` | How many battery readings are averaged together. Higher smooths a jittery voltage readout at the cost of reacting more slowly to a real, fast voltage drop. |

@@ -19,7 +19,7 @@ Managing the 3 named slots described on [Home](Home).
 | Group | Settings |
 |---|---|
 | RPM and timing | Per-motor or per-stage RPM, dwell time, idle time, idle RPM, spindown speed, rev safety timeout, RPM Mode |
-| Fire modes | 1 to 10 entries, each with its firing mode, burst length, target DPS, reversible flag, binary timeout, cycle inclusion and name |
+| Fire modes | 1 to 10 entries, each with its firing mode, burst length, target DPS, reversible flag, binary timeout, cycle inclusion, half press and name |
 | Selector mapping | Which fire mode each switch position selects, plus Default Mode |
 
 Everything else is Device scope and shared across all three slots. Notably, motor Kv, PID gains and solenoid timing do **not** vary per profile.

@@ -1185,6 +1185,87 @@ static void updateDartSwitch()
     }
 }
 
+// A dual-stage trigger's half press firing a mode of its own. SUPPRESSED runs from a full press
+// until the rev contact opens, so easing back to a half press fires nothing.
+enum class HalfPress : uint8_t
+{
+    NONE,
+    ACTIVE,
+    SUPPRESSED,
+};
+static HalfPress halfPress = HalfPress::NONE;
+static int8_t halfPressModeIndex = NO_FIRE_MODE;
+// The fire mode the trigger is driving: the selected one, or the half press's while it fires.
+int8_t liveFireModeIndex = 0;
+
+// What the half press fires under the selected mode, or NO_FIRE_MODE where it only revs.
+static int8_t halfPressMode()
+{
+    if (!deviceSettings.dualStageTrigger || !pinDefined(revSwitchPin))
+        return NO_FIRE_MODE;
+    const FireModeConfig& selected = activeProfile.fireModes[firingMode];
+    const int8_t half = selected.revStageMode;
+    if (half < 0 || half >= (int8_t)activeProfile.activeModeCount || half == firingMode)
+        return NO_FIRE_MODE;
+    if (!halfPressCapable(effectiveBurstMode(selected.burstMode)) ||
+        !halfPressCapable(activeProfile.fireModes[half].burstMode))
+        return NO_FIRE_MODE;
+    return half;
+}
+
+// Which fire mode this tick's trigger event goes to, rewriting the event while the half press
+// drives its own mode.
+static int8_t routeTriggerEvent(TriggerEvent& event)
+{
+    const bool revHeld = pinDefined(revSwitchPin) && revSwitch.isPressed();
+    const bool triggerHeld = triggerSwitch.isPressed();
+    const int8_t half = halfPressMode();
+    switch (halfPress)
+    {
+    case HalfPress::ACTIVE:
+        if (triggerHeld)
+        {
+            // The full press takes over: the half press's mode never sees its release, and what it
+            // queued but has not started is dropped.
+            halfPress = HalfPress::SUPPRESSED;
+            shotsToFire = 0;
+            return firingMode;
+        }
+        if (half != halfPressModeIndex)
+        {
+            halfPress = HalfPress::SUPPRESSED;
+            return firingMode;
+        }
+        if (!revHeld)
+        {
+            halfPress = HalfPress::NONE;
+            event = TriggerEvent::RELEASED;
+            return half;
+        }
+        event = TriggerEvent::HELD;
+        return half;
+    case HalfPress::SUPPRESSED:
+        if (!revHeld)
+            halfPress = HalfPress::NONE;
+        return firingMode;
+    case HalfPress::NONE:
+        if (revHeld && triggerHeld)
+        {
+            halfPress = HalfPress::SUPPRESSED;
+            return firingMode;
+        }
+        if (revSwitch.pressed() && half != NO_FIRE_MODE)
+        {
+            halfPress = HalfPress::ACTIVE;
+            halfPressModeIndex = half;
+            event = TriggerEvent::PRESSED;
+            return half;
+        }
+        return firingMode;
+    }
+    return firingMode;
+}
+
 void mainFiringLogic()
 {
     if (pinDefined(revSwitchPin))
@@ -1242,7 +1323,6 @@ void mainFiringLogic()
     if (firingModeLastTick == -1)
         firingModeLastTick = firingMode;
     updateFiringMode();
-    burstMode = effectiveBurstMode(activeProfile.fireModes[firingMode].burstMode);
     if (firingMode != firingModeLastTick)
     {
         liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
@@ -1254,28 +1334,37 @@ void mainFiringLogic()
 
     requestRev = false;
 
+    TriggerEvent event = triggerSwitch.pressed()     ? TriggerEvent::PRESSED
+                         : triggerSwitch.released()  ? TriggerEvent::RELEASED
+                         : triggerSwitch.isPressed() ? TriggerEvent::HELD
+                                                     : TriggerEvent::IDLE;
+    int8_t modeIndex = firingMode;
+    if (menuIsOpen())
+        halfPress = pinDefined(revSwitchPin) && revSwitch.isPressed() ? HalfPress::SUPPRESSED
+                                                                      : HalfPress::NONE;
+    else
+        modeIndex = routeTriggerEvent(event);
+    liveFireModeIndex = modeIndex;
+    const FireModeConfig& liveMode = activeProfile.fireModes[modeIndex];
+    burstMode = effectiveBurstMode(liveMode.burstMode);
+
     if (menuIsOpen())
     {
         shotsToFire = 0;
     }
     else
     {
-        TriggerEvent event = triggerSwitch.pressed()     ? TriggerEvent::PRESSED
-                             : triggerSwitch.released()  ? TriggerEvent::RELEASED
-                             : triggerSwitch.isPressed() ? TriggerEvent::HELD
-                                                         : TriggerEvent::IDLE;
-
         if (event == TriggerEvent::PRESSED)
-            liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
+            liveTargetDPS = liveMode.targetDPS;
 
         FiringContext ctx{
             shotsToFire,
             liveTargetDPS,
             time_ms,
             triggerTime_ms,
-            activeProfile.fireModes[firingMode].binaryTriggerTimeout_ms,
-            activeProfile.fireModes[firingMode].burstLength,
-            activeProfile.fireModes[firingMode].reversible,
+            liveMode.binaryTriggerTimeout_ms,
+            liveMode.burstLength,
+            liveMode.reversible,
             requestRev,
             rpmScale_,
             buzzPulsesRequested_,
@@ -2219,7 +2308,7 @@ void loop1()
         {
             // Cross-core read-only mirror of core 0's firing state, same plain-global
             // sharing pattern as displayShotCounter above - only used for rendering here.
-            const FireModeConfig& liveFireMode = activeProfile.fireModes[firingMode];
+            const FireModeConfig& liveFireMode = activeProfile.fireModes[liveFireModeIndex];
             FiringContext fireCtx{
                 shotsToFire,
                 liveTargetDPS,
@@ -2234,11 +2323,20 @@ void loop1()
                 false, // render() never reads this
                 safetyEngaged,
             };
+            const int8_t selected = firingMode;
+            const String selectedName =
+                safetyEngaged ? String("SAFE") : activeProfile.fireModes[selected].effectiveName();
+            const int8_t half = halfPressMode();
+            const String halfName =
+                half != NO_FIRE_MODE ? activeProfile.fireModes[half].effectiveName() : String();
+            const PairStage pairStage = liveFireModeIndex != selected ? PairStage::HALF
+                                        : triggerSwitch.isPressed()   ? PairStage::FULL
+                                                                      : PairStage::NONE;
             // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
             // last measured extend-to-extend interval, set is the raw targetDPS setting.
             displayManager.renderTelemetry(
-                safetyEngaged ? "SAFE" : liveFireMode.effectiveName().c_str(),
-                activeProfile.name.c_str(),
+                selectedName.c_str(), half != NO_FIRE_MODE ? halfName.c_str() : nullptr,
+                pairStage, activeProfile.name.c_str(),
                 deviceSettings.blasterName.c_str(), motorArr, motorsEnabled, motorStages,
                 displayShotCounter, batteryMonitor->isDefined(),
                 batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,

@@ -414,6 +414,87 @@ class FireModeIncludeInCycleItem : public MenuItem
 static FireModeIncludeInCycleItem
     fireModeIncludeInCycleItem("Include In Cycle", "profile:fireModes[*].includeInCycle");
 
+// What a dual-stage trigger's half press fires while this mode is selected. Option 0 is Rev Only.
+class FireModeRevStageItem : public MenuItem
+{
+  public:
+    using MenuItem::MenuItem;
+
+    String valueText() const override { return optionLabel(currentOptionIndex()); }
+    MenuActivation activate() override { return MenuActivation::EnterEdit; }
+    void beginEdit() override { entryValue_ = editingFireMode().revStageMode; }
+    // Steps over the modes a half press can't fire, so the OLED never offers one.
+    void adjust(int8_t direction, bool wrap) override
+    {
+        const int options = (int)optionCount();
+        int next = (int)currentOptionIndex();
+        for (int tries = 0; tries < options; tries++)
+        {
+            next += direction;
+            if (next < 0)
+                next = wrap ? options - 1 : 0;
+            if (next >= options)
+                next = wrap ? 0 : options - 1;
+            if (offerable(optionToMode(next)))
+                break;
+        }
+        if (offerable(optionToMode(next)))
+            editingFireMode().revStageMode = optionToMode(next);
+    }
+    void cancelEdit() override { editingFireMode().revStageMode = entryValue_; }
+
+    uint8_t optionCount() const override { return 1 + activeProfile.activeModeCount; }
+    String optionLabel(uint8_t index) const override
+    {
+        if (index == 0)
+            return "Rev Only";
+        int8_t mode = optionToMode(index);
+        return mode < (int8_t)activeProfile.activeModeCount
+                   ? activeProfile.fireModes[mode].effectiveName()
+                   : String();
+    }
+    uint8_t currentOptionIndex() const override
+    {
+        int8_t mode = editingFireMode().revStageMode;
+        return inRange(mode) ? (uint8_t)(mode + 1) : 0;
+    }
+
+    ItemKind kind() const override { return ItemKind::Enum; }
+    bool bounds(ItemBounds& out) const override
+    {
+        out = {NO_FIRE_MODE, (int64_t)activeProfile.activeModeCount - 1, 1, 0};
+        return true;
+    }
+    void clampToBounds() override
+    {
+        if (!inRange(editingFireMode().revStageMode))
+            editingFireMode().revStageMode = NO_FIRE_MODE;
+    }
+
+  private:
+    static bool inRange(int8_t mode)
+    {
+        return mode >= 0 && mode < (int8_t)activeProfile.activeModeCount;
+    }
+    static int8_t optionToMode(int option) { return (int8_t)(option - 1); }
+    static bool offerable(int8_t mode)
+    {
+        return mode == NO_FIRE_MODE ||
+               (inRange(mode) && mode != (int8_t)editingFireModeIndex &&
+                halfPressCapable(activeProfile.fireModes[mode].burstMode));
+    }
+
+    int8_t entryValue_ = NO_FIRE_MODE;
+};
+static FireModeRevStageItem fireModeRevStageItem("Half Press", "profile:fireModes[*].revStageMode");
+
+// The rev contact is only a trigger stage on a dual-stage trigger.
+static bool editingFireModeTakesHalfPress()
+{
+    return pinDefined(revSwitchPin) && deviceSettings.dualStageTrigger &&
+           halfPressCapable(editingFireMode().burstMode);
+}
+
 class FireModeNameItem : public MenuItem
 {
   public:
@@ -452,6 +533,15 @@ static void deleteFireMode()
         activeProfile.fireModes[i] = activeProfile.fireModes[i + 1];
     activeProfile.activeModeCount--;
 
+    for (uint8_t i = 0; i < activeProfile.activeModeCount; i++)
+    {
+        int8_t& half = activeProfile.fireModes[i].revStageMode;
+        if (half == (int8_t)removed)
+            half = NO_FIRE_MODE;
+        else if (half > (int8_t)removed)
+            half--;
+    }
+
     if (activeProfile.defaultFiringMode == removed)
         activeProfile.defaultFiringMode = 0;
     else if (activeProfile.defaultFiringMode > removed)
@@ -485,7 +575,8 @@ static constexpr VisibilityCondition kSelectFireIsButton = {kSelectFireIsButtonT
 static MenuItem* fireModeEditorItems[] = {
     &fireModeBurstModeItem,  &fireModeBurstLengthItem,   &fireModeTargetDpsItem,
     &fireModeReversibleItem, &fireModeBinaryTimeoutItem, &fireModeIncludeInCycleItem,
-    &fireModeNameItem,       &duplicateFireModeItem,     &deleteFireModeItem,
+    &fireModeRevStageItem,   &fireModeNameItem,          &duplicateFireModeItem,
+    &deleteFireModeItem,
 };
 struct FireModeEditorInit
 {
@@ -496,6 +587,7 @@ struct FireModeEditorInit
         fireModeReversibleItem.setVisibleWhen(editingFireModeSupportsReversible);
         fireModeBinaryTimeoutItem.setVisibleWhen(editingFireModeIsBinary);
         fireModeIncludeInCycleItem.setVisibleWhen(selectFireTypeIsButton, &kSelectFireIsButton);
+        fireModeRevStageItem.setVisibleWhen(editingFireModeTakesHalfPress);
     }
 } fireModeEditorInit;
 static const uint8_t fireModeEditorItemsCount =

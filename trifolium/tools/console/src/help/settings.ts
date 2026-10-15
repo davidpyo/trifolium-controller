@@ -16,6 +16,8 @@ export const SETTING_HELP: Record<string, string> = {
     "How long after a press the release still fires. Released later, it counts as a new, separate pull.",
   "profile:fireModes[*].includeInCycle":
     "Whether the select button stops on this mode. Off keeps it in the list but out of the button's rotation.",
+  "profile:fireModes[*].revStageMode":
+    "With a dual-stage trigger, what a half press fires while this mode is selected. A full press takes over from it. Rev Only just spins the flywheels up.",
   "profile:fireModes[*].name":
     "Optional. Blank shows the firing mode itself, such as AUTO. Worth setting when several modes share one firing mode.",
   "profile:defaultFiringMode":
@@ -185,7 +187,7 @@ export const SETTING_HELP: Record<string, string> = {
   "device:hasDisplay": "Whether this blaster has an OLED screen at all.",
   "device:ledWarningMode": "Which battery condition blinks the status LED.",
   "device:dualStageTrigger":
-    "The trigger's two contact stages replace a separate rev switch: a light press revs, a full press fires. Plasma ignores the rev stage.",
+    "The trigger's two contact stages replace a separate rev switch: a light press revs, a full press fires. A fire mode's Half Press can make the light press fire too. Plasma ignores the rev stage.",
   "device:debounceTime_ms":
     "Debounce for the trigger, rev, select and menu switches. Lower catches fast double-taps; higher is steadier against switch bounce.",
   "device:menuButtonHoldTime_ms":
