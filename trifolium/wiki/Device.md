@@ -15,7 +15,7 @@ Everything else hardware-level, shared across all 3 profiles.
 
 ## Boot actions
 
-Hold a switch while powering on and the blaster does something other than start normally. Which switch does what is yours to set, in the **Held At Boot** column of the [Web Console](Web-Console)'s Wiring tab, and any of the switches can be given any action. The cycle switch is the exception on firmware 2.2.1 and later: the pusher rests on it, so it is held at every power-on, and it has no boot action. Only a power-on counts: a restart from the menu or the console ignores held switches.
+Hold a switch while powering on and the blaster does something other than start normally. Which switch does what is yours to set, in the **Held At Boot** column of the [Web Console](Web-Console)'s Wiring page, and any of the switches can be given any action. The cycle switch is the exception on firmware 2.2.1 and later: the pusher rests on it, so it is held at every power-on, and it has no boot action. Only a power-on counts: a restart from the menu or the console ignores held switches.
 
 | Action | What it does |
 |---|---|
@@ -41,7 +41,7 @@ Hold a switch while powering on and the blaster does something other than start 
 |---|---|---|---|
 | **Blaster Name** | 14 chars | `Live` | Shown on the home screen and the About screen. Uses the on-device text editor. |
 | **LED Warning** | No Warning / Low Batt / Warning Batt | `Live` · `conditional` | What battery condition blinks the status LED, if your board has one. Hidden entirely on boards with no LED wired. |
-| **Safety Switch** | wired / not | `Reboot` · `conditional` | A switch that forces the blaster to SAFE while engaged, whatever firing mode is selected — no rev, no fire. It beats everything, including the ESC dashboard. A blaster with no safety pin wired never shows this. Set the pin in the console's Wiring tab. |
+| **Safety Switch** | wired / not | `Reboot` · `conditional` | A switch that forces the blaster to SAFE while engaged, whatever firing mode is selected — no rev, no fire. It beats everything, including the ESC dashboard. A blaster with no safety pin wired never shows this. Set the pin on the console's Wiring page. |
 | **Dual Stage Trigger** | on / off | `Live` · `conditional` | On: the trigger's own two contact stages replace a separate Rev switch, so a light press revs and a full press fires. Hidden when no rev pin is wired at all. Note that Plasma ignores the rev stage entirely. |
 | **Switch Debounce (ms)** | 5 to 50, ±5 | `Live` | Debounce window for Trigger, Rev, all 3 Select switches, and the Menu button. Lower reacts faster to intentional fast double-taps but is more sensitive to switch bounce, and higher is the opposite. |
 | **Menu Hold Time** | 1 to 5s, ±0.5s | `Live` | How long you have to hold Menu for it to count as a hold, meaning open the menu or go back, instead of a short press. |

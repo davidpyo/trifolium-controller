@@ -109,9 +109,20 @@ export interface WiringTableProps {
   onEdit: (key: string, value: unknown) => void;
   /** Each slot's profile name as staged, so a boot action that loads a slot says which profile. */
   profileNames: readonly (string | undefined)[];
+  /** A GPIO whose row to light, because its pad on the board drawing is under the pointer. */
+  highlightPin?: number | null;
+  /** The GPIO of the row under the pointer, or null as it leaves, for the drawing to light its pad. */
+  onHoverPin?: (gpio: number | null) => void;
 }
 
-export function WiringTable({ schema, device, onEdit, profileNames }: WiringTableProps) {
+export function WiringTable({
+  schema,
+  device,
+  onEdit,
+  profileNames,
+  highlightPin = null,
+  onHoverPin,
+}: WiringTableProps) {
   const rows = collectWiring(schema);
   // The boot gate, rendered here rather than as a loose checkbox in the form: what it arms is the
   // table above it, and it is the last thing done on the custom-wiring path.
@@ -186,8 +197,15 @@ export function WiringTable({ schema, device, onEdit, profileNames }: WiringTabl
             {rows.map((row) => {
               // A row with a rule says so, rather than hiding it behind a hover nobody tries.
               const rule = ruleFor(row.pin?.key);
+              const gpio = row.pin ? getByKey(device, row.pin.key!) : undefined;
+              const pin = typeof gpio === "number" && gpio !== (row.pin?.hi ?? 255) ? gpio : null;
               return (
-              <TableRow key={row.id}>
+              <TableRow
+                key={row.id}
+                selected={pin !== null && pin === highlightPin}
+                onMouseEnter={() => onHoverPin?.(pin)}
+                onMouseLeave={() => onHoverPin?.(null)}
+              >
                 <TableCell sx={{ ...cellSx, whiteSpace: "nowrap" }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
                     <HelpTip help={helpFor((row.pin ?? row.bootAction)?.key)}>

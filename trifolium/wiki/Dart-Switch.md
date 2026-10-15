@@ -2,7 +2,7 @@
 
 *Advanced > Dart Switch. All Device scope. Firmware 2.2.0 and later.*
 
-A switch or sensor in the breech that sees a dart waiting. Wire it to ground on any free GPIO, like the other switches, and set **Dart Switch Pin** in the console's Wiring tab, with **Dart Switch Normally Closed** for one that opens when a dart is there. This section only appears once the pin is set.
+A switch or sensor in the breech that sees a dart waiting. Wire it to ground on any free GPIO, like the other switches, and set **Dart Switch Pin** on the console's Wiring page, with **Dart Switch Normally Closed** for one that opens when a dart is there. This section only appears once the pin is set.
 
 | Setting | Range | Takes effect | What it does |
 |---|---|---|---|

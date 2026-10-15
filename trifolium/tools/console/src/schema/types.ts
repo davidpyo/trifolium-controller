@@ -184,6 +184,8 @@ export interface BootStatus {
   ok: boolean;
   display: { probed: boolean; ok: boolean; err: string };
   wiring: { boardId: string; configured: boolean };
+  /** How the ESCs armed at power-on: each motor's ms to its first eRPM frame, 0 for none. */
+  escArming?: { ran: boolean; duration_ms: number; timedOut: boolean; answeredAt_ms: number[] };
   /**
    * The config-load paths that discarded user data on this boot. Optional for firmware predating
    * them; absent and empty mean different things, so don't collapse them.

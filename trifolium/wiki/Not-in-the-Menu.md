@@ -1,12 +1,12 @@
 # Not in the Menu
 
-A handful of settings are deliberately kept off the OLED screen. None of them need a rebuild any more — they are all in the [Web Console](Web-Console), on the tab named below.
+A handful of settings are deliberately kept off the OLED screen. None of them need a rebuild any more — they are all in the [Web Console](Web-Console), on the page named below.
 
 The reason a setting is off the menu is almost always the same: changing it from the panel could take away the panel, or the button you were using to change it.
 
 ## Wiring
 
-*Console: **Wiring** tab.*
+*Console: **Wiring** page.*
 
 | Setting | What it does |
 |---|---|
@@ -21,13 +21,13 @@ The reason a setting is off the menu is almost always the same: changing it from
 
 ## Device
 
-*Console: **Device** tab.*
+*Console: **Blaster settings** page, except where a row says otherwise.*
 
 | Setting | What it does |
 |---|---|
-| **Verbose Serial print** | Debug output over serial: switch presses, state changes, and per-shot DPS measurements. The **Verbose Logging** button at the top of the console switches it as well; either way the blaster restarts. |
-| **RPM log length** | How many samples a capture takes, one per millisecond, so 2000 is two seconds. The toggle that arms it *is* on the menu, under Motors & PID. |
-| **Splash screen** | A custom 128x64 boot image. The **Splash** tab has an upload button; any picture is converted for you. Takes effect next boot. |
+| **Verbose Serial print** | Debug output over serial: switch presses, state changes, and per-shot DPS measurements. The **Verbose** switch on the console's log bar switches it as well; either way the blaster restarts. |
+| **RPM log length** | How many samples a capture takes, one per millisecond, so 2000 is two seconds. On the **RPM capture** page, beside RPM Logging. The toggle that arms it *is* on the menu, under Motors & PID. |
+| **Splash screen** | A custom 128x64 boot image. The **Splash screen** page has an upload button; any picture is converted for you. Takes effect next boot. |
 
 ## Still fixed in the firmware
 
@@ -47,4 +47,4 @@ Only ceilings remain, and none of them is a per-blaster choice:
 
 A capture is CSV: a `Voltage_mv` column, then `Motor N, TargetRPM N, Throttle N, value N` repeated per enabled motor, one row per control-loop tick.
 
-Paste it into the console's **RPM Log** tab to chart it, or process it yourself.
+Paste it into the console's **RPM capture** page to chart it, or process it yourself.

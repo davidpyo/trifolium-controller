@@ -4,7 +4,7 @@ Most people never need to build anything. The released firmware fits every suppo
 
 ## 1. Open the web console
 
-Open it at [davidpyo.github.io/trifolium-controller](https://davidpyo.github.io/trifolium-controller/). It is a single page with nothing to install. For a copy that works without an internet connection, press **Download for offline use** at the bottom of the page and open the saved file by double-clicking. See [Web Console](Web-Console).
+Open it at [davidpyo.github.io/trifolium-controller](https://davidpyo.github.io/trifolium-controller/). It is a single page with nothing to install. For a copy that works without an internet connection, press **Download for offline use** at the foot of the sidebar and open the saved file by double-clicking. See [Web Console](Web-Console).
 
 The firmware is one `.uf2`, the same for every board. The console lists every released version when you flash, so there is usually nothing to download yourself. The files are also on the [releases page](https://github.com/davidpyo/trifolium-controller/releases/latest).
 
@@ -12,7 +12,7 @@ The firmware is one `.uf2`, the same for every board. The console lists every re
 
 The console can do this over USB, so a fresh board needs no toolchain at all.
 
-Press **Flash Firmware**, pick a version under **Released firmware** (the newest is marked latest), and follow the prompts. The console downloads it and checks it before writing anything. To flash a file you already have, use **Or choose a .uf2 file** instead, which is also the way when the console cannot reach the internet. It offers to save a backup of your settings first, which is worth taking.
+On the **Firmware** page, press **Flash Firmware**, pick a version under **Released firmware** (the newest is marked latest), and follow the prompts. The console downloads it and checks it before writing anything. To flash a file you already have, use **Or choose a .uf2 file** instead, which is also the way when the console cannot reach the internet. It offers to save a backup of your settings first, which is worth taking.
 
 If the board has never run this firmware, or is unresponsive, hold **BOOTSEL** while plugging in the USB cable so it comes up in bootloader mode. A board already running Trifolium can be sent there from the menu instead: **Advanced > Device > Reboot > Bootloader**.
 
@@ -22,11 +22,11 @@ Flashing keeps your settings. They live in the board's own storage, not in the f
 
 A newly flashed board comes up **unwired**: it drives no pins at all, so no motors spin, no solenoid fires, and the screen stays dark. This is deliberate. The firmware has no idea what it is fitted to yet, and guessing wrong would drive the wrong pins.
 
-Connect the console and it will ask. Pick your board from the list, press **Load this wiring and restart**, and that is the setup done. The board remembers, so this is once per board rather than once per flash.
+Connect the console and it will ask, in three steps. Pick your board, press **Next** past **Blaster config** with **None** picked, and press **Set up blaster** on the review. That is the setup done. The board remembers, so this is once per board rather than once per flash.
 
-If you built one of the published blasters, pick it under **Blaster config** as well, and press **Load the wiring and config, and restart**. The blaster then starts from its builders' settings instead of the firmware defaults: tuning, fire modes, all three profiles, and how the pusher is driven. The pins are your board's. A config saved on the same board you picked also fills in any pin the board leaves unused, so one made on a bare module such as the Seeed XIAO RP2040 or the RP2040-Zero, whose presets claim no pins, brings the blaster's whole wiring with it. Read any notes that appear under the config before loading it. If your build wires a switch to a different pad from the board's usual one, change it in the **Wiring** tab afterwards.
+If you built one of the published blasters, pick it on the **Blaster config** step instead of **None**; the configs built on your board are listed first. The blaster then starts from its builders' settings instead of the firmware defaults: tuning, fire modes, all three profiles, and how the pusher is driven. The pins are your board's. A config saved on the same board you picked also fills in any pin the board leaves unused, so one made on a bare module such as the Seeed XIAO RP2040 or the RP2040-Zero, whose presets claim no pins, brings the blaster's whole wiring with it. Read any notes that appear under the config, which the review repeats, before setting up. If your build wires a switch to a different pad from the board's usual one, change it on the **Wiring** page afterwards.
 
-If your board is not listed, choose **My board is not listed — wire it by hand**, which opens the Wiring tab with every pin unset so you can enter them one at a time. Nothing is driven until you tick **Wiring Configured** and write.
+If your board is not listed, choose **My board is not listed: wire it by hand** on the first step, which opens the Wiring page with every pin unset so you can enter them one at a time. Nothing is driven until you tick **Wiring Configured** and write.
 
 > **Pick the board you actually have.** A wrong choice drives the wrong pins on real hardware.
 
@@ -48,7 +48,7 @@ If you loaded a blaster config in step 3, most of this is already done. Check th
 
 Open the console's log pane, or a serial monitor at **115200 baud**, if you want to watch it come up. It reports boot progress and any faults, but nothing routine.
 
-If something is wired in a way the chip cannot do — two things on one pin, an I2C pair that no hardware block can serve — the blaster does not refuse to start. It gives up the least important thing, keeps running, and tells you what it dropped: on the screen, in the boot log, and in the console's **Wiring** tab. Your stored settings are left exactly as you entered them, so fixing the pin is all it takes.
+If something is wired in a way the chip cannot do — two things on one pin, an I2C pair that no hardware block can serve — the blaster does not refuse to start. It gives up the least important thing, keeps running, and tells you what it dropped: on the screen, in the boot log, and in the console, on Overview and the **Wiring** page. Your stored settings are left exactly as you entered them, so fixing the pin is all it takes.
 
 ## Building from source
 

@@ -23,8 +23,7 @@ import {
 import { getByKey } from "../schema/keyPath";
 import { walk, type Schema, type SchemaNode } from "../schema/types";
 import { DropLabel, dropOutlineSx, useFileDrop } from "./FileDrop";
-import { Field } from "./Field";
-import { Fieldset } from "./Section";
+import { Field, ROWS_SX } from "./Field";
 import { RpmChart, type Series } from "./RpmChart";
 
 // Charting an RPM capture.
@@ -60,6 +59,50 @@ export interface RpmLogProps {
   logText: string;
   /** device:useRpmLogging - whether the next rev records a capture at all. */
   capturing: boolean;
+}
+
+/** One step of a capture, numbered, green once it is done. */
+function Step({
+  n,
+  title,
+  done,
+  children,
+}: {
+  n: number;
+  title: string;
+  done?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        px: 2,
+        py: 1.5,
+        display: "grid",
+        gap: 0.5,
+        alignContent: "start",
+        fontSize: 12.5,
+        color: "text.secondary",
+        borderLeft: { md: n > 1 ? 1 : 0 },
+        borderTop: { xs: n > 1 ? 1 : 0, md: 0 },
+        borderColor: "divider",
+      }}
+    >
+      <Box
+        component="span"
+        sx={{
+          fontSize: 11.5,
+          fontWeight: 700,
+          letterSpacing: ".05em",
+          textTransform: "uppercase",
+          color: done ? "success.main" : "text.disabled",
+        }}
+      >
+        {n} · {title}
+      </Box>
+      <Box>{children}</Box>
+    </Box>
+  );
 }
 
 export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogProps) {
@@ -141,7 +184,7 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
       setError(
         capturing
           ? "No CSV capture in the device log yet. RPM Logging is on, so rev the blaster and wait - the device dumps the whole capture at once and reboots straight after."
-          : "No CSV capture found in the device log. RPM Logging is off: turn it on above, then rev the blaster.",
+          : "No CSV capture found in the device log. RPM Logging is off: turn it on in step 1 and write it, then rev the blaster.",
       );
       return;
     }
@@ -188,31 +231,51 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
     <Stack spacing={1} {...dropProps} sx={dropOutlineSx(over)}>
       <DropLabel over={over} label="Drop a .csv capture here" />
       {/*
-        The two settings that decide whether there is anything to chart, on the tab that charts it.
-        They used to sit under Device > RPM Capture, two tabs from the button that reads the result,
-        which meant arming a capture and looking at one were different places. DEVICE_LAYOUT claims
-        both keys as RENDERED_ELSEWHERE so they do not also fall through into "Other settings".
+        A capture in three steps, on the page that charts it. Logging is a stored setting, staged and
+        written like any other, and it stays on until it is switched off: each switch is a flash
+        write, so the console never turns it on or off by itself. DEVICE_LAYOUT claims both keys as
+        RENDERED_ELSEWHERE so they do not also fall through into "Other settings".
       */}
-      {captureNodes.length > 0 && (
-        <Fieldset label="Capture">
-          <Stack direction="row" spacing={2} sx={{ alignItems: "flex-start", flexWrap: "wrap" }}>
-            {captureNodes.map((node) => (
-              <Box key={node.key} sx={{ minWidth: 150 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr)" },
+          border: 1,
+          borderColor: "divider",
+          borderRadius: 1,
+        }}
+      >
+        <Step n={1} title="RPM logging" done={capturing}>
+          Saved like any setting, so it stays on until you turn it off. Write it to start capturing.
+          {captureNodes.length > 0 && (
+            <Box sx={{ ...ROWS_SX, gridTemplateColumns: "1fr", mt: 0.5 }}>
+              {captureNodes.map((node) => (
                 <Field
+                  key={node.key}
                   node={node}
                   value={getByKey(device, node.key!)}
                   onChange={(next) => onEdit(node.key!, next)}
                 />
-              </Box>
-            ))}
-          </Stack>
-        </Fieldset>
-      )}
+              ))}
+            </Box>
+          )}
+        </Step>
+        <Step n={2} title="Rev">
+          Pull the rev or the trigger. Every rev records a capture, then the blaster restarts on its
+          own and the console reconnects.
+        </Step>
+        <Step n={3} title="Read">
+          Take the capture from the log to chart it. Rev again for another, and turn logging off when
+          you are done.
+          <Box sx={{ mt: 1 }}>
+            <Button size="small" variant="contained" onClick={takeFromLog}>
+              Take from device log
+            </Button>
+          </Box>
+        </Step>
+      </Box>
 
       <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-        <Button size="small" variant="outlined" onClick={takeFromLog}>
-          Take from device log
-        </Button>
         <Button size="small" variant="outlined" onClick={() => fileRef.current?.click()}>
           Open CSV file
         </Button>
@@ -353,7 +416,7 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
         minRows={4}
         maxRows={10}
         size="small"
-        placeholder="Paste a capture here, drop a .csv file anywhere on this tab, or use the buttons above."
+        placeholder="Paste a capture here, drop a .csv file anywhere on this page, or use the buttons above."
         value={text}
         onChange={(e) => setText(e.target.value)}
         slotProps={{ htmlInput: { style: { fontSize: 11, fontFamily: "ui-monospace, monospace" } } }}

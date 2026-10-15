@@ -29,13 +29,13 @@ Several timing fields read in **seconds** on screen and step in whole seconds, e
 
 *Firmware 2.2.0 and later.*
 
-A potentiometer can set the rev RPM live, in place of the profile's own RPM rows. Wire its wiper to one of GPIO 26-29, the RP2040's only analog pins, one end to ground and the other to **3.3 V**. Never 5 V: it damages the pin. Then set **Speed Pot Pin** in the console's Wiring tab.
+A potentiometer can set the rev RPM live, in place of the profile's own RPM rows. Wire its wiper to one of GPIO 26-29, the RP2040's only analog pins, one end to ground and the other to **3.3 V**. Never 5 V: it damages the pin. Then set **Speed Pot Pin** on the console's Wiring page.
 
 - Across its travel the 1st stage runs from Pot Min RPM to Pot Max RPM, and motors assigned to the 2nd stage run at Stage 2 Ratio times that.
 - Each target is kept between what the motor can reach and a little above Min Firing RPM: Firing RPM Tol above it, or 1000 RPM if that is smaller. So the lowest setting still reaches firing speed, and a wide tolerance does not take the bottom of the pot away.
 - The rev RPM rows, and the root menu's **RPM / Timing** shortcut, are hidden while a pot is wired.
 - What the pot sets is saved with the active profile once the pot has held still for a second and the wheels have stopped.
-- If it is fastest at the wrong end, tick **Reversed** in the Speed Pot row of the console's Wiring tab. See [Not in the Menu](Not-in-the-Menu).
+- If it is fastest at the wrong end, tick **Reversed** in the Speed Pot row of the console's Wiring page. See [Not in the Menu](Not-in-the-Menu).
 
 ## \* Why a field will not go where you want
 

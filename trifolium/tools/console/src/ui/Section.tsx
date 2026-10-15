@@ -13,7 +13,7 @@ import Typography from "@mui/material/Typography";
 import { getByKey } from "../schema/keyPath";
 import { isConfigField, isVisible, needsReboot, type SchemaNode } from "../schema/types";
 import { helpFor } from "../help/settings";
-import { Field, FieldControl } from "./Field";
+import { Field, FieldControl, ROWS_SX } from "./Field";
 import { HelpTip } from "./Help";
 import {
   countFields,
@@ -33,15 +33,6 @@ export interface SectionProps {
   /** Keys already rendered elsewhere. The tree reaches some fields by more than one path. */
   seen?: Set<string>;
 }
-
-/** Fields flow into as many columns as the width allows, rather than one per row. */
-const FIELD_GRID = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-  columnGap: 1.5,
-  rowGap: 1,
-  alignItems: "start",
-} as const;
 
 /** A bordered group with its name set into the border, as tight as the content allows. */
 export function Fieldset({
@@ -202,7 +193,7 @@ export function Section({ node, payloads, onEdit, seen = new Set() }: SectionPro
       {matrix && <Matrix groups={matrix} payloads={payloads} onEdit={onEdit} />}
 
       {fields.length > 0 && (
-        <Box sx={FIELD_GRID}>
+        <Box sx={ROWS_SX}>
           {fields.map((child) => (
             <Field
               key={child.key}

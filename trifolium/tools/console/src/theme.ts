@@ -43,11 +43,20 @@ export const buildTheme = (mode: "light" | "dark") =>
     palette: {
       mode,
       primary: { main: mode === "dark" ? "#7cc4ff" : "#0a58a8" },
+      // The page ground sits a step below the panels on it, so a section reads as a surface.
+      background:
+        mode === "dark"
+          ? { default: "#0c1118", paper: "#131a24" }
+          : { default: "#f4f6fa", paper: "#ffffff" },
+      divider: mode === "dark" ? "#253041" : "#dbe2ec",
+      warning: { main: mode === "dark" ? "#f2b257" : "#a85d00" },
     },
+    shape: { borderRadius: 6 },
     typography: {
       fontFamily: fontStack,
       // Numeric fields read better aligned; tabular figures stop values jittering as they change.
       fontSize: 14,
+      button: { textTransform: "none", fontWeight: 550 },
     },
     components: {
       MuiCssBaseline: {
@@ -55,6 +64,8 @@ export const buildTheme = (mode: "light" | "dark") =>
           body: { fontVariantNumeric: "tabular-nums" },
         },
       },
+      MuiButton: { defaultProps: { disableElevation: true } },
+      MuiPaper: { defaultProps: { elevation: 0 } },
       MuiTextField: { defaultProps: { size: "small" } },
       MuiSelect: {
         defaultProps: {

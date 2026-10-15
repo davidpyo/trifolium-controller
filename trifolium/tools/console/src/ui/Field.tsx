@@ -2,9 +2,10 @@ import React from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
+import InputAdornment from "@mui/material/InputAdornment";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -14,13 +15,18 @@ import { asBound, boundsToReal, snapReal, steppedReal, type Band } from "../sche
 import { isEditable, needsReboot, type SchemaNode } from "../schema/types";
 import { optionIndexFor, optionValueAt } from "../schema/enumValue";
 import { helpFor, optionHelpFor } from "../help/settings";
-import { useIsDirty } from "./dirty";
+import { splitUnit } from "./changes";
+import { StagingContext, useIsDirty } from "./dirty";
 import { HelpTip } from "./Help";
 
 export interface FieldProps {
   node: SchemaNode;
   value: unknown;
   onChange: (value: unknown) => void;
+  /** Shown inside a number field, after the value, where a row has taken it off the label. */
+  unit?: string;
+  /** A switch rather than a checkbox, for an on/off setting alone on its row. */
+  asSwitch?: boolean;
 }
 
 /**
@@ -58,7 +64,7 @@ function rangeHint(node: SchemaNode): string {
 
 const denseInput = { padding: "4px 6px", fontSize: 13 } as const;
 
-function NumericField({ node, value, onChange }: FieldProps) {
+function NumericField({ node, value, onChange, unit }: FieldProps) {
   const band = bandOf(node);
   const seconds = node.display === "seconds";
   // toShown takes a real-unit value, never a bound: lo/hi/step arrive scaled by 10^decimals and
@@ -102,6 +108,8 @@ function NumericField({ node, value, onChange }: FieldProps) {
     setDraft(String(toShown(stored)));
   };
 
+  // The range shows while the field has focus, under it, out of flow so nothing moves.
+  const hint = rangeHint(node);
   return (
     <TextField
       type="number"
@@ -109,12 +117,39 @@ function NumericField({ node, value, onChange }: FieldProps) {
       value={draft}
       disabled={!isEditable(node)}
       error={editing && !inRange}
+      helperText={editing && hint ? hint : undefined}
       slotProps={{
         htmlInput: {
           min: shownLo,
           max: shownHi,
           step: shownStep,
           style: denseInput,
+        },
+        input: unit
+          ? {
+              endAdornment: (
+                <InputAdornment position="end" sx={{ "& p": { fontSize: 12 } }}>
+                  {unit}
+                </InputAdornment>
+              ),
+            }
+          : undefined,
+        formHelperText: {
+          sx: {
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            m: 0,
+            mt: 0.25,
+            px: 0.75,
+            zIndex: 2,
+            fontSize: 11.5,
+            whiteSpace: "nowrap",
+            bgcolor: "background.paper",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: 1,
+          },
         },
       }}
       onFocus={() => setEditing(true)}
@@ -331,7 +366,7 @@ function TextEditField({ node, value, onChange }: FieldProps) {
 }
 
 /**
- * Red outline on anything edited and not yet written.
+ * An amber outline on anything edited and not yet written, the colour every unsaved mark uses.
  *
  * `display: contents` so the wrapper adds no box of its own - these sit inside grid cells and table
  * cells whose layout the marker has no business changing. Styled by descendant selector rather than
@@ -340,9 +375,10 @@ function TextEditField({ node, value, onChange }: FieldProps) {
  */
 const dirtySx = {
   display: "contents",
-  "& .MuiOutlinedInput-notchedOutline": { borderColor: "error.main", borderWidth: 2 },
-  "& .MuiCheckbox-root": { color: "error.main" },
-  "& .MuiToggleButtonGroup-root": { outline: "2px solid", outlineColor: "error.main" },
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: "warning.main", borderWidth: 2 },
+  "& .MuiCheckbox-root": { color: "warning.main" },
+  "& .MuiSwitch-track": { outline: "2px solid", outlineColor: "warning.main" },
+  "& .MuiToggleButtonGroup-root": { outline: "2px solid", outlineColor: "warning.main" },
 } as const;
 
 /** Just the control, unlabelled - the matrix layout labels its own rows and columns. */
@@ -360,7 +396,15 @@ function renderControl(props: FieldProps) {
     case "float":
       return node.display === "pin" ? <PinField {...props} /> : <NumericField {...props} />;
     case "bool":
-      return (
+      return props.asSwitch ? (
+        <Switch
+          size="small"
+          checked={props.value === true}
+          disabled={!isEditable(node)}
+          onChange={(e) => props.onChange(e.target.checked)}
+          slotProps={{ input: { "aria-label": splitUnit(node.label).name } }}
+        />
+      ) : (
         <Checkbox
           size="small"
           sx={{ p: 0.25 }}
@@ -386,88 +430,152 @@ function renderControl(props: FieldProps) {
 
 /** Marks a setting that only takes effect after a reboot, without spending a chip's worth of width. */
 const RebootMark = () => (
-  <Tooltip title="Takes effect after a reboot">
-    <Box component="span" sx={{ color: "warning.main", fontSize: 12, lineHeight: 1, cursor: "help" }}>
+  <Tooltip title="Takes effect after the blaster restarts">
+    <Box
+      component="span"
+      sx={{ color: "warning.main", fontSize: 12, lineHeight: 1, cursor: "help" }}
+    >
       &#x27F3;
     </Box>
   </Tooltip>
 );
 
 /**
- * One field as a tile: label above, control below, range beneath in small print.
+ * Rows flow into as many columns as fit at 300 px, three at most, and one on a phone. Related pairs -
+ * a threshold and its time - are ordered by the layout to share a line.
+ */
+export const ROWS_SX = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fill, minmax(max(min(100%, 300px), calc((100% - 48px) / 3)), 1fr))",
+  columnGap: 3,
+  alignItems: "stretch",
+} as const;
+
+/** How wide a row's control is, so the controls down a column line up. */
+const CONTROL_WIDTH = 168;
+
+/**
+ * One setting as a row: its name, and anything said about it, on the left; its control on the right.
  *
- * Tiles rather than full-width rows because these flow into a multi-column grid. A label column wide
- * enough for "Extend @ High V (ms)" would set the width for every row on the page and turn sixty
- * settings into a very long scroll.
+ * An edited row is marked down its left edge and says what the device holds, with a revert beside
+ * it - the edit is visible and undoable where it was made, not only in the review.
  */
 export function Field(props: FieldProps) {
   const { node } = props;
   const dirty = useIsDirty(node.key);
-  const labelColour = dirty ? "error.main" : "text.secondary";
-
-  // A locked field has one tooltip over all of it, saying why, and the help joins that one rather than
-  // opening a second over the label.
+  const staging = React.useContext(StagingContext);
+  const split = splitUnit(node.label);
+  const name = split.name;
+  // A seconds row is stored in ms and shown in s, so it names its unit whatever its label says.
+  const unit = node.display === "seconds" ? "s" : split.unit;
   const editable = isEditable(node);
   const help = helpFor(node.key);
-  const locked = (field: React.ReactElement) => (
-    <HelpTip lead={node.locked} help={help}>
-      {field}
-    </HelpTip>
-  );
+  const was = dirty && node.key ? staging.was(node.key) : undefined;
 
-  // A checkbox already carries its label, so it takes one line rather than three.
-  if (node.kind === "bool") {
-    const control = (
-      <FormControlLabel
-        control={<FieldControl {...props} />}
-        disableTypography
-        label={
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-            <HelpTip help={editable ? help : undefined}>
-              <Typography variant="caption" color={dirty ? "error.main" : undefined}>
-                {node.label}
+  const row = (
+    <Box
+      className="setting-row"
+      data-key={node.key}
+      sx={{
+        position: "relative",
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        columnGap: 1.75,
+        alignItems: "center",
+        minHeight: 40,
+        py: 0.25,
+        pl: 1.25,
+        borderBottom: 1,
+        borderColor: "divider",
+        "&::before": dirty
+          ? {
+              content: '""',
+              position: "absolute",
+              left: 0,
+              top: 7,
+              bottom: 7,
+              width: 3,
+              borderRadius: "0 3px 3px 0",
+              bgcolor: "warning.main",
+            }
+          : undefined,
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 1 }}>
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+            <HelpTip
+              lead={editable && dirty ? `${name} (edited, not yet written)` : undefined}
+              help={editable && !staging.describe ? help : undefined}
+            >
+              <Typography
+                component="span"
+                sx={{
+                  fontWeight: 550,
+                  fontSize: 13.5,
+                  cursor: help && editable ? "help" : undefined,
+                }}
+              >
+                {name}
               </Typography>
             </HelpTip>
             {needsReboot(node) && <RebootMark />}
-          </Stack>
-        }
-        sx={{ m: 0, gap: 0.75, alignSelf: "start" }}
-      />
-    );
-    return editable ? control : locked(control);
-  }
-
-  const hint = rangeHint(node);
-  const tile = (
-    <Box sx={{ minWidth: 0 }}>
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", mb: 0.25 }}>
-        {/* Named in full first: a narrow tile cuts the label short. */}
-        <HelpTip
-          lead={editable ? (dirty ? `${node.label} (edited, not yet written)` : node.label) : undefined}
-          help={editable ? help : undefined}
-        >
-          <Typography
-            variant="caption"
-            color={labelColour}
-            noWrap
-            sx={{ minWidth: 0, fontWeight: dirty ? 600 : undefined }}
-          >
-            {node.label}
-          </Typography>
-        </HelpTip>
-        {needsReboot(node) && <RebootMark />}
-      </Stack>
-      <FieldControl {...props} />
-      {hint && (
-        <Typography
-          component="div"
-          sx={{ fontSize: 10.5, color: "text.disabled", mt: 0.25, lineHeight: 1.3 }}
-        >
-          {hint}
-        </Typography>
-      )}
+          </Box>
+          {dirty && (
+            <Box
+              component="span"
+              sx={{ fontSize: 11.5, color: "warning.main", whiteSpace: "nowrap" }}
+            >
+              {was !== undefined && `was ${was} `}
+              <Box
+                component="button"
+                type="button"
+                onClick={() => node.key && staging.revert(node.key)}
+                aria-label={`Revert ${name}`}
+                sx={{
+                  border: 0,
+                  bgcolor: "transparent",
+                  p: 0,
+                  color: "primary.main",
+                  font: "inherit",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                Revert
+              </Box>
+            </Box>
+          )}
+        </Box>
+        {staging.describe && help && (
+          <Box sx={{ color: "text.secondary", fontSize: 12, mt: 0.25, maxWidth: "62ch" }}>
+            {help}
+          </Box>
+        )}
+      </Box>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "flex-end",
+          position: "relative",
+          width:
+            node.kind === "bool" || (node.kind === "enum" && (node.options?.length ?? 0) === 2)
+              ? "auto"
+              : CONTROL_WIDTH,
+        }}
+      >
+        <FieldControl {...props} unit={unit} asSwitch />
+      </Box>
     </Box>
   );
 
-  return editable ? tile : locked(tile);
+  // A locked field has one tooltip over all of it, saying why, and the help joins that one.
+  return editable ? (
+    row
+  ) : (
+    <HelpTip lead={node.locked} help={help}>
+      {row}
+    </HelpTip>
+  );
 }

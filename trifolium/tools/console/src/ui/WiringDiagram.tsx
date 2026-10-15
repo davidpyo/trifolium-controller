@@ -332,9 +332,19 @@ export interface WiringDiagramProps {
   schema: Schema;
   device: unknown;
   diagram: Diagram;
+  /** A GPIO to light, because its row in the wiring table is under the pointer. */
+  highlightPin?: number | null;
+  /** The GPIO of the pad under the pointer, or null as it leaves, for the table to light its row. */
+  onHoverPin?: (gpio: number | null) => void;
 }
 
-export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
+export function WiringDiagram({
+  schema,
+  device,
+  diagram,
+  highlightPin = null,
+  onHoverPin,
+}: WiringDiagramProps) {
   const theme = useTheme();
   // A pad in use takes the colour its leader line and label already use; a free one is filled red,
   // which is the pair that showed up against this board's render. Both come from the palette, so
@@ -448,10 +458,11 @@ export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
     host.querySelectorAll<SVGElement>(PIN_SELECTOR).forEach((el) => {
       // Every pad on the hovered plug, not just the one under the pointer: which pads are one plug
       // is the question a connector exists to answer, and lighting them together is the answer.
-      const onHoveredPlug =
-        hoveredConnector !== null &&
-        el.closest("[data-connector]")?.getAttribute("data-connector") === hoveredConnector;
       const attr = el.getAttribute("data-gpio");
+      const onHoveredPlug =
+        (hoveredConnector !== null &&
+          el.closest("[data-connector]")?.getAttribute("data-connector") === hoveredConnector) ||
+        (highlightPin !== null && attr !== null && Number(attr) === highlightPin);
       const power = el.getAttribute("data-pin");
       const inUse = attr !== null && assigned.has(Number(attr));
       const colour =
@@ -474,6 +485,7 @@ export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
     pinGnd,
     pinPower,
     hoveredConnector,
+    highlightPin,
     theme.palette.text.primary,
   ]);
 
@@ -566,8 +578,14 @@ export function WiringDiagram({ schema, device, diagram }: WiringDiagramProps) {
           return (
             <Tooltip key={`${gpio ?? power}-${i}`} title={title}>
               <Box
-                onMouseEnter={() => setHoveredConnector(pad.connector ?? null)}
-                onMouseLeave={() => setHoveredConnector(null)}
+                onMouseEnter={() => {
+                  setHoveredConnector(pad.connector ?? null);
+                  onHoverPin?.(gpio);
+                }}
+                onMouseLeave={() => {
+                  setHoveredConnector(null);
+                  onHoverPin?.(null);
+                }}
                 sx={{
                   position: "absolute",
                   left: x,

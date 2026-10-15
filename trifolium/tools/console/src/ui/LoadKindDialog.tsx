@@ -12,7 +12,7 @@ import type { LoadIntent } from "./TopBar";
 export interface LoadKindDialogProps {
   /** The dropped file, named so the choice is made about something specific. */
   fileName: string;
-  /** Name of the slot a profile would land in, which is the one the Profile tab shows. */
+  /** Name of the slot a profile would land in, which is the one the Profiles page shows. */
   profileName: string;
   onPick: (intent: LoadIntent) => void;
   onCancel: () => void;
@@ -36,7 +36,7 @@ export function LoadKindDialog({ fileName, profileName, onPick, onCancel }: Load
     {
       intent: "profile",
       label: `Profile into ${profileName}`,
-      detail: "Replaces the slot shown on the Profile tab",
+      detail: "Replaces the slot the Profiles page shows",
     },
   ];
 

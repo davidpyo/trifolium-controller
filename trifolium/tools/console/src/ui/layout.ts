@@ -21,19 +21,19 @@
  * settings" - so it is claimed here instead, with the place it went written down.
  */
 export const RENDERED_ELSEWHERE: Record<string, string> = {
-  "device:blasterName": "the header, next to the pencil",
-  // Arming a capture and setting its length are the first two things you do on the RPM Log tab,
-  // and they were two tabs away from the chart they govern. They live there now, next to the
-  // buttons that read the result - not duplicated, moved.
-  "device:useRpmLogging": "the RPM Log tab",
-  "device:rpmLogLength": "the RPM Log tab",
-  "device:boardId": "the header - provenance, and the preset picker beside it",
+  "device:blasterName": "the top bar, next to the pencil",
+  // Turning logging on and setting a capture's length are the first step on the RPM capture page,
+  // next to the button that reads the result.
+  "device:useRpmLogging": "the RPM capture page",
+  "device:rpmLogLength": "the RPM capture page",
+  "device:boardId": "the top bar and the Wiring page - provenance, and the preset picker",
   // The boot gate rather than a pin, and the picker and the custom path are the two things
   // that set it. Rendered in the Wiring table's own footer, where what it arms is visible.
   "device:wiringConfigured": "the Wiring table footer",
   // Only read when variableFPS is on and select-fire is a switch or encoder -
   // selectShotProfileAtBoot() reaches them from no other branch - which is exactly when those
-  // editors render. On the Device tab they showed unconditionally and did nothing most of the time.
+  // editors render. Among the blaster settings they would show unconditionally and do nothing most
+  // of the time.
   "device:defaultProfileIndex": "the selector editor, on the none row",
   ...Object.fromEntries(
     Array.from({ length: 7 }, (_, i) => [

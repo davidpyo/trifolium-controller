@@ -13,7 +13,7 @@ interface PublishedBuild {
  * Which build of the console this is, where to get it for offline use, and - for a saved copy
  * that can reach the site - whether the site has a newer one.
  */
-export function ConsoleFooter() {
+export function ConsoleFooter({ stacked }: { stacked?: boolean }) {
   const onSite = servedFromSite();
   const [newer, setNewer] = React.useState<PublishedBuild | null>(null);
 
@@ -32,7 +32,11 @@ export function ConsoleFooter() {
   }, [onSite]);
 
   return (
-    <Stack direction="row" spacing={1.5} sx={{ mt: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+    <Stack
+      direction={stacked ? "column" : "row"}
+      spacing={stacked ? 0.5 : 1.5}
+      sx={{ mt: stacked ? 0 : 1.5, alignItems: stacked ? "flex-start" : "center", flexWrap: "wrap" }}
+    >
       <Typography variant="caption" color="text.disabled">
         Trifolium Console · built from {BUILD.commit} on {BUILD.date}
       </Typography>

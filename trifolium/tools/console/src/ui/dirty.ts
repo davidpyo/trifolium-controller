@@ -17,3 +17,20 @@ export function useIsDirty(key: string | undefined): boolean {
   const dirty = React.useContext(DirtyKeys);
   return key !== undefined && dirty.has(key);
 }
+
+/**
+ * What a row needs to show an edit against the device and put it back: the value as the device
+ * last reported it, and a revert. Plus whether rows carry their help line in full, for screens with
+ * no hover to show it on.
+ */
+export interface Staging {
+  was: (key: string) => string | undefined;
+  revert: (key: string) => void;
+  describe: boolean;
+}
+
+export const StagingContext = React.createContext<Staging>({
+  was: () => undefined,
+  revert: () => {},
+  describe: false,
+});

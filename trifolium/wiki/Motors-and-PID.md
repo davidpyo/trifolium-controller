@@ -18,7 +18,7 @@ Per-motor hardware configuration and PID tuning, which are wiring facts rather t
 
 ## When the pusher is on a motor channel
 
-Some builds drive the pusher from one of the four motor outputs instead of a FET, and that output is then the pusher's, not a flywheel's. It is usually **Motor 3**. Whether your build does this, and which channel it uses, is set in the [Web Console](Web-Console)'s Wiring tab rather than decided by the PCB.
+Some builds drive the pusher from one of the four motor outputs instead of a FET, and that output is then the pusher's, not a flywheel's. It is usually **Motor 3**. Whether your build does this, and which channel it uses, is set on the [Web Console](Web-Console)'s Wiring page rather than decided by the PCB.
 
 That channel's **Enabled**, **Test This Motor** and **Change Direction** rows are still listed, but selecting any of them shows a short message and does nothing. Nothing you can do from the menu will fire the solenoid by mistake, and the same protection covers Storage Discharge and the other motors' tests.
 

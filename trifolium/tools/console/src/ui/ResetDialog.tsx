@@ -61,22 +61,22 @@ export function resetCopy(plan: ResetPlan): Copy {
       // Says what it does not reach, because the word "everything" otherwise promises more than
       // the command does - the firmware preserves the wiring here exactly as it does for a device
       // reset, and someone who assumed otherwise would reset twice.
-      kept: "Your wiring and board still survive, by the same rule that protects them from a device reset. Reset Wiring separately if you want those back to the board's defaults too.",
+      kept: "Your wiring and board still survive, by the same rule that protects them from a device reset. Clear the wiring separately if you want to set the pins up again from a board preset.",
     };
   }
   if (plan.kind === "wiring") {
     return {
-      title: "Reset wiring to board defaults?",
+      title: "Clear the wiring?",
       word: "WIRING",
       severity: "error",
-      action: "Reset wiring",
+      action: "Clear wiring",
       lost: (
         <>
-          Every pin goes back to what this board ships with - the switches, the menu button, the
-          LED, and the pusher&rsquo;s gate pin and driver. Anything you set by hand is replaced.
+          Every pin goes back to unused and the blaster stops driving any of them. It restarts
+          asking which board it is, and loading that board&rsquo;s preset puts the pins back.
         </>
       ),
-      kept: "Tuning, profiles, the board itself and every other device setting are untouched.",
+      kept: "Tuning, profiles and every other device setting are untouched.",
     };
   }
   if (plan.kind === "device") {

@@ -15,7 +15,7 @@
 //
 // Not every board has a pair. A board that is the same physical design as another names that one
 // under `diagram` in its board.json and uses its pair. A board with neither is not an error - it just
-// means the Wiring tab falls back to the table, the same way a board with no preset falls back to
+// means the Wiring page falls back to the table, the same way a board with no preset falls back to
 // custom wiring.
 
 import { presetForBoardId } from "./presets";
