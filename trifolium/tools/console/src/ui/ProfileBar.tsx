@@ -1,23 +1,18 @@
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import MenuItem from "@mui/material/MenuItem";
-import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
-import Typography from "@mui/material/Typography";
+import { Chip } from "./TopBar";
 
-// Which slot you are editing, and what writing it will cost.
-//
-// The write and save buttons that used to live here are in the header's Write and Save menus now,
-// named for the store they act on. Having them in two places meant "Save" in the corner and "Save
-// profile" here did different things a few inches apart.
-//
-// What stays is the part that is genuinely about the slot: its name, and the warning that writing
-// the *active* slot reboots the blaster while writing a spare one does not.
+// Which slot you are editing, and what writing it will cost: writing the slot the blaster booted
+// with restarts it, writing a spare one does not.
 
 export interface ProfileBarProps {
   slot: number;
   names: string[];
   activeIndex: number;
-  /** profile:name for the selected slot, edited in place beside the picker. */
+  /** Slots holding unsaved edits. */
+  dirtySlots: ReadonlySet<number>;
+  /** profile:name for the selected slot, edited in place beside the tabs. */
   name: string;
   nameMaxLen?: number;
   nameCharset?: string;
@@ -32,6 +27,7 @@ export function ProfileBar({
   slot,
   names,
   activeIndex,
+  dirtySlots,
   name,
   nameMaxLen,
   nameCharset,
@@ -43,54 +39,80 @@ export function ProfileBar({
   const reboots = slot === activeIndex;
 
   return (
-    <Stack
-      direction="row"
-      spacing={1}
-      sx={{ alignItems: "center", flexWrap: "wrap", px: 1.25, pt: 1.25 }}
-    >
-      <TextField
-        select
-        size="small"
-        label="Profile slot"
-        value={slot}
-        onChange={(e) => onSlotChange(Number(e.target.value))}
-        sx={{ minWidth: 175 }}
-      >
-        {names.map((n, i) => (
-          <MenuItem key={i} value={i} sx={{ fontSize: 13 }}>
-            {n}
-            {i === activeIndex ? " (active)" : ""}
-          </MenuItem>
-        ))}
-      </TextField>
-
-      <TextField
-        size="small"
-        label="Name"
-        value={name}
-        slotProps={{ htmlInput: { maxLength: nameMaxLen } }}
-        onChange={(e) => {
-          // The same filter the form field applies, so a name typed here is one the on-device text
-          // editor could also produce.
-          const filtered = nameCharset
-            ? [...e.target.value].filter((c) => nameCharset.includes(c)).join("")
-            : e.target.value;
-          onName(nameMaxLen ? filtered.slice(0, nameMaxLen) : filtered);
-        }}
-        sx={{ minWidth: 175 }}
-      />
-
-      {/* Belongs beside the slot picker rather than in the header's Write menu: both of its
-          arguments are slots, and the one you are looking at is the source. */}
-      {onCopy && (
-        <Button size="small" variant="outlined" onClick={onCopy} disabled={copyDisabled}>
-          Copy to...
-        </Button>
-      )}
-
-      <Typography variant="caption" color={reboots ? "warning.main" : "success.main"}>
-        {reboots ? "Active slot — writing reboots" : "Not active — writing does not reboot"}
-      </Typography>
-    </Stack>
+    <Box sx={{ mb: 1.5 }}>
+      <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+        <Box
+          role="tablist"
+          aria-label="Profile slot"
+          sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}
+        >
+          {names.map((n, i) => (
+            <Box
+              key={i}
+              component="button"
+              type="button"
+              role="tab"
+              aria-selected={i === slot}
+              onClick={() => onSlotChange(i)}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+                border: 1,
+                borderColor: i === slot ? "primary.main" : "divider",
+                boxShadow: (t) =>
+                  i === slot ? `inset 0 -2px 0 ${t.palette.primary.main}` : "none",
+                color: i === slot ? "primary.main" : "text.primary",
+                bgcolor: "background.paper",
+                borderRadius: 2,
+                px: 1.75,
+                py: 0.85,
+                font: "inherit",
+                fontWeight: 550,
+                cursor: "pointer",
+              }}
+            >
+              {n}
+              {i === activeIndex && <Chip tone="accent">Active</Chip>}
+              {dirtySlots.has(i) && (
+                <Box
+                  component="span"
+                  title="Unsaved changes"
+                  sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: "warning.main" }}
+                />
+              )}
+            </Box>
+          ))}
+        </Box>
+        <Box sx={{ ml: "auto", display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <TextField
+            size="small"
+            label="Name"
+            value={name}
+            slotProps={{ htmlInput: { maxLength: nameMaxLen } }}
+            onChange={(e) => {
+              // The same filter the form field applies, so a name typed here is one the on-device text
+              // editor could also produce.
+              const filtered = nameCharset
+                ? [...e.target.value].filter((c) => nameCharset.includes(c)).join("")
+                : e.target.value;
+              onName(nameMaxLen ? filtered.slice(0, nameMaxLen) : filtered);
+            }}
+            sx={{ width: 170 }}
+          />
+          {/* Beside the slot tabs: both of its arguments are slots, and the one shown is the source. */}
+          {onCopy && (
+            <Button size="small" variant="outlined" onClick={onCopy} disabled={copyDisabled}>
+              Copy to...
+            </Button>
+          )}
+        </Box>
+      </Box>
+      <Box sx={{ mt: 1, fontSize: 12.5, color: reboots ? "warning.main" : "text.secondary" }}>
+        {reboots
+          ? "This is the active slot, so writing it restarts the blaster."
+          : "Not the active slot. Writing it does not restart the blaster."}
+      </Box>
+    </Box>
   );
 }

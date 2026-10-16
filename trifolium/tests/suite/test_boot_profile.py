@@ -75,15 +75,32 @@ def test_on_a_button_build_rev_held_at_power_on_no_longer_picks_slot_2_but_selec
     assert b.peek("activeProfileIndex") == 1
 
 
-def test_every_switch_offers_the_three_slots_as_boot_actions(blaster):
+def test_every_boot_rule_offers_the_three_slots_and_every_switch_but_the_cycle_switch(blaster):
     b = blaster
     b.flash_preset("trifolium_v1_2")
     assert b.boot(100)
-    nodes = [n for n in walk(schema(b)["tree"]) if (n.get("key") or "").startswith("device:bootAction[")]
-    assert len(nodes) == 8
-    for node in nodes:
-        assert node["optionValues"][-3:] == ["profile_0", "profile_1", "profile_2"], node["key"]
-        assert node["options"][-3:] == ["Slot 1", "Slot 2", "Slot 3"], node["key"]
+    keys = {n["key"]: n for n in walk(schema(b)["tree"])
+            if (n.get("key") or "").startswith("device:bootRules[")}
+    for r in range(8):
+        action = keys[f"device:bootRules[{r}].action"]
+        assert action["optionValues"][-3:] == ["profile_0", "profile_1", "profile_2"]
+        assert action["options"][-3:] == ["Slot 1", "Slot 2", "Slot 3"]
+        for switch in ["menu", "trigger", "rev", "idle", "select0", "select1", "select2"]:
+            assert f"device:bootRules[{r}].{switch}" in keys
+        assert f"device:bootRules[{r}].cycle" not in keys
+
+
+def test_a_per_switch_config_mapping_the_cycle_switch_has_it_dropped(blaster):
+    """The pusher rests on it, so it is held at an ordinary power-on: an action there would fire
+    every time."""
+    b = blaster
+    actions = ["none"] * 8
+    actions[3] = "bootloader"
+    b.flash_preset("trifolium_v1_2", {"cycleSwitchPin": 20, "bootAction": actions})
+    b.press("cycle")
+    assert b.boot(100)
+    assert b.state == "running"
+    assert all(r["action"] == "none" for r in b.command("DUMP_DEVICE")["bootRules"])
 
 
 def walk(tree):

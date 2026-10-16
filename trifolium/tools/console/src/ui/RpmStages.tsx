@@ -3,7 +3,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { getByKey } from "../schema/keyPath";
 import { isVisible, walk, type Schema, type SchemaNode } from "../schema/types";
-import { Field } from "./Field";
+import { Field, ROWS_SX } from "./Field";
 
 // Motor RPM, in whichever shape the profile's RPM Mode asks for.
 //
@@ -159,18 +159,7 @@ function Bank({ schema, device, profile, stageMode, array, label, onEdit }: Bank
       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
         {label}
       </Typography>
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-          columnGap: 1.5,
-          rowGap: 1,
-          alignItems: "start",
-          mt: 0.5,
-        }}
-      >
-        {rows}
-      </Box>
+      <Box sx={{ ...ROWS_SX, mt: 0.5 }}>{rows}</Box>
     </Box>
   );
 }
@@ -194,7 +183,7 @@ export function RpmStages({ schema, device, profile, onEdit }: RpmStagesProps) {
       {potSetsRev ? (
         <Typography variant="caption" color="text.secondary">
           A speed pot is wired, so it sets the rev RPM: stage 1 between Pot Min and Pot Max RPM on
-          the Device tab, and stage 2 at this profile&rsquo;s Stage 2 Ratio of that.
+          the Blaster settings page, and stage 2 at this profile&rsquo;s Stage 2 Ratio of that.
         </Typography>
       ) : (
         <Bank

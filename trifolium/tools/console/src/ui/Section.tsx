@@ -13,7 +13,7 @@ import Typography from "@mui/material/Typography";
 import { getByKey } from "../schema/keyPath";
 import { isConfigField, isVisible, needsReboot, type SchemaNode } from "../schema/types";
 import { helpFor } from "../help/settings";
-import { Field, FieldControl } from "./Field";
+import { Field, FieldControl, ROWS_SX } from "./Field";
 import { HelpTip } from "./Help";
 import {
   countFields,
@@ -26,22 +26,22 @@ import {
 
 export type Payloads = Record<Store, unknown>;
 
+/** A row added under a matrix's fields: an action per column rather than a stored setting. */
+export interface MatrixExtra {
+  label: string;
+  help?: string;
+  /** This row's cell in one column, or null to leave it empty. */
+  cell: (group: SchemaNode) => React.ReactNode;
+}
+
 export interface SectionProps {
   node: SchemaNode;
   payloads: Payloads;
   onEdit: (key: string, value: unknown) => void;
   /** Keys already rendered elsewhere. The tree reaches some fields by more than one path. */
   seen?: Set<string>;
+  matrixExtras?: MatrixExtra[];
 }
-
-/** Fields flow into as many columns as the width allows, rather than one per row. */
-const FIELD_GRID = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-  columnGap: 1.5,
-  rowGap: 1,
-  alignItems: "start",
-} as const;
 
 /** A bordered group with its name set into the border, as tight as the content allows. */
 export function Fieldset({
@@ -91,10 +91,12 @@ function Matrix({
   groups,
   payloads,
   onEdit,
+  extras = [],
 }: {
   groups: SchemaNode[];
   payloads: Payloads;
   onEdit: (key: string, value: unknown) => void;
+  extras?: MatrixExtra[];
 }) {
   const rows = matrixRows(groups);
   const cellSx = { py: 0.35, px: 0.75, borderBottom: "none" } as const;
@@ -165,6 +167,22 @@ function Matrix({
               })}
             </TableRow>
           ))}
+          {extras.map((extra) => (
+            <TableRow key={`extra-${extra.label}`}>
+              <TableCell sx={{ ...cellSx, whiteSpace: "nowrap" }}>
+                <HelpTip help={extra.help}>
+                  <Typography variant="caption" color="text.secondary">
+                    {extra.label}
+                  </Typography>
+                </HelpTip>
+              </TableCell>
+              {groups.map((g) => (
+                <TableCell key={g.label} sx={cellSx}>
+                  {extra.cell(g)}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </TableContainer>
@@ -178,7 +196,7 @@ function Matrix({
  * `seen` suppresses a field that has already appeared. The on-device tree reaches some settings by
  * two paths, and showing one setting twice invites editing it twice.
  */
-export function Section({ node, payloads, onEdit, seen = new Set() }: SectionProps) {
+export function Section({ node, payloads, onEdit, seen = new Set(), matrixExtras }: SectionProps) {
   const matrix = repeatedGroups(node);
   const rest = nonMatrixChildren(node, matrix);
 
@@ -199,10 +217,12 @@ export function Section({ node, payloads, onEdit, seen = new Set() }: SectionPro
 
   return (
     <Stack spacing={1}>
-      {matrix && <Matrix groups={matrix} payloads={payloads} onEdit={onEdit} />}
+      {matrix && (
+        <Matrix groups={matrix} payloads={payloads} onEdit={onEdit} extras={matrixExtras} />
+      )}
 
       {fields.length > 0 && (
-        <Box sx={FIELD_GRID}>
+        <Box sx={ROWS_SX}>
           {fields.map((child) => (
             <Field
               key={child.key}

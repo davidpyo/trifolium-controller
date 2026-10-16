@@ -27,15 +27,87 @@
     "menuButtonNormallyClosed": false,
     "pusherReverseDirection": false,
     "dualStageTrigger": true,
-    "bootAction": [
-      "bootloader",
-      "esc_passthrough",
-      "bootloader",
-      "none",
-      "none",
-      "none",
-      "none",
-      "none"
+    "bootRules": [
+      {
+        "action": "bootloader",
+        "menu": true,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "esc_passthrough",
+        "menu": false,
+        "trigger": true,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "none",
+        "menu": false,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "none",
+        "menu": false,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "none",
+        "menu": false,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "none",
+        "menu": false,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "none",
+        "menu": false,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      },
+      {
+        "action": "none",
+        "menu": false,
+        "trigger": false,
+        "rev": false,
+        "idle": false,
+        "select0": false,
+        "select1": false,
+        "select2": false
+      }
     ],
     "pusherType": "solenoid_openloop",
     "pusherDrive": "esc",

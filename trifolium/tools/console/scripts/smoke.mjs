@@ -57,107 +57,88 @@ console.log(`  looks mounted  : ${nodes > 20 ? "yes" : "NO"}`);
 
 for (const e of errors) console.log(`  ERROR ${e}`);
 
-// Things that must appear if the schema actually rendered into the tabbed layout.
-//
-// Deliberately not "Advanced": that group is a container the layout unwraps, so its name is absent
-// by design and asserting on it would lock in the old nested-accordion shape.
-//
-// Nor "Per Motor RPM", which this used to require on the profile tab even in Stage mode. The
-// console now drops the inactive half of a view toggle instead of showing it greyed out, so on a
-// stage-mode fixture its absence is the correct render.
-// Split by tab: only one tab's content is mounted at a time, so a device-tab string is genuinely
-// absent from the profile-tab render and asserting it there would be wrong.
+// Things that must appear on the first page, the Overview, and in the frame around every page.
 const expectedAlways = [
   "TRIFOLIUM",
-  "Config Console",
   "Connect",
-  "Read from Device",
-  // Backup, Load Backup and Write are menus now - the button is on the page, the three choices
-  // inside it are not, so assert the trigger rather than its contents.
-  "Backup",
-  "Load Backup",
-  "Write to Device",
-  "Splash",
-  "RPM Log",
+  // The navigation: every page is reachable from the rail.
+  "Overview",
+  "Profiles",
+  "Blaster settings",
+  "Wiring",
+  "RPM capture",
+  "Splash screen",
+  "Firmware",
+  "Maintenance",
   "Raw JSON",
+  // The unsaved-changes bar and the log at the foot of the page.
+  "No unsaved changes",
+  "Log",
+  // Overview's own panels.
+  "Health",
+  "Backups and firmware",
 ];
-const expectedProfileTab = [
-  "Profile slot",
-  "Name", // profile:name, moved out of the form and onto the slot row
+const expectedProfiles = [
+  "Name", // profile:name, beside the slot tabs
   "Fire Modes",
 ];
-const expectedDeviceTab = [
+const expectedBlaster = [
   "Shot Counter", // curated grouping applied
   "Switch Settings",
   "Motors & PID",
   // The ESC-side help under the motor matrix. Its summary renders folded, so the string being
   // present is the whole assertion - what is under it is the component's own test.
   "Setting up the ESCs in AM32",
-  "Display", // moved above where Wiring used to sit
+  "Display",
 ];
-// The wiring table has its own tab now. Checked there rather than on Device, and by its third
-// column: "Held At Boot" proves the table shape, where a pin label alone would only prove a field
-// list. The rules block under it is prose about firmware behaviour, so its heading is checked too -
-// it renders unconditionally, unlike the per-row tooltips, which only exist on hover.
-const expectedWiringTab = [
-  "Trigger",
-  "Normally Closed",
-  "Held At Boot",
-  "How these pins are read",
-];
-const expected = [...expectedAlways, ...expectedProfileTab];
-const missing = expected.filter((s) => !text.includes(s));
+// Checked by the wiring table's second column: "Normally Closed" proves the table shape, where a pin
+// label alone would only prove a field list. The rules block under it is prose about firmware
+// behaviour, so its heading is checked too.
+const expectedWiring = ["Trigger", "Normally Closed", "How these pins are read"];
+
+const missing = expectedAlways.filter((s) => !text.includes(s));
 if (missing.length) console.log(`  MISSING TEXT: ${missing.join(", ")}`);
 
-// Click through to the Fire Modes tab and check it renders too. That editor resolves the `[*]`
-// placeholder in the shared mode rows to a concrete index, which nothing else exercises.
-const tabs = [...dom.window.document.querySelectorAll('[role="tab"]')];
-const fireTab = tabs.find((t) => t.textContent?.trim() === "Device");
-let fireModesText = "";
-if (fireTab) {
-  fireTab.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+// Only one page is mounted at a time, so each is visited through the navigation and checked there.
+const navButton = (label) =>
+  [...dom.window.document.querySelectorAll('nav[aria-label="Sections"] button')].find(
+    (b) => b.textContent?.trim() === label,
+  );
+const visit = async (label, wanted) => {
+  const button = navButton(label);
+  if (!button) {
+    console.log(`  ${label.padEnd(15)}: NOT FOUND`);
+    return { text: "", missing: wanted };
+  }
+  button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 300));
-  fireModesText = root?.textContent ?? "";
-}
-console.log(`  tabs found     : ${tabs.length}`);
-console.log(`  device tab     : ${fireTab ? "clicked" : "NOT FOUND"}`);
-let deviceMissing = [];
-if (fireTab) {
-  const hasMatrix = /Motor 1[\s\S]*Motor 4/.test(fireModesText);
-  console.log(`  motor matrix   : ${hasMatrix ? "present" : "MISSING"}`);
-  if (!hasMatrix) console.log("  ERROR device tab has no motor matrix");
-  deviceMissing = expectedDeviceTab.filter((t) => !fireModesText.includes(t));
-  if (deviceMissing.length) console.log(`  MISSING ON DEVICE TAB: ${deviceMissing.join(", ")}`);
-}
+  const pageText = root?.textContent ?? "";
+  const absent = wanted.filter((t) => !pageText.includes(t));
+  console.log(`  ${label.padEnd(15)}: ${absent.length ? "INCOMPLETE" : "renders"}`);
+  if (absent.length) console.log(`  MISSING ON ${label.toUpperCase()}: ${absent.join(", ")}`);
+  return { text: pageText, missing: absent };
+};
 
-const wiringTab = tabs.find((t) => t.textContent?.trim() === "Wiring");
-let wiringMissing = [];
-if (wiringTab) {
-  wiringTab.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 300));
-  const wiringText = root?.textContent ?? "";
-  wiringMissing = expectedWiringTab.filter((t) => !wiringText.includes(t));
-  console.log(`  wiring tab     : ${wiringMissing.length ? "INCOMPLETE" : "renders"}`);
-  if (wiringMissing.length) console.log(`  MISSING ON WIRING TAB: ${wiringMissing.join(", ")}`);
-} else {
-  console.log("  wiring tab     : NOT FOUND");
-  wiringMissing = expectedWiringTab;
-}
+const profilesPage = await visit("Profiles", expectedProfiles);
+const blasterPage = await visit("Blaster settings", expectedBlaster);
+const hasMatrix = /Motor 1[\s\S]*Motor 4/.test(blasterPage.text);
+console.log(`  motor matrix   : ${hasMatrix ? "present" : "MISSING"}`);
+const wiringPage = await visit("Wiring", expectedWiring);
 
 if (process.argv.includes("--dump")) {
   console.log("\n--- visible text ---");
   console.log(text.replace(/\s+/g, " ").slice(0, 1200));
-  if (fireModesText) {
-    console.log("\n--- fire modes tab ---");
-    console.log(fireModesText.replace(/\s+/g, " ").slice(0, 900));
-  }
+  console.log("\n--- blaster settings ---");
+  console.log(blasterPage.text.replace(/\s+/g, " ").slice(0, 900));
 }
 
 const ok =
   nodes > 20 &&
   errors.length === 0 &&
   missing.length === 0 &&
-  deviceMissing.length === 0 &&
-  wiringMissing.length === 0;
+  hasMatrix &&
+  profilesPage.missing.length === 0 &&
+  blasterPage.missing.length === 0 &&
+  wiringPage.missing.length === 0;
 console.log(`\nVERDICT: ${ok ? "renders" : "BLANK OR BROKEN"}`);
 process.exit(ok ? 0 : 1);

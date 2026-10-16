@@ -262,3 +262,58 @@ def test_plasma_a_pull_held_past_the_lockouts_end_fires_nothing_and_locks_out_no
     b.press("trigger")  # the next pull charges straight away
     b.run_ms(DEBOUNCE_MS + 10)
     assert b.peek("requestRev") is True
+
+
+# ---- a mode change mid-burst ------------------------------------------------------------------
+
+AUTO_100 = {"burstMode": "auto", "burstLength": 100, "targetDPS": 10, "reversible": False,
+            "binaryTriggerTimeout_ms": 2000, "includeInCycle": True}
+SEMI_1 = dict(AUTO_100, burstMode="semi", burstLength=1)
+
+
+def auto_then_semi(b, device=None):
+    """Mode 1 AUTO with 100 shots a pull, mode 2 SEMI; select position 1 picks AUTO, 3 picks SEMI.
+    In every slot, since the select type and the switch at power-on decide which one boots."""
+    b.flash_preset("trifolium_v1_2", device)
+    for slot in range(3):
+        b.flash_profile(slot, {"schemaVersion": 2, "activeModeCount": 2, "defaultFiringMode": 0,
+                               "switchPositionAssignment": [0, -1, 1],
+                               "fireModes": [AUTO_100, SEMI_1]})
+    return b
+
+
+def darts_after_letting_go(b):
+    b.release("trigger")
+    before = len(b.extends())
+    b.run_ms(3000)
+    return len(b.extends()) - before
+
+
+def test_flipping_the_select_switch_mid_burst_ends_the_burst(blaster):
+    # SEMI ignores a release, so without the end AUTO's queue fired out with the trigger let go.
+    b = auto_then_semi(blaster)
+    assert b.boot(2500)
+    b.press("select0")
+    b.run_ms(50)
+    assert b.peek("firingMode") == 0
+    b.press("trigger")
+    assert b.run_until(lambda: len(b.extends()) >= 3, 3000)
+    b.release("select0")
+    b.press("select2")
+    b.run_ms(50)
+    assert b.peek("firingMode") == 1
+    assert darts_after_letting_go(b) <= 1  # the shot in flight at most
+    assert b.peek("shotsToFire") == 0
+
+
+def test_cycling_the_mode_with_the_menu_button_mid_burst_ends_the_burst(blaster):
+    # The menu button cycles the mode from core 1, between the firing loop's ticks.
+    b = auto_then_semi(blaster, {"selectFireType": "button", "select0Pin": 19})
+    assert b.boot(2500)
+    assert b.peek("firingMode") == 0
+    b.press("trigger")
+    assert b.run_until(lambda: len(b.extends()) >= 3, 3000)
+    b.tap("menu")
+    assert b.peek("firingMode") == 1
+    assert darts_after_letting_go(b) <= 1
+    assert b.peek("shotsToFire") == 0

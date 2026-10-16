@@ -140,6 +140,7 @@ void toJson(const ShotProfile& settings, JsonDocument& doc)
         mode["reversible"] = settings.fireModes[i].reversible;
         mode["binaryTriggerTimeout_ms"] = settings.fireModes[i].binaryTriggerTimeout_ms;
         mode["includeInCycle"] = settings.fireModes[i].includeInCycle;
+        mode["revStageMode"] = settings.fireModes[i].revStageMode;
     }
     doc["defaultFiringMode"] = settings.defaultFiringMode;
     writeArray(doc, "switchPositionAssignment", settings.switchPositionAssignment,
@@ -200,6 +201,8 @@ void fromJson(JsonDocument& doc, ShotProfile& out, Source source, uint8_t slot)
                 mode["binaryTriggerTimeout_ms"] | out.fireModes[i].binaryTriggerTimeout_ms;
             out.fireModes[i].includeInCycle =
                 mode["includeInCycle"] | out.fireModes[i].includeInCycle;
+            // Not overlaid: slots past the defaults' three are zeroed, and 0 would pair with mode 1.
+            out.fireModes[i].revStageMode = mode["revStageMode"] | NO_FIRE_MODE;
         }
     }
     out.defaultFiringMode = doc["defaultFiringMode"] | out.defaultFiringMode;

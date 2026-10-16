@@ -6,7 +6,7 @@
 // Build-time check that this file matches what main.cpp expects. Unrelated to the store schema
 // versions, which version the persisted flash JSON at runtime.
 #define CONFIG_VERSION_MAJOR 2
-#define CONFIG_VERSION_MINOR 2
+#define CONFIG_VERSION_MINOR 3
 #define CONFIG_VERSION_PATCH 0
 
 inline uint32_t targetLoopTime_us = 1000;
@@ -90,18 +90,13 @@ inline const DeviceSettings kDefaultDeviceSettings = {
 
     .dualStageTrigger = false,
 
-    // Indexed by bootButton_t: menu or rev held at power-on enters the bootloader, trigger held
-    // enters ESC passthrough.
-    .bootAction =
+    // Menu or rev held at power-on enters the bootloader, trigger held enters ESC passthrough. on[]
+    // is indexed by bootButton_t; the remaining slots are empty.
+    .bootRules =
         {
-            BOOT_ACTION_BOOTLOADER,      // menu
-            BOOT_ACTION_ESC_PASSTHROUGH, // trigger
-            BOOT_ACTION_BOOTLOADER,      // rev
-            BOOT_ACTION_NONE,            // cycle
-            BOOT_ACTION_NONE,            // idle
-            BOOT_ACTION_NONE,            // select0
-            BOOT_ACTION_NONE,            // select1
-            BOOT_ACTION_NONE,            // select2
+            {BOOT_ACTION_BOOTLOADER, {true, false, false}},      // menu
+            {BOOT_ACTION_ESC_PASSTHROUGH, {false, true, false}}, // trigger
+            {BOOT_ACTION_BOOTLOADER, {false, false, true}},      // rev
         },
 
     .pusherType = PUSHER_SOLENOID_OPENLOOP,
@@ -192,6 +187,7 @@ inline const DeviceSettings kDefaultDeviceSettings = {
     .lowVoltageCutoffPerCell_mv = 3300,
     .lowVoltageWarningPerCell_mv = 3700,
     .voltageCalibrationFactor = 1.0f,
+    .lowBattBeep = true,
 
     .selectFireType = SWITCH_SELECT_FIRE,
     .variableFPS = true,

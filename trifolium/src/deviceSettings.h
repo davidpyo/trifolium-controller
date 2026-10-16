@@ -60,9 +60,9 @@ struct DeviceSettings
 
     bool dualStageTrigger;
 
-    // What each switch does when held at power-on, indexed by bootButton_t. Evaluated once per
-    // power-on cycle by evaluateBootAction() in main.cpp.
-    bootAction_t bootAction[BOOT_BTN_COUNT];
+    // What holding switches at power-on does, in priority order. Evaluated once per power-on by
+    // evaluateBootRules() in main.cpp.
+    BootRule bootRules[kMaxBootRules];
 
     pusherType_t pusherType;
 
@@ -128,6 +128,7 @@ struct DeviceSettings
     uint32_t lowVoltageCutoffPerCell_mv;
     uint32_t lowVoltageWarningPerCell_mv;
     float voltageCalibrationFactor;
+    bool lowBattBeep; // the ESCs beep once a flat pack trips the cutoff, and every 10 s after
 
     // Select-fire hardware wiring + physical-switch feature toggle
     selectFireType_t selectFireType;

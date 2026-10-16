@@ -46,6 +46,7 @@ extern bool motorsEnabled[4];
 extern FlywheelMotor motorArr[4];
 extern flywheelState_t flywheelState;
 extern int8_t firingMode;
+extern int8_t liveFireModeIndex;
 extern int16_t shotsToFire;
 extern uint32_t runtimeShotCounter;
 extern bool idleHoldActive;
@@ -58,6 +59,7 @@ extern uint32_t triggerTime_ms;
 extern bool pusherValid;
 extern bool displayAllowed;
 extern bool revSafetyLatched;
+extern bool batteryFlat;
 extern bool firing;
 extern BatteryMonitor* batteryMonitor;
 extern uint8_t menuButtonPin, triggerSwitchPin, revSwitchPin, cycleSwitchPin, dartSwitchPin,
@@ -906,6 +908,15 @@ class Host
         }
     }
 
+    // Panel text is in the font's CP437, where '½' is one byte; JSON carries UTF-8.
+    static std::string utf8(const std::string& cp437)
+    {
+        std::string out;
+        for (char c : cp437)
+            out += (unsigned char)c == 0xAB ? std::string("\xC2\xBD") : std::string(1, c);
+        return out;
+    }
+
     void readPanel(JsonObjectConst req, JsonObject out)
     {
         out["attached"] = hal::i2cDevicePresent(0x3C);
@@ -913,14 +924,14 @@ class Host
         out["contrast"] = panel_.contrast();
         out["inverted"] = panel_.inverted();
         out["dataBytes"] = panel_.dataBytes();
-        out["highlighted"] = panel_.highlighted();
+        out["highlighted"] = utf8(panel_.highlighted());
         JsonArray lines = out["lines"].to<JsonArray>();
         for (const sim::Panel::Line& l : panel_.lines())
         {
             JsonObject line = lines.add<JsonObject>();
             line["x"] = l.x;
             line["y"] = l.y;
-            line["text"] = l.text;
+            line["text"] = utf8(l.text);
             line["highlighted"] = l.highlighted;
         }
         if (req["pixels"] | false)
@@ -942,6 +953,7 @@ class Host
     {
         if (name == "flywheelState") v.set((int)flywheelState);
         else if (name == "firingMode") v.set(firingMode);
+        else if (name == "liveFireModeIndex") v.set(liveFireModeIndex);
         else if (name == "shotsToFire") v.set(shotsToFire);
         else if (name == "runtimeShotCounter") v.set(runtimeShotCounter);
         else if (name == "idleHoldActive") v.set(idleHoldActive);
@@ -971,6 +983,7 @@ class Host
         else if (name == "pusherValid") v.set(pusherValid);
         else if (name == "displayAllowed") v.set(displayAllowed);
         else if (name == "revSafetyLatched") v.set(revSafetyLatched);
+        else if (name == "batteryFlat") v.set(batteryFlat);
         else if (name == "firing") v.set(firing);
         else if (name == "activeProfileIndex") v.set(activeProfileIndex);
         else if (name == "battery")

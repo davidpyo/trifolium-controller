@@ -77,7 +77,7 @@ export function EscSetup({ device }: { device: unknown }) {
     <HelpSection summary="Setting up the ESCs in AM32">
       <Para>
         The flywheel ESCs run AM32, and its settings live on the ESCs rather than in this config.
-        Reboot &gt; ESC Passthrough in the header releases the
+        Maintenance &gt; Start passthrough releases the
         serial port; open{" "}
         <Link href={AM32_URL} target="_blank" rel="noopener noreferrer">
           am32.ca

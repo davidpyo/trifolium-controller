@@ -16,6 +16,8 @@ export const SETTING_HELP: Record<string, string> = {
     "How long after a press the release still fires. Released later, it counts as a new, separate pull.",
   "profile:fireModes[*].includeInCycle":
     "Whether the select button stops on this mode. Off keeps it in the list but out of the button's rotation.",
+  "profile:fireModes[*].revStageMode":
+    "With a dual-stage trigger, what a half press fires while this mode is selected. A full press takes over from it. Rev Only just spins the flywheels up.",
   "profile:fireModes[*].name":
     "Optional. Blank shows the firing mode itself, such as AUTO. Worth setting when several modes share one firing mode.",
   "profile:defaultFiringMode":
@@ -80,7 +82,7 @@ export const SETTING_HELP: Record<string, string> = {
     "Extra throttle TBH allows on the first rev, before its own feedback takes over.",
   "device:dshotMode": "The DShot rate the ESCs are driven at. Every ESC must support the rate chosen.",
   "device:useRpmLogging":
-    "Records RPM against time on every rev, for the RPM Log tab. The blaster reboots after each capture, so turn it off for normal use.",
+    "Records RPM against time on every rev, for the RPM capture page. The blaster reboots after each capture, so turn it off for normal use.",
   "device:rpmLogLength": "How many samples a capture takes, one per millisecond, so 2000 is two seconds.",
 
   // Solenoid and pusher
@@ -119,9 +121,11 @@ export const SETTING_HELP: Record<string, string> = {
   "device:batteryType":
     "Your pack's cell count. It scales the per-cell voltages below and sets every motor's RPM ceiling.",
   "device:lowVoltageCutoffPerCell_mv":
-    "Below this voltage per cell the blaster refuses to spin up, to protect the pack.",
+    "Protects the pack. Once a rev and its dwell are over, while the flywheels coast down, idle or sit stopped, a pack reading below this voltage per cell for a second counts as flat: the wheels stop, and the blaster will not rev, idle or fire until it restarts. A rev is never judged, however far the pack sags.",
   "device:lowVoltageWarningPerCell_mv":
     "An earlier warning: LOW BATT blinks on the home screen, but you can still fire. Set it above the cutoff.",
+  "device:lowBattBeep":
+    "The ESCs beep once the pack trips Low V Cutoff, and every 10 s until it is swapped or the blaster restarts. Only with the wheels stopped.",
   "device:voltageCalibrationFactor":
     "A correction for when the blaster's battery reading does not match a multimeter.",
   "device:voltageAveragingWindow":
@@ -144,7 +148,7 @@ export const SETTING_HELP: Record<string, string> = {
   "device:speedPotPin":
     "The analog pin, GPIO 26 to 29, that reads a speed pot's wiper. With one wired, the pot sets the rev RPM in place of the profile's own.",
   "device:escEnablePin":
-    "A pin that switches the ESCs' power on once the blaster boots, and off if the battery drops below the cutoff. Only for boards with that circuit.",
+    "A pin that switches the ESCs' power on once the blaster boots, and off once a flat pack has brought the flywheels to a stop. Only for boards with that circuit.",
   "device:pusherFetPin": "The pin that switches the solenoid's FET.",
   "device:ledDataPin": "The status LED's data pin.",
   "device:triggerSwitchPin": "The pin the trigger switch is wired to.",
@@ -155,7 +159,7 @@ export const SETTING_HELP: Record<string, string> = {
   "device:idleSwitchPin":
     "The pin of the idle switch. While it is on, the flywheels wait at idle RPM instead of stopping.",
   "device:safetySwitchPin":
-    "The pin of the safety switch. While it is engaged the blaster is in SAFE: no rev, no fire.",
+    "The pin of the safety switch. While it is engaged the blaster is in SAFE: the flywheels spin down, and it will not rev or fire.",
   "device:select0Pin":
     "A select-switch pin. With a switch-type select fire each wired select pin is one switch position; with a button type, this one is the button.",
   "device:select1Pin":
@@ -168,8 +172,19 @@ export const SETTING_HELP: Record<string, string> = {
   "device:cycleSwitchNormallyClosed": "On for a switch that rests closed and opens when pressed.",
   "device:idleSwitchNormallyClosed": "On for a switch that rests closed and opens when pressed.",
   "device:safetySwitchNormallyClosed": "On for a switch that rests closed and opens when pressed.",
-  "device:bootAction[*]":
-    "What holding this switch while the blaster powers on does. A restart from the menu or the console ignores it.",
+  "device:bootRules[*].action":
+    "What this rule does when all its switches are held as the blaster powers on. Rules are checked top down and the first match wins; a restart from the menu or the console ignores them.",
+  "device:bootRules[*].menu": "The rule needs the menu button held at power-on.",
+  "device:bootRules[*].trigger": "The rule needs the trigger held at power-on.",
+  "device:bootRules[*].rev":
+    "The rule needs the rev switch held at power-on. Not read with a dual-stage trigger, where every full pull holds rev.",
+  "device:bootRules[*].idle": "The rule needs the idle switch on at power-on.",
+  "device:bootRules[*].select0":
+    "The rule needs select line 0 held at power-on: a selector position, or a button. Read only with select fire on, and not when the menu button shares its pin.",
+  "device:bootRules[*].select1":
+    "The rule needs select line 1 held at power-on: a selector position, or a button. Read only with select fire on.",
+  "device:bootRules[*].select2":
+    "The rule needs select line 2 held at power-on: a selector position, or a button. Read only with select fire on.",
 
   // Device and display
   "device:blasterName": "Shown on the home screen and the About screen.",
@@ -185,7 +200,7 @@ export const SETTING_HELP: Record<string, string> = {
   "device:hasDisplay": "Whether this blaster has an OLED screen at all.",
   "device:ledWarningMode": "Which battery condition blinks the status LED.",
   "device:dualStageTrigger":
-    "The trigger's two contact stages replace a separate rev switch: a light press revs, a full press fires. Plasma ignores the rev stage.",
+    "The trigger's two contact stages replace a separate rev switch: a light press revs, a full press fires. A fire mode's Half Press can make the light press fire too. Plasma ignores the rev stage.",
   "device:debounceTime_ms":
     "Debounce for the trigger, rev, select and menu switches. Lower catches fast double-taps; higher is steadier against switch bounce.",
   "device:menuButtonHoldTime_ms":

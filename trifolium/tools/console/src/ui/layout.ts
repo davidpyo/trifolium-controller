@@ -13,6 +13,8 @@
 // A field added in firmware can never silently disappear from the console because this file did not
 // know about it.
 
+import { bootRuleKeys } from "../schema/bootRules";
+
 /**
  * Fields the layout claims and deliberately does not render, because another component owns them.
  *
@@ -21,19 +23,19 @@
  * settings" - so it is claimed here instead, with the place it went written down.
  */
 export const RENDERED_ELSEWHERE: Record<string, string> = {
-  "device:blasterName": "the header, next to the pencil",
-  // Arming a capture and setting its length are the first two things you do on the RPM Log tab,
-  // and they were two tabs away from the chart they govern. They live there now, next to the
-  // buttons that read the result - not duplicated, moved.
-  "device:useRpmLogging": "the RPM Log tab",
-  "device:rpmLogLength": "the RPM Log tab",
-  "device:boardId": "the header - provenance, and the preset picker beside it",
+  "device:blasterName": "the top bar, next to the pencil",
+  // Turning logging on and setting a capture's length are the first step on the RPM capture page,
+  // next to the button that reads the result.
+  "device:useRpmLogging": "the RPM capture page",
+  "device:rpmLogLength": "the RPM capture page",
+  "device:boardId": "the top bar and the Wiring page - provenance, and the preset picker",
   // The boot gate rather than a pin, and the picker and the custom path are the two things
   // that set it. Rendered in the Wiring table's own footer, where what it arms is visible.
   "device:wiringConfigured": "the Wiring table footer",
   // Only read when variableFPS is on and select-fire is a switch or encoder -
   // selectShotProfileAtBoot() reaches them from no other branch - which is exactly when those
-  // editors render. On the Device tab they showed unconditionally and did nothing most of the time.
+  // editors render. Among the blaster settings they would show unconditionally and do nothing most
+  // of the time.
   "device:defaultProfileIndex": "the selector editor, on the none row",
   ...Object.fromEntries(
     Array.from({ length: 7 }, (_, i) => [
@@ -123,6 +125,7 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:batteryType",
       "device:lowVoltageCutoffPerCell_mv",
       "device:lowVoltageWarningPerCell_mv",
+      "device:lowBattBeep",
       "device:voltageCalibrationFactor",
       // Moved here from Device: it is the averaging window for the voltage reading, so it belongs
       // with the thresholds it smooths rather than with unrelated device options.
@@ -139,6 +142,12 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:debounceTime_ms",
       "device:menuButtonHoldTime_ms",
     ],
+  },
+  {
+    // Rendered by BootRules, which finds its own nodes in the schema. Claimed by key because the
+    // firmware nests the group inside Device, where absorb cannot reach it.
+    label: "Boot Actions",
+    keys: bootRuleKeys(),
   },
   {
     label: "Display",
@@ -204,18 +213,6 @@ export const DEVICE_LAYOUT: SectionSpec[] = [
       "device:safetySwitchNormallyClosed",
       // The pot's counterpart to a polarity, shown in the same column of its row.
       "device:speedPotReversed",
-      // Boot actions are not wiring, but they are indexed by these same eight controls, so the
-      // table gives each one a column rather than leaving them as eight unattached enums. Claimed
-      // here so they do not also fall through into the trailing section - WiringTable finds its own
-      // nodes in the schema, so the order in this list is not what it renders.
-      "device:bootAction[0]",
-      "device:bootAction[1]",
-      "device:bootAction[2]",
-      "device:bootAction[3]",
-      "device:bootAction[4]",
-      "device:bootAction[5]",
-      "device:bootAction[6]",
-      "device:bootAction[7]",
     ],
   },
 ];

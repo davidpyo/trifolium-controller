@@ -5,26 +5,8 @@ Golden images live in suite/golden/ as PBM. After an intended change to a screen
 TRIFOLIUM_UPDATE_GOLDEN=1 set and review the new image before keeping it.
 """
 
-import os
-
 import pytest
-from helpers import SUITE, armed_v12, close_menu, open_menu, select
-
-from trifolium_sim import PROJECT
-
-
-def check_golden(name, panel):
-    path = SUITE / "golden" / f"{name}.pbm"
-    actual = panel.pbm()
-    if os.environ.get("TRIFOLIUM_UPDATE_GOLDEN"):
-        path.write_text(actual, encoding="ascii", newline="\n")
-        return
-    assert path.is_file(), f"no golden image {path} - run once with TRIFOLIUM_UPDATE_GOLDEN=1 and review it"
-    if path.read_text(encoding="ascii") != actual:
-        failed = PROJECT / ".pio" / "native" / f"{name}.actual.pbm"
-        failed.parent.mkdir(parents=True, exist_ok=True)
-        failed.write_text(actual, encoding="ascii", newline="\n")
-        pytest.fail(f"{name} differs from its golden image; this run's is at {failed}\n{panel.ascii()}")
+from helpers import armed_v12, check_golden, close_menu, open_menu, select
 
 
 def test_the_home_screen_shows_the_name_profile_battery_mode_and_rev_speed(blaster):

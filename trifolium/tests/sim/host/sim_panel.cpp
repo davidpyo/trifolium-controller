@@ -10,13 +10,17 @@ namespace sim
 namespace
 {
 // Each printable character as the five 8-pixel columns the GLCD font draws it with, keyed by those
-// columns packed into one number.
+// columns packed into one number. Printable ASCII, and the CP437 symbols the firmware draws.
 const std::map<uint64_t, char>& glyphs()
 {
     static std::map<uint64_t, char> table = []
     {
-        std::map<uint64_t, char> out;
+        std::vector<int> chars;
         for (int c = 33; c < 127; c++)
+            chars.push_back(c);
+        chars.push_back(0xAB); // '½'
+        std::map<uint64_t, char> out;
+        for (int c : chars)
         {
             GFXcanvas1 canvas(6, 8);
             canvas.fillScreen(0);
