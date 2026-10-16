@@ -2,6 +2,8 @@
 
 import json
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -10,6 +12,22 @@ from trifolium_sim import PROJECT
 TESTS = PROJECT / "tests"
 SIM = TESTS / "sim"
 SUITE = TESTS / "suite"
+
+
+def start_server(*args):
+    """serve.py in its own process, on ports the OS picks: the process, then its serial, bench
+    control, WebSocket and panel ports, read from the line it announces them on."""
+    proc = subprocess.Popen([sys.executable, "-m", "trifolium_sim.serve", "--port", "0",
+                             "--control-port", "0", "--ws-port", "0", "--http-port", "0", *args],
+                            cwd=str(SIM), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    line = proc.stdout.readline().decode()
+    found = re.search(r"socket://127\.0\.0\.1:(\d+) and ws://127\.0\.0\.1:(\d+), bench control on "
+                      r"(\d+), panel on http://127\.0\.0\.1:(\d+)/", line)
+    if not found:
+        proc.kill()
+        raise AssertionError(line + proc.stdout.read().decode())
+    serial_port, ws_port, control_port, http_port = map(int, found.groups())
+    return proc, serial_port, control_port, ws_port, http_port
 
 
 def armed_v12(b, overrides=None, display=True, settle_ms=2500):

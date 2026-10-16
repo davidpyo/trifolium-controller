@@ -26,7 +26,7 @@ def pytest_configure(config):
     result = subprocess.run([find_pio(), "run", "-e", "sim"], cwd=PROJECT, capture_output=True,
                             text=True, encoding="utf-8", errors="replace", env=env)
     if result.returncode != 0:
-        raise pytest.UsageError("`pio run -e sim` failed - is a host gcc on PATH?\n"
+        raise pytest.UsageError("`pio run -e sim` failed - is a host gcc or clang on PATH?\n"
                                 + (result.stdout + result.stderr)[-3000:])
 
 

@@ -20,11 +20,12 @@ python -m pytest --no-build ...           # use the simulator as built
 ```
 
 **Needs**
-- A host gcc on `PATH` to build it. On Windows: `scoop install mingw-winlibs`.
+- A host gcc or clang on `PATH` to build it. On Windows: `scoop install mingw-winlibs`; on macOS:
+  `xcode-select --install`.
 - `[env:pico]`'s packages installed: `pio pkg install -e pico`, or any pico build. The fake core
   compiles arduino-pico's own ArduinoCore-API out of that package.
 - `pip install -r requirements.txt`, then `python -m playwright install chromium` for the console
-  tests.
+  tests, which load the built console: `npm ci && npm run build` in `tools/console`.
 
 `suite/test_factory_build.py` also builds `[env:pico]`, once, through `tools/release.py --board
 --blaster`, and unpacks the image's settings area with that package's `mklittlefs`, which
@@ -33,11 +34,10 @@ python -m pytest --no-build ...           # use the simulator as built
 writes it.
 
 **CI** (`.github/workflows/ci.yml`) runs the whole suite on every pull request, on a Windows runner
-with the same winlibs MinGW, pinned by hash: the simulator counts on a 32-bit `long` and a static
-libstdc++, which 64-bit Linux would not give it. About 9 minutes, 6 of them the suite. Each failed
-test becomes an error annotation on the run.
+with the same winlibs MinGW, pinned by hash, whose 32-bit `long` matches the RP2040's. About 9
+minutes, 6 of them the suite. Each failed test becomes an error annotation on the run.
 
-The build is `pio run -e sim`, to `.pio/build/sim/trifolium-sim.exe`. `trifolium-sim --self-test`
+The build is `pio run -e sim`, to `.pio/build/sim/trifolium-sim(.exe)`. `trifolium-sim --self-test`
 checks the fakes against the parts they stand in for; `suite/test_self.py` runs it.
 
 The checks run from `trifolium/`, for example `python tests/checks/check_reset.py`. The suite runs
@@ -185,7 +185,8 @@ which is why the shots are one pull of a burst of three.
 Real code wherever it can be:
 - The Arduino API (`String`, `Print`, `Stream`, number formatting) is arduino-pico's own copy.
 - ArduinoJson, the Adafruit display stack, elapsedMillis and Bounce2 are the pinned libraries.
-- `char` is unsigned, and on Windows `long` is 32 bits, both as on the RP2040.
+- `char` is unsigned, and on Windows `long` is 32 bits, both as on the RP2040. On macOS `long` is
+  64 bits, so `micros()` never wraps there.
 
 The fake board:
 - **Two cores, one clock.** Each core is a thread, and only one runs at a time. The running core keeps

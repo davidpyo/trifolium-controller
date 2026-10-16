@@ -40,10 +40,12 @@ from .host import PROJECT
 SLICE_MS = 5
 CATCH_UP_MS = 20
 ENUMERATION_S = 0.8  # after a reboot, how long before the port can be opened again
-# What the firmware prints as it goes to reboot. A blaster is off the bus within milliseconds of
-# saying so, where the simulator, paced to the wall clock on a busy machine, can take longer than a
-# host's first retry - which would then find the old boot still answering.
-REBOOT_ANNOUNCED = re.compile(r'"rebooting":true|"evt":"rebooting"')
+# The line the firmware prints as it goes to reboot. A blaster is off the bus within milliseconds
+# of saying so, where the simulator, paced to the wall clock on a busy machine, can take longer than
+# a host's first retry - which would then find the old boot still answering. Matched only once the
+# line ends: running ahead from part of it would reboot before the rest was sent, leaving the host a
+# line that never ends.
+REBOOT_ANNOUNCED = re.compile(r'(?:"rebooting":true|"evt":"rebooting")[^\n]*\n')
 ANNOUNCED_REBOOT_MS = 2000  # how far to run ahead for it, in simulated time
 
 WS_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -608,8 +610,9 @@ class Server:
             self.host.send(text[self.sent:].encode())
             self._flush_host()
         self.sent = len(text)
-        # From a little before the last look: one line can arrive over two.
-        ends = [m.end() for m in REBOOT_ANNOUNCED.finditer(text, max(0, self.scanned - 32))]
+        # From the start of the line the last look ended in: one line can arrive over two.
+        line_start = text.rfind("\n", 0, self.scanned) + 1
+        ends = [m.end() for m in REBOOT_ANNOUNCED.finditer(text, line_start)]
         self.scanned = len(text)
         announced = bool(ends) and ends[-1] > self.announced_end
         if ends:

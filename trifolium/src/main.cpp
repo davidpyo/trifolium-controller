@@ -877,7 +877,7 @@ void setup()
             exitSwitch.setPressedState(exit.normallyClosed);
         }
 
-        u8 pins[numPassthrough] = {0};
+        u8 pins[5] = {0}; // four motors and an ESC-driven pusher
         u8 currentPin = 0;
         for (int i = 0; i < 4; i++)
         {
