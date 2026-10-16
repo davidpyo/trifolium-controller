@@ -1,6 +1,6 @@
 """2.3.0 on a real blaster: the parts of this release only hardware can answer.
 
-    python tests/bench/bench_2_3.py COM8 baseline      # on 2.2.1, before flashing 2.3.0
+    python tests/bench/bench_2_3.py COM8 baseline      # on 2.2.0, before flashing 2.3.0
     python tests/bench/bench_2_3.py COM8 verify        # after flashing it
     python tests/bench/bench_2_3.py --self-test        # no hardware: checks the checker
 
@@ -12,7 +12,7 @@ a real configurator, the pusher, the panel and the safety switch. The simulator 
 logic of everything below: rule matching and order, the legacy conversion, the select-line rules,
 the half-press handover, the cutoff's timing rules. What is left for this walk:
 
-    1  this blaster's own stored config, written by real 2.2.1, survives the flash
+    1  this blaster's own stored config, written by real 2.2.0, survives the flash
     2  a default boot rule on real switches, at a real power-on, into the ROM bootloader
     3  a two-switch rule written from the redesigned console, over real USB, fires at power-on
     4  a combination's ESC passthrough ends on its first switch, through the real PIO hand-over
@@ -87,7 +87,7 @@ def config_drift(before, after):
 
 
 def new_modes_unpaired(profile):
-    """Every fire mode a 2.2.1 profile carried loads with no half press."""
+    """Every fire mode a 2.2.0 profile carried loads with no half press."""
     modes = (profile or {}).get("fireModes") or []
     return [i for i, m in enumerate(modes) if m.get("revStageMode", NO_FIRE_MODE) != NO_FIRE_MODE]
 
@@ -181,7 +181,7 @@ def dump_stores(link):
 
 
 def phase_baseline(port):
-    print("baseline - on 2.2.1, before flashing 2.3.0\n")
+    print("baseline - on 2.2.0, before flashing 2.3.0\n")
     link = H.Link(port)
     schema = link.request("DUMP_SCHEMA", "DUMP_SCHEMA", window=20.0) or {}
     device, profiles = dump_stores(link)
@@ -190,8 +190,8 @@ def phase_baseline(port):
         print("  the device did not answer every dump - nothing written")
         sys.exit(1)
     if "bootRules" in device:
-        print("  this device already stores bootRules - the baseline has to come from 2.2.1, so")
-        print("  flash 2.2.1 first or step 1 has nothing to judge")
+        print("  this device already stores bootRules - the baseline has to come from 2.2.0, so")
+        print("  flash 2.2.0 first or step 1 has nothing to judge")
         sys.exit(1)
     save("device.json", device)
     save("profiles.json", profiles)
@@ -204,7 +204,7 @@ def phase_baseline(port):
 # steps
 
 
-@step(1, "this blaster's own 2.2.1 config came through the flash")
+@step(1, "this blaster's own 2.2.0 config came through the flash")
 def step1(link):
     schema = link.request("DUMP_SCHEMA", "DUMP_SCHEMA", window=20.0) or {}
     check(1, "it reports this tree's version", schema.get("fw") == source_version(),
@@ -561,7 +561,7 @@ def self_test():
     expect("a conversion onto the wrong switch is drift", config_drift(as_current(before), wrong))
     expect("a missing dump is not a match", config_drift(before, None) is None)
 
-    expect("a profile from 2.2.1 has no pairing", new_modes_unpaired({"fireModes": [
+    expect("a profile from 2.2.0 has no pairing", new_modes_unpaired({"fireModes": [
         {"revStageMode": -1}, {"burstMode": "auto"}]}) == [])
     expect("a paired mode is caught", new_modes_unpaired({"fireModes": [{"revStageMode": 2}]}) == [0])
 
@@ -608,7 +608,7 @@ def main():
             phase_baseline(opts.port)
         else:
             if load("device.json") is None:
-                print("no baseline - run the baseline phase on 2.2.1 before flashing 2.3.0")
+                print("no baseline - run the baseline phase on 2.2.0 before flashing 2.3.0")
                 sys.exit(1)
             H.phase_verify(opts.port)
     except RuntimeError as e:

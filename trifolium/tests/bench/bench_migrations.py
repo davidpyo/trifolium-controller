@@ -16,7 +16,7 @@ def rule(action, *on):
 
 
 def legacy_rules(boot_action, dual_stage):
-    """What 2.3.0 makes of a 2.2.1 bootAction array: deviceStore.cpp's bootRulesFromLegacy()."""
+    """What 2.3.0 makes of a 2.2.0 bootAction array: deviceStore.cpp's bootRulesFromLegacy()."""
     rules = []
     for b, action in enumerate(boot_action or []):
         name = BUTTONS[b] if b < len(BUTTONS) else None

@@ -12,7 +12,7 @@ Managing the 3 named slots described on [Home](Home).
 | **Selector Profiles** | submenu | Device | `Reboot` · `conditional` | Which slot each selector position boots, **Position 1** to **Position 7**, with a row for each position your wiring can reach. Each is a slot by name, or **Default** for the Default Profile. Out of the box, Positions 1 to 3 boot slots 1 to 3. Only shown when Variable FPS is on *and* Select-Fire Type is Switch or Encoder. Firmware 2.2.0 and later. |
 | **Factory Reset Profile** | confirm | n/a | `Reboot` | Resets the active profile slot to factory defaults, including clearing its name back to blank and returning its mode list to the stock 3: Auto, Binary, Semi. |
 
-> **No screen?** A switch held at power-on can pick the profile instead: give it a **Slot 1**, **Slot 2** or **Slot 3** [boot action](Device#boot-actions). On firmware newer than 2.2.1 that is a boot rule, which can also need two switches held together, so a blaster with few switches can still reach all three slots.
+> **No screen?** A switch held at power-on can pick the profile instead: give it a **Slot 1**, **Slot 2** or **Slot 3** [boot action](Device#boot-actions). On firmware 2.3.0 and later that is a boot rule, which can also need two switches held together, so a blaster with few switches can still reach all three slots.
 
 ## What a profile holds
 

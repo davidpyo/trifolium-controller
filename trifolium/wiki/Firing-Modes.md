@@ -12,7 +12,7 @@ Every fire mode in your list is one of these seven behaviours. The first five ar
 | **DEVOTION** | Fires continuously like Auto, but the *rate* climbs the longer you hold. |
 | **PLASMA** | A charge-up shot. A charge bar with 3 slots filling as they arm, and a blinking `OVERHEAT!` banner if you hold too long. |
 
-Changing mode in the middle of a burst ends it: moving the select switch or pressing the select button stops the firing after the shot already due, the way letting go does in Auto, even while you hold the trigger. Firmware 2.2.1 and later; before that, the burst carried on in the new mode.
+Changing mode in the middle of a burst ends it: moving the select switch or pressing the select button stops the firing after the shot already due, the way letting go does in Auto, even while you hold the trigger. Firmware 2.3.0 and later; before that, the burst carried on in the new mode.
 
 Switching to SAFE, or opening the menu, brings the flywheels down at once along the normal spindown ramp: a spin-up stops where it is, and no dwell or idle window holds them up. A pusher already extended still retracts first. Firmware 2.3.0 and later; before that, a spin-up already started ran on until the wheels reached speed, and a dwell or idle window ran to its end.
 

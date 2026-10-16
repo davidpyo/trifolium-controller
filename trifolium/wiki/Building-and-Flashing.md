@@ -34,7 +34,7 @@ If your board is not listed, choose **My board is not listed: wire it by hand** 
 
 Everything else is editable and saved on the blaster. Work through it in this order, since each step feeds the next:
 
-1. **Motors & PID**, per motor: confirm `Enabled`, `Kv` and `Poles/2` match your hardware, and use **Test This Motor** to check each channel spins the wheel you expect. If one spins the wrong way, **Change Direction** fixes it without rewiring. On firmware newer than 2.2.1 the [Web Console](Web-Console) has both too, as **Test**, **Normal** and **Reversed** under Blaster settings > Motors & PID.
+1. **Motors & PID**, per motor: confirm `Enabled`, `Kv` and `Poles/2` match your hardware, and use **Test This Motor** to check each channel spins the wheel you expect. If one spins the wrong way, **Change Direction** fixes it without rewiring. On firmware 2.3.0 and later the [Web Console](Web-Console) has both too, as **Test**, **Normal** and **Reversed** under Blaster settings > Motors & PID.
 2. **Battery > Battery Type**, so the RPM ceilings and voltage cutoff are right.
 3. **Flywheel / RPM**, for your actual RPM targets, or the speed pot's range if you wired one. See [Flywheel and RPM](Flywheel-and-RPM).
 4. **Solenoid / Pusher**, for extend and retract timing. See [Solenoid and Pusher](Solenoid-and-Pusher). If you wired a dart switch, **Dart Switch** too: see [Dart Switch](Dart-Switch).

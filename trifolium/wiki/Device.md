@@ -17,7 +17,7 @@ Everything else hardware-level, shared across all 3 profiles.
 
 Hold switches while powering on and the blaster does something other than start normally. Only a power-on counts: a restart from the menu or the console ignores held switches.
 
-On firmware newer than 2.2.1, this is a list of up to 8 **boot rules**. Each rule names one or more switches and an action, and fires when every switch it names is held. Other switches held at the same time don't matter, so a selector sitting on a position doesn't stop a rule. The rules are checked from the top and the first match wins, which is how you choose between two rules that both match: with **Menu** on Rule 1 and **Menu + Trigger** on Rule 2, holding both fires Rule 1, so put the two-switch rule first. Set them in the [Web Console](Web-Console) under **Blaster settings > Boot Actions**, where you drag a rule by its handle to change the order (or focus the handle and use the arrow keys) and a rule that can never fire says why, or on the blaster under **Advanced > Device > Boot Actions > Rule 1-8** (each rule has its action, a toggle per switch, **Move Up** and **Clear**).
+On firmware 2.3.0 and later, this is a list of up to 8 **boot rules**. Each rule names one or more switches and an action, and fires when every switch it names is held. Other switches held at the same time don't matter, so a selector sitting on a position doesn't stop a rule. The rules are checked from the top and the first match wins, which is how you choose between two rules that both match: with **Menu** on Rule 1 and **Menu + Trigger** on Rule 2, holding both fires Rule 1, so put the two-switch rule first. Set them in the [Web Console](Web-Console) under **Blaster settings > Boot Actions**, where you drag a rule by its handle to change the order (or focus the handle and use the arrow keys) and a rule that can never fire says why, or on the blaster under **Advanced > Device > Boot Actions > Rule 1-8** (each rule has its action, a toggle per switch, **Move Up** and **Clear**).
 
 Some switches are never read at power-on, and the console and menu don't offer them:
 
@@ -26,7 +26,7 @@ Some switches are never read at power-on, and the console and menu don't offer t
 - the **select lines** when Select Fire is Off;
 - **select 0** when it is the menu button's own pin, with button select fire.
 
-Settings saved by firmware 2.2.1 or earlier, which gave each switch one action, load as one rule per switch in the order they were checked then (menu, trigger, rev, idle, select 0-2), so the blaster boots exactly as it did. On those versions, each switch's action is set in the **Held At Boot** column of the Wiring page instead, and the first held switch in that order wins.
+Settings saved by firmware 2.2.0 or earlier, which gave each switch one action, load as one rule per switch in the order they were checked then (menu, trigger, rev, idle, select 0-2), so the blaster boots exactly as it did. On those versions, each switch's action is set in the **Held At Boot** column of the Wiring page instead, and the first held switch in that order wins.
 
 | Action | What it does |
 |---|---|
