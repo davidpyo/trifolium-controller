@@ -176,7 +176,8 @@ def test_an_announced_reboot_has_happened_by_the_time_the_host_reads_the_announc
         boots = bench(control_port, op="state")["boots"]
         assert bench(control_port, op="speed", speed=0.1)["ok"]  # ack to reboot, paced: ~1 s
         host.sendall(("LOAD_DEVICE\n" + json.dumps(preset("trifolium_v1_2")) + "\n").encode())
-        assert b'"rebooting":true' in read_until(host, b'"rebooting":true', 30)
+        ack = read_until(host, b'"rebooting":true}\r\n', 30)
+        assert b'"rebooting":true}\r\n' in ack, ack  # ended: a host acts on whole lines
         assert bench(control_port, op="state")["boots"] == boots + 1
 
 
