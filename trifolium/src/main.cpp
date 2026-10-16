@@ -1181,9 +1181,17 @@ static bool dartAllowsRev()
 
 static bool revStartWanted()
 {
+    // An aborted rev stays down, dropping any shots queued meanwhile, until rev, the trigger and
+    // any console hold are all let go.
+    if (revSafetyLatched)
+    {
+        shotsToFire = 0;
+        revSafetyLatched = (pinDefined(revSwitchPin) && revSwitch.isPressed()) ||
+                           triggerSwitch.isPressed() || serialRevHeld();
+        return false;
+    }
     static bool revRefusedForBattery = false;
-    const bool wanted =
-        shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched);
+    const bool wanted = shotsToFire > 0 || (revControlAllowed() && revRequestedNow());
     if (!wanted)
         revRefusedForBattery = false;
     else if (batteryFlat)
@@ -1375,7 +1383,6 @@ void mainFiringLogic()
         else if (revSwitch.released())
         {
             logger.info("Rev switch released");
-            revSafetyLatched = false;
         }
     }
     if (pinDefined(triggerSwitchPin))
@@ -1967,16 +1974,14 @@ bool fwControlLoop()
             logger.info("STATE_FULLSPEED transition 1");
         } else if (!behaviorFor(burstMode).managesOwnRevLifecycle() &&
                    loopStartTimer_us - revStartTime_us > deviceSettings.rampupTimeout_ms * 1000UL) {
+            // Spin down on the normal ramp, skipping dwell and idle, and latch until released.
             flywheelState = STATE_IDLE;
-            resetFWControl();
             shotsToFire = 0;
+            lastRevTime_ms = 0;
+            revSafetyLatched = true;
             for (int i = 0; i < 4; i++) {
-                if (motorsEnabled[i]) {
-                    if ((int32_t)motorArr[i].motorRPM <= atSpeedRpm(i)) {
-                        logger.warn("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
-                    }
-                    motorArr[i].targetRPM = 0;
-                    motorArr[i].PIDOutput = 0;
+                if (motorsEnabled[i] && (int32_t)motorArr[i].motorRPM <= atSpeedRpm(i)) {
+                    logger.warn("Motor ", i + 1, " failed to reach target speed! motorRPM=", motorArr[i].motorRPM, " firingRPM=", atSpeedRpm(i));
                 }
             }
         }

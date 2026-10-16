@@ -173,6 +173,23 @@ def test_a_wheel_that_cannot_reach_firing_speed_aborts_the_rev_inside_rampup_tim
     assert motors[1]["targetRPM"] == 0 and motors[3]["targetRPM"] == 0
 
 
+def test_a_rev_held_through_a_rampup_timeout_stays_down_until_it_is_released(blaster):
+    b = blaster
+    b.wheel(3, loaded=0.5)
+    armed_v12(b)
+    b.press("rev")
+    assert b.run_until_peek("revSafetyLatched", True, limit_ms=700)
+    b.run_ms(1500)
+    assert b.peek("flywheelState") == IDLE
+    assert b.peek("motors")[3]["targetRPM"] == 0
+
+    b.release("rev")
+    b.run_ms(100)
+    assert b.peek("revSafetyLatched") is False
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", ACCELERATING, limit_ms=100)
+
+
 def test_rev_safety_timeout_spins_the_wheels_down_under_a_held_rev_until_it_is_released(blaster):
     b = blaster
     b.flash_profile(1, {"schemaVersion": 2, "revSafetyTimeout_ms": 2000})
