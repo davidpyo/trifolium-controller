@@ -40,7 +40,9 @@ def test_the_consoles_fixtures_are_what_this_firmware_dumps_of_their_configs(bla
 
     if os.environ.get("TRIFOLIUM_UPDATE_FIXTURES"):
         for name, doc in dumped.items():
-            (FIXTURES / name).write_text(json.dumps(doc), encoding="utf-8", newline="\n")
+            # One key a line, so a settings change merges as a line change.
+            (FIXTURES / name).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8",
+                                         newline="\n")
         return
     for name, doc in dumped.items():
         want, got = flatten(read(name)), flatten(doc)
