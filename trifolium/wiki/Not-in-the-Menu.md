@@ -27,7 +27,7 @@ The reason a setting is off the menu is almost always the same: changing it from
 |---|---|
 | **Verbose Serial print** | Debug output over serial: switch presses, state changes, and per-shot DPS measurements. The **Verbose** switch on the console's log bar switches it as well; either way the blaster restarts. |
 | **RPM log length** | How many samples a capture takes, one per millisecond, so 2000 is two seconds. On the **RPM capture** page, beside RPM Logging. The toggle that arms it *is* on the menu, under Motors & PID. |
-| **Splash screen** | A custom 128x64 boot image. The **Splash screen** page has an upload button; any picture is converted for you. Takes effect next boot. |
+| **Splash screen** | A custom 128x64 boot image. The **Splash screen** page has an upload button; any picture is converted for you. Takes effect next boot. On firmware newer than 2.2.1 the page shows the splash the blaster holds and can download it. |
 
 ## Still fixed in the firmware
 

@@ -86,9 +86,11 @@ static void storageDischargeFired()
 }
 static ActionItem storageDischargeItem("Storage Discharge", storageDischargeFired);
 
+static ToggleItem lowBattBeepItem("Low Batt Beep", "device:lowBattBeep", &deviceSettings.lowBattBeep);
+
 static MenuItem* batteryItems[] = {
-    &batteryTypeItem,        &lowVoltageCutoffItem, &lowVoltageWarningItem,
+    &batteryTypeItem,        &lowVoltageCutoffItem, &lowVoltageWarningItem, &lowBattBeepItem,
     &voltageCalibrationItem, &storageDischargeItem,
 };
 // Non-static: referenced by menu.cpp's Advanced submenu assembly.
-SubmenuItem batterySubmenu("Battery", batteryItems, 5);
+SubmenuItem batterySubmenu("Battery", batteryItems, sizeof(batteryItems) / sizeof(batteryItems[0]));

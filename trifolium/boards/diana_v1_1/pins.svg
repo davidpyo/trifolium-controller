@@ -48,5 +48,10 @@
       <circle cx="4069.34" cy="3867.87" r="2.2" data-pin="GND" />
       <circle cx="4073.28" cy="3867.87" r="2.2" data-gpio="7" />
     </g>
+
+    <g data-connector="Spare pads under BOOT">
+      <rect x="4097" y="3668" width="7" height="2" data-pin="GND" />
+      <rect x="4087" y="3673.5" width="17" height="2" data-gpio="17" />
+    </g>
   </g>
 </svg>

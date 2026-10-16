@@ -124,6 +124,105 @@ def test_a_flat_pack_at_rest_refuses_rev_and_fire_cuts_the_escs_and_stays_flat_u
     assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
 
 
+LED = {"escEnablePin": 22, "ledDataPin": 20, "ledWarningMode": "low_batt"}
+
+
+def led_steady_since(b, since_us):
+    return b.pin(20)["outputLevel"] is True and not b.edges(20, since_us)
+
+
+@pytest.mark.parametrize("decay", [False, True], ids=["instant", "decaying"])
+def test_a_pack_taken_out_on_usb_and_put_back_is_a_fresh_pack_not_a_flat_one(blaster, decay):
+    """On USB the board stays up while the pack is out, and the divider reads nothing. A real one
+    takes a couple of seconds to fall to that, long enough under the cutoff to latch it as flat
+    on the way down."""
+    b = armed_v12(blaster, LED, display=False)
+    if decay:
+        b.set_pack(FLAT_MV)
+        b.run_ms(1200)
+        assert b.peek("batteryFlat") is True
+    b.set_pack(0)
+    b.run_ms(1200)
+    assert b.peek("batteryFlat") is False
+    assert b.pin(22)["outputLevel"] is True
+
+    b.set_pack(PACK_MV)
+    b.run_ms(1500)
+    settled = b.uptime_us
+    b.run_ms(1500)
+    assert led_steady_since(b, settled)
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+
+
+def test_a_reading_that_dips_but_stays_over_1_v_a_cell_keeps_a_flat_pack_flat(blaster):
+    b = armed_v12(blaster, LED, display=False)
+    b.set_pack(FLAT_MV)
+    b.run_ms(1200)
+    b.set_pack(4 * 1100)
+    b.run_ms(1500)
+    b.set_pack(RESTED_MV)
+    b.run_ms(500)
+    assert b.peek("batteryFlat") is True
+
+
+BEACONS = range(1, 6)  # DSHOT_CMD_BEACON1..5
+LOW_BATT_BEACON = 3
+
+
+def beacons(b):
+    """The beacon commands each enabled ESC has been sent this boot. v1.2's ESC pins are 0-3."""
+    escs = b.escs()
+    return {i: [c for c in escs[i]["commands"] if c in BEACONS]
+            for i, m in enumerate(b.peek("motors")) if m["enabled"]}
+
+
+def test_a_flat_pack_beeps_every_esc_once_and_again_every_10_s(blaster):
+    b = armed_v12(blaster, display=False)
+    assert all(not got for got in beacons(b).values())
+    b.set_pack(FLAT_MV)
+    b.run_ms(1300)
+    assert b.peek("batteryFlat") is True
+    first = beacons(b)
+    assert all(got == [LOW_BATT_BEACON] for got in first.values()), first
+    b.run_ms(8500)
+    assert beacons(b) == first
+    b.run_ms(1500)
+    assert all(got == [LOW_BATT_BEACON] * 2 for got in beacons(b).values())
+
+
+def test_a_pack_under_the_warning_but_over_the_cutoff_never_beeps(blaster):
+    b = armed_v12(blaster, display=False)
+    b.set_pack(4 * 3500)
+    b.run_ms(3000)
+    assert all(not got for got in beacons(b).values())
+
+
+def test_with_low_batt_beep_off_a_flat_pack_stays_quiet(blaster):
+    b = armed_v12(blaster, {"lowBattBeep": False}, display=False)
+    b.set_pack(FLAT_MV)
+    b.run_ms(3000)
+    assert b.peek("batteryFlat") is True
+    assert all(not got for got in beacons(b).values())
+
+
+def test_the_beep_waits_for_the_wheels_to_stop_turning(blaster):
+    """An ESC drops a command while its motor turns, so a beep sent then would never sound. A long
+    coast keeps the wheels turning well after their targets reach 0."""
+    b = armed_v12(blaster, display=False)
+    for i, m in enumerate(b.peek("motors")):
+        if m["enabled"]:
+            b.wheel(i, tauDown=1.5)
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=1500)
+    b.release("rev")
+    b.set_pack(FLAT_MV)
+    assert b.run_until(lambda: any(beacons(b).values()), 20000, step_ms=25)
+    assert b.peek("batteryFlat") is True
+    assert all(len(got) == 1 for got in beacons(b).values())
+    assert all(m["motorRPM"] <= 300 for m in b.peek("motors") if m["enabled"])
+
+
 def test_a_rev_and_its_dwell_are_never_judged_and_the_second_starts_as_the_wheels_coast(blaster):
     """The pack reads under the line from mid-rev on. It is judged from the moment the dwell lets
     the wheels coast, and flat a second after that - however long the rev and dwell took. ESC

@@ -21,12 +21,14 @@ import { resolveVisibility } from "./schema/visibility";
 import { configFrom, SerialTransport, TIMEOUT_SCHEMA_MS, type LogLine } from "./serial/transport";
 import { bundleFilename, buildBundle, checkBundle, diffKeys, downloadJson } from "./config/bundle";
 import { blasterLoads, schemaMismatch, type Blaster } from "./config/blasters";
-import { LOG_LINE_CAP } from "./rpm/parse";
+import { LOG_LINE_CAP, extractRpmCsv } from "./rpm/parse";
+import { compareVersions } from "./firmware/releases";
 import { applyLayout } from "./ui/applyLayout";
 import { listChanges, marksToRevert, sectionSummary, splitMark, type Change } from "./ui/changes";
 import { DirtyKeys, StagingContext, type Staging } from "./ui/dirty";
 import { SetupWizard } from "./ui/SetupWizard";
 import { BootFaults } from "./ui/BootFaults";
+import { BootRules } from "./ui/BootRules";
 import { EscSetup } from "./ui/EscSetup";
 import { FireModes } from "./ui/FireModes";
 import { FlashDialog } from "./ui/FlashDialog";
@@ -39,6 +41,8 @@ import { ProfileCopyDialog } from "./ui/ProfileCopyDialog";
 import { RawJson } from "./ui/RawJson";
 import { ResetDialog, type ResetKind, type ResetPlan } from "./ui/ResetDialog";
 import { RpmLog } from "./ui/RpmLog";
+import { FW_CONSOLE_CONTROLS, RevHold, type MotorsStatus, type RevHoldApi } from "./ui/RevHold";
+import { motorActionRows, useMotorActions, type Ack } from "./ui/MotorActions";
 import { RpmStages } from "./ui/RpmStages";
 import { EncoderSelector, SelectorSwitch } from "./ui/SelectorSwitch";
 import { WiringWarnings } from "./ui/WiringWarnings";
@@ -48,7 +52,7 @@ import { WiringTable } from "./ui/WiringTable";
 import { ConsoleFooter } from "./ui/ConsoleFooter";
 import { Section, type Payloads } from "./ui/Section";
 import { countFields, deriveSections, pruneToStore, type Store } from "./ui/sections";
-import { Splash } from "./ui/Splash";
+import { Splash, type DeviceSplash } from "./ui/Splash";
 import {
   CONFIG_ACCEPT,
   Chip,
@@ -82,6 +86,13 @@ import fixtureProfile2 from "./fixtures/profile2.json";
 const FIXTURE_PROFILES: unknown[] = [fixtureProfile0, fixtureProfile1, fixtureProfile2];
 
 /** The schema node for a key, so a field rendered outside the form still honours its own limits. */
+/** Motors the config enables on a wired ESC pin. The firmware has the last word, at boot. */
+function enabledMotors(device: unknown): number[] {
+  const config = (getByKey(device as never, "device:motorConfig") as { enabled?: boolean }[]) ?? [];
+  const pins = (getByKey(device as never, "device:escPins") as number[]) ?? [];
+  return config.flatMap((m, i) => (m?.enabled && pins[i] !== undefined && pins[i] !== 255 ? [i] : []));
+}
+
 function nodeFor(schema: Schema, key: string): SchemaNode | undefined {
   let found: SchemaNode | undefined;
   walk(schema.tree, (node) => {
@@ -212,6 +223,11 @@ export function App() {
   });
   const [dirty, setDirty] = React.useState<Set<string>>(new Set());
   const [log, setLog] = React.useState<LogLine[]>([]);
+  // Read when a capture's restart is over, which is several renders after its lines arrived.
+  const logRef = React.useRef(log);
+  logRef.current = log;
+  /** The RPM capture page's box: held here so a finished capture lands in it from any page. */
+  const [rpmText, setRpmText] = React.useState("");
   // Open by default where there is room for five lines; folded on a phone.
   const [logOpen, setLogOpen] = React.useState<boolean>(
     () => remembered(LOG_KEY, onPhone() ? "folded" : "open") === "open",
@@ -556,16 +572,54 @@ export function App() {
    * back as a USB mass-storage drive with no serial port at all, so there is nothing to reconnect
    * to and pretending otherwise would just time out.
    */
-  const afterReboot = async (label: string) => {
+  const afterReboot = async (label: string, capture = false) => {
     if ((await transport.reopenAfterReboot()) && (await transport.waitReady())) {
       setLive(true);
       if (await readSchemaAndValues()) note("ok", `${label} - device is back.`);
+      if (capture) loadCapture();
       return;
     }
     note("err", `${label}, but the device did not come back. Reconnect when it has restarted.`);
   };
   onRebooting.current = (reason) =>
-    void afterReboot(reason === "rpmLog" ? "RPM capture finished" : "The device restarted");
+    void afterReboot(
+      reason === "rpmLog" ? "RPM capture finished" : "The device restarted",
+      reason === "rpmLog",
+    );
+
+  /** The newest capture in the device log, into the RPM capture page. */
+  const loadCapture = () => {
+    const csv = extractRpmCsv(
+      logRef.current
+        .filter((l) => l.kind === "in")
+        .map((l) => l.text)
+        .join("\n"),
+    );
+    if (!csv) return;
+    setRpmText(csv);
+    note("ok", "The capture is on the RPM capture page.");
+  };
+
+  // Connected to firmware that has the motor and rev commands.
+  const consoleControls = live && compareVersions(schema.fw ?? "0", FW_CONSOLE_CONTROLS) >= 0;
+  const runCommand = (command: string) => transport.request<NonNullable<Ack>>(command);
+  const motorActions = useMotorActions(runCommand, (ok, text) => note(ok ? "ok" : "err", text));
+  // Older firmware answers DUMP_SPLASH with raw bytes rather than a line, so it is not asked.
+  const readSplash = React.useCallback(async (): Promise<DeviceSplash | null> => {
+    if (!consoleControls) return null;
+    const reply = await transport.request<{ custom: boolean; b64: string }>("DUMP_SPLASH");
+    if (!reply?.b64) return null;
+    return { custom: reply.custom, bytes: Uint8Array.from(atob(reply.b64), (c) => c.charCodeAt(0)) };
+  }, [consoleControls, transport]);
+  const revHoldApi: RevHoldApi = React.useMemo(
+    () => ({
+      hold: (mask) => void transport.sendQuiet(`REV_HOLD ${mask}`),
+      release: () => void transport.sendQuiet("REV_RELEASE"),
+      status: () =>
+        transport.request<MotorsStatus>("DUMP_MOTORS", undefined, { quiet: true }),
+    }),
+    [transport],
+  );
 
   /**
    * Only a plain reboot comes back to us. The other two hand the device to something else, and the
@@ -1686,9 +1740,27 @@ export function App() {
                           // The ESC's own settings are half of what these fields describe, and there
                           // is nowhere else on the page they would be read next to.
                           <Stack spacing={1.25}>
-                            <Section node={section} payloads={payloads} onEdit={onEdit} />
+                            <Section
+                              node={section}
+                              payloads={payloads}
+                              onEdit={onEdit}
+                              matrixExtras={motorActionRows({
+                                motors: enabledMotors(device),
+                                available: consoleControls,
+                                ...motorActions,
+                              })}
+                            />
                             <EscSetup device={device} />
                           </Stack>
+                        ) : section.label === "Boot Actions" ? (
+                          <BootRules
+                            schema={resolved}
+                            device={device}
+                            profileNames={profiles.map(
+                              (p) => (p as { name?: string } | undefined)?.name,
+                            )}
+                            onEdit={onEdit}
+                          />
                         ) : (
                           <Section node={section} payloads={payloads} onEdit={onEdit} />
                         )}
@@ -1769,9 +1841,6 @@ export function App() {
                           schema={resolved}
                           device={device}
                           onEdit={onEdit}
-                          profileNames={profiles.map(
-                            (p) => (p as { name?: string } | undefined)?.name,
-                          )}
                           highlightPin={hoverPin}
                           onHoverPin={setHoverPin}
                         />
@@ -1808,6 +1877,9 @@ export function App() {
                   onEdit={onEdit}
                   logText={deviceLogText}
                   capturing={getByKey(device, "device:useRpmLogging") === true}
+                  text={rpmText}
+                  onText={setRpmText}
+                  revHold={consoleControls ? <RevHold api={revHoldApi} live={live} /> : null}
                 />
               </Box>
             </Panel>
@@ -1825,8 +1897,9 @@ export function App() {
               <Box sx={{ p: 1.5 }}>
                 <Splash
                   live={live}
-                  onUpload={(bytes) => void transport.sendBinary("LOAD_SPLASH", bytes)}
-                  onClear={() => void transport.sendLine("CLEAR_SPLASH")}
+                  onUpload={async (bytes) => void (await transport.sendBinary("LOAD_SPLASH", bytes))}
+                  onClear={() => transport.sendLine("CLEAR_SPLASH")}
+                  read={readSplash}
                 />
               </Box>
             </Panel>

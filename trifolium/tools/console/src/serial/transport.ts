@@ -484,9 +484,10 @@ export class SerialTransport {
         const line = (value ?? "").trim();
         if (!line) continue;
 
-        // Anything not claimed by a waiting caller is device chatter worth showing.
+        // Anything not claimed by a waiting caller is device chatter worth showing - except the acks
+        // of a command sent quietly, which say only that it was taken again.
         const claimed = this.listeners.some((l) => l.predicate(line));
-        if (!claimed) this.log("in", line);
+        if (!claimed && !this.isQuietAck(line)) this.log("in", line);
 
         this.listeners = this.listeners.filter(({ predicate, resolve }) => {
           if (!predicate(line)) return true;
@@ -537,6 +538,29 @@ export class SerialTransport {
     await this.write(`${text}\n`);
   }
 
+  /** Commands sendQuiet() has sent, whose successful acks are kept out of the log too. */
+  private quiet = new Set<string>();
+
+  /**
+   * sendLine() for a command repeated several times a second - a held rev's renewals - which would
+   * otherwise bury everything else in the log. A refusal still shows: only `"ok":true` acks are
+   * dropped.
+   */
+  async sendQuiet(text: string): Promise<void> {
+    this.quiet.add(text.split(" ")[0]);
+    await this.write(`${text}\n`);
+  }
+
+  private isQuietAck(line: string): boolean {
+    if (!this.quiet.size || !line.startsWith("{")) return false;
+    try {
+      const reply = JSON.parse(line) as { cmd?: string; ok?: boolean };
+      return reply.ok === true && reply.cmd !== undefined && this.quiet.has(reply.cmd);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Sends a command followed by raw bytes - the splash upload, which is the one binary path.
    *
@@ -571,8 +595,14 @@ export class SerialTransport {
    * line can arrive before the reply and would otherwise be parsed as one - reading as firmware too
    * old to answer, on exactly the devices the board picker exists for.
    */
-  async request<T>(command: string, timeoutMs = TIMEOUT_SHORT_MS): Promise<T | null> {
-    await this.sendLine(command);
+  async request<T>(
+    command: string,
+    timeoutMs = TIMEOUT_SHORT_MS,
+    { quiet = false }: { quiet?: boolean } = {},
+  ): Promise<T | null> {
+    // A poll asked every second leaves no trace either way: its reply is claimed, so not logged.
+    if (quiet) await this.write(`${command}\n`);
+    else await this.sendLine(command);
     const line = await this.waitForLine(repliesTo(command), timeoutMs);
     if (line === null) {
       this.log("err", `No reply to ${command} within ${timeoutMs} ms.`);

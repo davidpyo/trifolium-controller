@@ -89,17 +89,16 @@ describe("the Wiring section", () => {
   });
 
   /**
-   * Boot actions are claimed here so they cannot also fall through into "Other settings". Only the
-   * visible ones arrive: the firmware hides a boot action whose switch is not wired, and this board
-   * has no cycle or idle switch and only two select lines.
+   * Boot rules are not wiring: they have a section of their own, and none falls through into "Other
+   * settings".
    */
-  it("claims the boot actions this board can actually use", () => {
-    const bootActions = keysIn(wiring!).filter((k) => k.startsWith("device:bootAction["));
-    expect(bootActions.length).toBeGreaterThan(0);
-    expect(bootActions.length).toBeLessThanOrEqual(8);
+  it("puts the boot rules in their own section, not the wiring", () => {
+    expect(keysIn(wiring!).filter((k) => k.startsWith("device:bootRules["))).toEqual([]);
+    const boot = sections.find((s) => s.label === "Boot Actions");
+    expect(keysIn(boot!)).toContain("device:bootRules[0].action");
     const leftovers = sections.find((s) => s.label === FALLTHROUGH_LABEL);
     expect(keysIn(leftovers ?? { label: "", kind: "group" }).filter((k) =>
-      k.startsWith("device:bootAction["))).toEqual([]);
+      k.startsWith("device:bootRules["))).toEqual([]);
   });
 
   /** The bug this replaces: thirteen deliberately grouped fields in the "Other settings" bucket. */
@@ -307,21 +306,6 @@ describe("grouping wiring into one row per control", () => {
     expect(select0!.polarity).toBeUndefined();
   });
 
-  /**
-   * Boot actions carry only an index, and the index order is the firmware's bootButton_t - not
-   * something this console should hold a second copy of - so they are matched on the label.
-   */
-  it("pairs a boot action with its control despite the labels differing", () => {
-    const rev = rows.find((r) => r.pin?.key === "device:revSwitchPin");
-    expect(rev?.bootAction?.label).toBe("Rev Switch");
-    const menu = rows.find((r) => r.pin?.key === "device:menuButtonPin");
-    expect(menu?.bootAction?.label).toBe("Menu Button");
-  });
-
-  it("never hands one boot action to two controls", () => {
-    const used = rows.map((r) => r.bootAction?.key).filter(Boolean);
-    expect(new Set(used).size).toBe(used.length);
-  });
 
   it("puts every pin row before any unmatched leftover", () => {
     const lastPin = rows.map((r) => Boolean(r.pin)).lastIndexOf(true);

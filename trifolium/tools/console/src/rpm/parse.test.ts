@@ -6,6 +6,7 @@ import {
   parseRpmCsv,
   LOG_LINE_CAP,
   targetCrossings,
+  trailingFlatCut,
   wholeRows,
 } from "./parse";
 
@@ -44,6 +45,18 @@ describe("extractRpmCsv", () => {
 
   it("returns null when there is no header at all", () => {
     expect(extractRpmCsv("(device) Rev switch pressed\n(device) 1,2,3,4")).toBeNull();
+  });
+
+  it("takes the newest of several captures in one log", () => {
+    const header = "Motor 1,TargetRPM 1,Throttle 1,value 1,";
+    const log = [header, "100,200,300,1", "(device) rebooting", header, "900,200,300,1"].join("\n");
+    expect(extractRpmCsv(log)).toBe(`${header}\n900,200,300,1`);
+  });
+
+  it("skips a newest header with no rows under it for the capture before it", () => {
+    const header = "Motor 1,TargetRPM 1,Throttle 1,value 1,";
+    const log = [header, "100,200,300,1", "(device) rebooting", header].join("\n");
+    expect(extractRpmCsv(log)).toBe(`${header}\n100,200,300,1`);
   });
 });
 
@@ -125,6 +138,30 @@ describe("findTrailingFlatStart", () => {
 
   it("is a no-op on a series shorter than the minimum run", () => {
     expect(findTrailingFlatStart([1, 2, 3], 200, 0.02)).toBe(3);
+  });
+});
+
+describe("trailingFlatCut", () => {
+  const motor = (index: number, rpm: number[]) => ({ index, rpm, targetRpm: rpm, throttle: rpm });
+  const spun = [...Array(50).keys()].map((i) => i * 100).concat(Array(300).fill(5000));
+  const still = Array(350).fill(0);
+
+  // A held rev from the console can leave the first motor out. Its flat-from-the-start trace once
+  // set the cut to 0 and charted nothing at all.
+  it("is not decided by a motor that was never driven", () => {
+    expect(trailingFlatCut({ motors: [motor(1, still), motor(2, spun)], voltage: [] }, 200, 0.02))
+      .toBe(50);
+  });
+
+  it("cuts at the latest point any motor is still changing", () => {
+    const later = [...Array(80).keys()].map((i) => i * 50).concat(Array(270).fill(4800));
+    expect(trailingFlatCut({ motors: [motor(1, spun), motor(2, later)], voltage: [] }, 200, 0.02))
+      .toBe(80);
+  });
+
+  it("keeps a capture where every motor is flat whole", () => {
+    expect(trailingFlatCut({ motors: [motor(1, still), motor(2, still)], voltage: [] }, 200, 0.02))
+      .toBe(350);
   });
 });
 

@@ -385,7 +385,8 @@ def test_choose_device_asks_even_when_a_blaster_is_already_allowed(page, serve):
     expect(page.get_by_text(re.compile("Connect failed: No port selected"))).to_be_visible()
 
 
-def test_an_rpm_capture_from_a_rev_charts_every_motor_at_the_length_the_device_published(page, serve):
+def test_an_rpm_capture_from_a_rev_charts_by_itself_at_the_length_the_device_published(page, serve):
+    """No button to press: the capture is taken from the log as the console reconnects."""
     served = serve(device={"useRpmLogging": True})
     connect(open_console(page, served))
     served.wait_armed()
@@ -397,9 +398,58 @@ def test_an_rpm_capture_from_a_rev_charts_every_motor_at_the_length_the_device_p
     expect(page.get_by_text(re.compile(r"Connected · fw \d"))).to_be_visible()
 
     go(page, "RPM capture")
-    page.get_by_role("button", name="Take from device log").click()
     length = served.settings()["rpmLogLength"]
     expect(page.get_by_text(re.compile(rf"^2 motors, {length} samples"))).to_be_visible()
+
+
+def test_holding_rev_in_the_console_takes_a_capture(page, serve):
+    served = serve(device={"useRpmLogging": True})
+    connect(open_console(page, served))
+    served.wait_armed()
+    go(page, "RPM capture")
+    hold = page.get_by_role("button", name="Hold to rev")
+    expect(hold).to_be_enabled()
+    hold.hover()
+    page.mouse.down()
+    served.run_for(1500)
+    page.mouse.up()
+    expect(page.get_by_text("RPM capture finished - device is back.")).to_be_visible(
+        timeout=REBOOT_MS)
+    length = served.settings()["rpmLogLength"]
+    expect(page.get_by_text(re.compile(rf"^2 motors, {length} samples"))).to_be_visible()
+
+
+def test_a_capture_with_the_first_motor_left_out_still_charts(page, serve):
+    """Its flat trace once decided the trim on its own and cut every series to nothing."""
+    served = serve(device={"useRpmLogging": True})
+    connect(open_console(page, served))
+    served.wait_armed()
+    go(page, "RPM capture")
+    page.get_by_role("checkbox", name="Motor 2").uncheck()
+    hold = page.get_by_role("button", name="Hold to rev")
+    hold.hover()
+    page.mouse.down()
+    served.run_for(1500)
+    page.mouse.up()
+    expect(page.get_by_text("RPM capture finished - device is back.")).to_be_visible(
+        timeout=REBOOT_MS)
+    expect(page.get_by_text(re.compile(r"^2 motors, \d+ samples"))).to_be_visible()
+    expect(page.get_by_text("(charting 0)")).to_have_count(0)
+    longest = page.evaluate(
+        "Math.max(...[...document.querySelectorAll('svg path')].map(p => (p.getAttribute('d') || '').length))")
+    assert longest > 1000
+
+
+def test_the_motor_test_button_spins_that_motor(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    served.wait_armed()
+    go(page, "Blaster settings")
+    motors = page.get_by_role("group", name="Motors & PID")
+    expect(motors.get_by_role("button", name="Test motor 1")).to_have_count(0)  # not enabled
+    motors.get_by_role("button", name="Test motor 2").click()
+    expect(page.get_by_text("Motor 2 spun.")).to_be_visible()
+    expect(motors.get_by_role("button", name="Set motor 4 to Reversed")).to_be_disabled()
 
 
 def test_a_setting_that_governs_others_shows_and_hides_them_as_it_is_edited(page, serve):
@@ -475,10 +525,25 @@ def test_a_splash_image_is_uploaded_drawn_at_the_next_boot_and_cleared(page, ser
     image = tmp_path / "splash.png"
     write_png(image, lit)
     go(page, "Splash screen")
-    expect(page.get_by_text("The console does not read a splash back from the device")).to_be_visible()
+    expect(page.get_by_text("On the blaster: the built-in splash")).to_be_visible()
     with page.expect_file_chooser() as chooser:
         page.get_by_role("button", name="Choose image").click()
     chooser.value.set_files(str(image))
+    page.get_by_role("button", name="Upload to device").click()
+    served.until(lambda: served.flash("/splash.bin") == packed(lit))
+    expect(page.get_by_text("On the blaster: your custom splash")).to_be_visible()
+
+    # What Download saves uploads back to the same bytes.
+    with page.expect_download() as download:
+        page.get_by_role("button", name="Download").click()
+    saved = tmp_path / "downloaded.png"
+    download.value.save_as(saved)
+    page.get_by_role("button", name="Clear custom splash").click()
+    served.until(lambda: served.flash("/splash.bin") is None)
+    expect(page.get_by_text("On the blaster: the built-in splash")).to_be_visible()
+    with page.expect_file_chooser() as chooser:
+        page.get_by_role("button", name="Choose image").click()
+    chooser.value.set_files(str(saved))
     page.get_by_role("button", name="Upload to device").click()
     served.until(lambda: served.flash("/splash.bin") == packed(lit))
 
@@ -735,7 +800,11 @@ def test_a_diagram_label_too_long_for_one_line_is_given_its_room_rather_than_dra
     assert found["hits"] == []
 
 
-def test_a_boot_action_that_loads_a_slot_names_the_profile_there_even_before_a_rename_is_written(
+def boot_rule(page, n):
+    return page.get_by_role("group", name="Boot Actions").get_by_role("row", name=f"Rule {n}")
+
+
+def test_a_boot_rule_that_loads_a_slot_names_the_profile_there_even_before_a_rename_is_written(
         page, serve):
     served = serve()
     connect(open_console(page, served))
@@ -745,10 +814,39 @@ def test_a_boot_action_that_loads_a_slot_names_the_profile_there_even_before_a_r
     names[names.index(name.input_value())] = "Indoor"
     name.fill("Indoor")
 
-    go(page, "Wiring")
-    wiring_row(page, "Rev").get_by_role("combobox").click()
+    go(page, "Blaster settings")
+    boot_rule(page, 3).get_by_role("combobox").click()
     slots = page.get_by_role("option").filter(has_text=re.compile("^Slot"))
     expect(slots).to_have_text([f"Slot {i + 1} · {n}" for i, n in enumerate(names)])
+
+
+def test_dragging_a_boot_rule_to_the_top_shifts_the_rest_down_one(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    go(page, "Blaster settings")
+    before = served.settings()["bootRules"]
+    boot_rule(page, 3).get_by_role("button", name="Drag rule 3").drag_to(boot_rule(page, 1))
+
+    with rebooting(page):
+        write(page, "Blaster settings")
+    after = served.settings()["bootRules"]
+    assert after[:4] == [before[2], before[0], before[1], before[3]]
+
+
+def test_a_boot_rule_moves_with_the_arrow_keys_on_its_handle(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    go(page, "Blaster settings")
+    before = served.settings()["bootRules"]
+    handle = boot_rule(page, 1).get_by_role("button", name="Drag rule 1")
+    handle.focus()
+    page.keyboard.press("ArrowDown")
+    expect(boot_rule(page, 2).get_by_role("button", name="Drag rule 2")).to_be_focused()
+
+    with rebooting(page):
+        write(page, "Blaster settings")
+    after = served.settings()["bootRules"]
+    assert after[:3] == [before[1], before[0], before[2]]
 
 
 # ---- released firmware and the console's own build ---------------------------------------------

@@ -529,8 +529,8 @@ function BootloaderHelp() {
         <Step>From this console: Maintenance &gt; Restart into bootloader.</Step>
         <Step>From the blaster's own OLED menu: Reboot &gt; Bootloader.</Step>
         <Step>
-          Hold a switch whose Boot Action is Bootloader while powering the blaster on. Boot actions
-          are set on the Wiring page.
+          Hold the switches of a Bootloader boot rule while powering the blaster on. Boot rules are
+          set under Blaster settings &gt; Boot Actions.
         </Step>
         <Step>
           Hold the BOOTSEL button on the board while plugging the USB cable in. This one needs no

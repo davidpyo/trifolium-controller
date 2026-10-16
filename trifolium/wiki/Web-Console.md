@@ -18,12 +18,12 @@ The pages are in the sidebar. On a phone the main four are tabs along the bottom
 
 | Page | What it does |
 |---|---|
-| **Overview** | The blaster at a glance: name, board, firmware and battery, what the last boot reported, the three profiles, and backups. |
+| **Overview** | The blaster at a glance: name, board, firmware and battery, the three profiles, what the last boot reported, and backups. |
 | **Profiles** | RPM targets, dwell and idle, spindown, and the fire mode list, for whichever of the 3 profile slots you pick at the top. |
-| **Blaster settings** | Everything shared across profiles: motors and PID, solenoid timing, battery, display, debounce, shot counting. |
+| **Blaster settings** | Everything shared across profiles: motors and PID, solenoid timing, battery, display, debounce, shot counting, and on firmware newer than 2.2.1 the [boot rules](Device#boot-actions) and each motor's [Test, Normal and Reversed](Motors-and-PID) buttons. |
 | **Wiring** | Which pin each thing is on, with a diagram of your board where one has been drawn. Also where pin conflicts are reported, and where you change board. |
 | **RPM capture** | Records a spin-up and charts it. |
-| **Splash screen** | Upload a custom 128x64 boot image from any picture, or clear it back to the default. Takes effect next boot. |
+| **Splash screen** | Upload a custom 128x64 boot image from any picture, or clear it back to the default. Takes effect next boot. On firmware newer than 2.2.1 the page opens on the image the blaster holds, custom or built-in, and **Download** saves the one shown as a PNG that uploads back unchanged. |
 | **Firmware** | Flashes new firmware over USB. |
 | **Maintenance** | The resets: one profile, the blaster settings, the wiring, or everything. Each asks you to type a word first, so none happens by a stray click. |
 | **Raw JSON** | The underlying settings as text, for when you want to see exactly what is stored. |
@@ -87,8 +87,8 @@ Settings survive a flash: they live in the board's own storage, not the firmware
 The **RPM capture** page takes you through it in three steps:
 
 1. Turn on **RPM Logging** and write it. It is a saved setting, also on the OLED under Motors & PID, and it stays on until you turn it off.
-2. Rev the blaster. Each rev records a capture; the blaster then prints it and restarts, and the console reconnects.
-3. Press **Take from device log** to chart it. You can also open a `.csv` file, paste one in, or drop one on the page.
+2. Rev the blaster. Each rev records a capture; the blaster then prints it and restarts, and the console reconnects. On firmware newer than 2.2.1 you can also rev it from the page: hold **Hold to rev**, with the motors to spin ticked. It revs only while the button is held down. Letting go, moving off the button, switching to another window or tab, or the connection dropping all stop it within a third of a second. It is off while the blaster's menu is open or it is in SAFE, and there is no fire button: a dart only goes if you pull the trigger yourself, and not at all with some motors unticked.
+3. The capture charts by itself as the console reconnects, from any page, and the newest one if the log holds several. **Take from device log** reads it again. You can also open a `.csv` file, paste one in, or drop one on the page.
 
 Flywheel RPM and pack voltage go on separate axes, so a 300 mV sag under load is visible rather than a flat line against a 16 V rail, and the horizontal axis is real milliseconds rather than sample numbers.
 

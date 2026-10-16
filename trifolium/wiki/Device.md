@@ -15,15 +15,26 @@ Everything else hardware-level, shared across all 3 profiles.
 
 ## Boot actions
 
-Hold a switch while powering on and the blaster does something other than start normally. Which switch does what is yours to set, in the **Held At Boot** column of the [Web Console](Web-Console)'s Wiring page, and any of the switches can be given any action. The cycle switch is the exception on firmware 2.2.1 and later: the pusher rests on it, so it is held at every power-on, and it has no boot action. Only a power-on counts: a restart from the menu or the console ignores held switches.
+Hold switches while powering on and the blaster does something other than start normally. Only a power-on counts: a restart from the menu or the console ignores held switches.
+
+On firmware newer than 2.2.1, this is a list of up to 8 **boot rules**. Each rule names one or more switches and an action, and fires when every switch it names is held. Other switches held at the same time don't matter, so a selector sitting on a position doesn't stop a rule. The rules are checked from the top and the first match wins, which is how you choose between two rules that both match: with **Menu** on Rule 1 and **Menu + Trigger** on Rule 2, holding both fires Rule 1, so put the two-switch rule first. Set them in the [Web Console](Web-Console) under **Blaster settings > Boot Actions**, where you drag a rule by its handle to change the order (or focus the handle and use the arrow keys) and a rule that can never fire says why, or on the blaster under **Advanced > Device > Boot Actions > Rule 1-8** (each rule has its action, a toggle per switch, **Move Up** and **Clear**).
+
+Some switches are never read at power-on, and the console and menu don't offer them:
+
+- the **cycle switch**, because the pusher rests on it, so it is held at every power-on;
+- **rev** with a dual-stage trigger, because every full pull holds rev too;
+- the **select lines** when Select Fire is Off;
+- **select 0** when it is the menu button's own pin, with button select fire.
+
+Settings saved by firmware 2.2.1 or earlier, which gave each switch one action, load as one rule per switch in the order they were checked then (menu, trigger, rev, idle, select 0-2), so the blaster boots exactly as it did. On those versions, each switch's action is set in the **Held At Boot** column of the Wiring page instead, and the first held switch in that order wins.
 
 | Action | What it does |
 |---|---|
-| **Bootloader** | Comes up ready to be reflashed. On the menu and rev switches by default. |
-| **ESC Passthrough** | Comes up handing the ESC pins to an AM32 configurator. On the trigger by default. Hold the same switch again to leave and carry on booting. |
+| **Bootloader** | Comes up ready to be reflashed. By default, a rule on the menu button and one on the rev switch. |
+| **ESC Passthrough** | Comes up handing the ESC pins to an AM32 configurator. By default, a rule on the trigger. Hold the rule's first switch again to leave and carry on booting; the screen names it. |
 | **Idle Hold** | Comes up with the flywheels sitting at idle RPM rather than stopped, so they are already turning when you pull. Stays on until you power off, or turn it off from the root menu's **Idle Mode**. |
 | **Slot 1 / Slot 2 / Slot 3** | Comes up running that profile slot, for this power-on only: the next plain power-on is back on the usual profile. It takes priority over the select switch. The way to change FPS on a blaster with no screen, and the console lists each slot with the profile in it, such as *Slot 1 · Low*. |
-| **None** | Nothing. The default for everything else. |
+| **None** | Nothing: an empty rule. The default for every rule after the first three. |
 
 ## Display
 

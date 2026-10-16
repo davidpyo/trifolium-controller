@@ -11,8 +11,8 @@ import { PinConflicts } from "../PinConflicts";
 import { Page, PageHead, Panel } from "../shell/Shell";
 import type { ViewId } from "../shell/Nav";
 
-// The first page: which blaster this is, whether its last boot was healthy, what each profile is
-// set to, and the backups. Everything here is read from what the console already holds; nothing on
+// The first page: which blaster this is, what each profile is set to, whether its last boot was
+// healthy, and the backups. Everything here is read from what the console already holds; nothing on
 // this page writes.
 
 interface Mode {
@@ -132,7 +132,7 @@ export function Overview(props: OverviewProps) {
     <Page>
       <PageHead
         title="Overview"
-        lede="Which blaster this is, whether its last boot was healthy, and what it is set to."
+        lede="Which blaster this is, what it is set to, and whether its last boot was healthy."
       />
 
       <Box
@@ -178,61 +178,6 @@ export function Overview(props: OverviewProps) {
           }
         />
       </Box>
-
-      <Panel
-        title="Health"
-        lede={
-          live
-            ? "From the last boot and the schema header"
-            : "Connect a blaster to read its last boot"
-        }
-      >
-        {faults.length > 0 && (
-          <Box sx={{ p: 1.5 }}>
-            <BootFaults boot={boot} />
-          </Box>
-        )}
-        {conflicts.length > 0 && (
-          <Box sx={{ p: 1.5, pt: faults.length ? 0 : 1.5 }}>
-            <PinConflicts schema={schema} />
-          </Box>
-        )}
-        <Box>
-          {live && !faults.length && (
-            <HealthRow
-              ok
-              title="No boot faults"
-              detail="Everything stored was loaded on the last boot."
-            />
-          )}
-          {live && !conflicts.length && (
-            <HealthRow
-              ok
-              title="No pin conflicts"
-              detail="Each pin in use belongs to one control."
-            />
-          )}
-          {live && arming?.ran && (
-            <HealthRow
-              ok={!arming.timedOut}
-              title={arming.timedOut ? "ESC arming timed out" : "ESCs armed"}
-              detail={
-                arming.answeredAt_ms
-                  .map((ms, i) => (ms ? `Motor ${i + 1} at ${ms} ms` : null))
-                  .filter(Boolean)
-                  .join(", ") || `Arming took ${arming.duration_ms} ms`
-              }
-            />
-          )}
-          {!live && (
-            <HealthRow
-              ok
-              title="Nothing connected"
-              detail="Boot faults, pin conflicts and ESC arming show here once a blaster is connected."
-            />
-          )}
-        </Box>
-      </Panel>
 
       <Panel
         title="Profiles"
@@ -322,6 +267,61 @@ export function Overview(props: OverviewProps) {
               </Box>
             );
           })}
+        </Box>
+      </Panel>
+
+      <Panel
+        title="Health"
+        lede={
+          live
+            ? "From the last boot and the schema header"
+            : "Connect a blaster to read its last boot"
+        }
+      >
+        {faults.length > 0 && (
+          <Box sx={{ p: 1.5 }}>
+            <BootFaults boot={boot} />
+          </Box>
+        )}
+        {conflicts.length > 0 && (
+          <Box sx={{ p: 1.5, pt: faults.length ? 0 : 1.5 }}>
+            <PinConflicts schema={schema} />
+          </Box>
+        )}
+        <Box>
+          {live && !faults.length && (
+            <HealthRow
+              ok
+              title="No boot faults"
+              detail="Everything stored was loaded on the last boot."
+            />
+          )}
+          {live && !conflicts.length && (
+            <HealthRow
+              ok
+              title="No pin conflicts"
+              detail="Each pin in use belongs to one control."
+            />
+          )}
+          {live && arming?.ran && (
+            <HealthRow
+              ok={!arming.timedOut}
+              title={arming.timedOut ? "ESC arming timed out" : "ESCs armed"}
+              detail={
+                arming.answeredAt_ms
+                  .map((ms, i) => (ms ? `Motor ${i + 1} at ${ms} ms` : null))
+                  .filter(Boolean)
+                  .join(", ") || `Arming took ${arming.duration_ms} ms`
+              }
+            />
+          )}
+          {!live && (
+            <HealthRow
+              ok
+              title="Nothing connected"
+              detail="Boot faults, pin conflicts and ESC arming show here once a blaster is connected."
+            />
+          )}
         </Box>
       </Panel>
 

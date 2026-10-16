@@ -91,10 +91,10 @@ const expectedBlaster = [
   "Setting up the ESCs in AM32",
   "Display",
 ];
-// Checked by the wiring table's third column: "Held At Boot" proves the table shape, where a pin
+// Checked by the wiring table's second column: "Normally Closed" proves the table shape, where a pin
 // label alone would only prove a field list. The rules block under it is prose about firmware
 // behaviour, so its heading is checked too.
-const expectedWiring = ["Trigger", "Normally Closed", "Held At Boot", "How these pins are read"];
+const expectedWiring = ["Trigger", "Normally Closed", "How these pins are read"];
 
 const missing = expectedAlways.filter((s) => !text.includes(s));
 if (missing.length) console.log(`  MISSING TEXT: ${missing.join(", ")}`);

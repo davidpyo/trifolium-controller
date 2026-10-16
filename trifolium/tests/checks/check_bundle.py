@@ -511,8 +511,7 @@ def check_bundle(bundle, schema, device_version=None):
             if key in KEYLESS:
                 continue
             # A scalar array is one stored field but several schema rows - revRPM is published as
-            # revRPM[0..3], bootAction as bootAction[0..7]. Checking the bare key would skip them,
-            # and bootAction's elements are enum ids worth validating.
+            # revRPM[0..3]. Checking the bare key would skip them.
             pairs = [(key, value)]
             if node_for(nodes, key) is None and isinstance(value, list):
                 pairs = [(f"{key}[{i}]", v) for i, v in enumerate(value)]

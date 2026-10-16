@@ -104,7 +104,11 @@ export function PageHead({
  * content sideways; text inside keeps its own measure.
  */
 export function Page({ children }: { children: React.ReactNode }) {
-  return <Box sx={{ px: { xs: 1.5, sm: 3 }, pt: 2.25, pb: 4, maxWidth: 1640 }}>{children}</Box>;
+  return (
+    <Box sx={{ px: { xs: 1.5, sm: 3 }, pt: 2.25, pb: 4, maxWidth: 1640, mx: "auto" }}>
+      {children}
+    </Box>
+  );
 }
 
 /**

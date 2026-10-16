@@ -32,6 +32,7 @@ sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tool
 import bench_harness as H  # noqa: E402
 from bench_harness import ROOT, check, instruct, load, manual, run_tool, save, step  # noqa: E402
 from release import firmware_version  # noqa: E402
+from bench_migrations import as_current, legacy_rules  # noqa: E402
 
 STATE_DIR = os.path.join(ROOT, "config_dumps", "bench_acceptance")
 H.configure(STATE_DIR)
@@ -67,12 +68,13 @@ def flatten(value, path="", out=None):
 
 
 def drift(before, after):
-    """Paths whose value differs between two dumps of the same store. None when either is missing,
-    which the caller records as a failure rather than a match."""
+    """Paths the baseline carries whose value moved. A field only the new build has is skipped: the
+    baseline cannot judge it, and the fields it does carry keep their teeth. None when either dump
+    is missing, which the caller records as a failure rather than a match."""
     if not isinstance(before, dict) or not isinstance(after, dict) or not before or not after:
         return None
     a, b = flatten(before), flatten(after)
-    return sorted(p for p in a.keys() | b.keys() if a.get(p) != b.get(p))
+    return sorted(p for p in a if a[p] != b.get(p))
 
 
 def enabled_motors(device):
@@ -143,7 +145,7 @@ def baseline_device():
 
 def check_config_untouched(number, link, what):
     device, profiles = dump_stores(link)
-    moved = drift(baseline_device(), device)
+    moved = drift(as_current(baseline_device()), device)
     check(number, f"{what} left the device settings alone", moved == [],
           "no baseline or no dump" if moved is None else f"changed: {moved[:6]}")
     base_profiles = load("profiles.json") or [None] * 3
@@ -363,6 +365,16 @@ def self_test():
     nested = dict(device, motorConfig=[{"enabled": False}] * 4)
     expect("a changed nested field is drift", "motorConfig[1].enabled" in drift(device, nested))
     expect("a missing dump is not a match", drift(device, None) is None)
+    expect("a field only the new build has is not drift", drift(device, dict(device, newThing=1)) == [])
+    expect("a field the flash dropped is drift", "blasterName" in drift(
+        device, {k: v for k, v in device.items() if k != "blasterName"}))
+    legacy = dict(device, bootAction=["bootloader"] + ["none"] * 7)
+    converted = {k: v for k, v in legacy.items() if k != "bootAction"}
+    converted["bootRules"] = legacy_rules(legacy["bootAction"], False)
+    expect("per-switch boot actions converted to rules are not drift",
+           drift(as_current(legacy), converted) == [])
+    wrong = dict(converted, bootRules=legacy_rules(["none", "bootloader"] + ["none"] * 6, False))
+    expect("but converted onto the wrong switch they are", drift(as_current(legacy), wrong))
 
     good = {"escArming": {"ran": True, "timedOut": False, "answeredAt_ms": [-1, 800, -1, 820]}}
     expect("every enabled ESC answering passes", unarmed_escs(good, [1, 3]) is None)

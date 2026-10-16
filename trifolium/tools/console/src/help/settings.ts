@@ -124,6 +124,8 @@ export const SETTING_HELP: Record<string, string> = {
     "Protects the pack. Once a rev and its dwell are over, while the flywheels coast down, idle or sit stopped, a pack reading below this voltage per cell for a second counts as flat: the wheels stop, and the blaster will not rev, idle or fire until it restarts. A rev is never judged, however far the pack sags.",
   "device:lowVoltageWarningPerCell_mv":
     "An earlier warning: LOW BATT blinks on the home screen, but you can still fire. Set it above the cutoff.",
+  "device:lowBattBeep":
+    "The ESCs beep once the pack trips Low V Cutoff, and every 10 s until it is swapped or the blaster restarts. Only with the wheels stopped.",
   "device:voltageCalibrationFactor":
     "A correction for when the blaster's battery reading does not match a multimeter.",
   "device:voltageAveragingWindow":
@@ -170,8 +172,19 @@ export const SETTING_HELP: Record<string, string> = {
   "device:cycleSwitchNormallyClosed": "On for a switch that rests closed and opens when pressed.",
   "device:idleSwitchNormallyClosed": "On for a switch that rests closed and opens when pressed.",
   "device:safetySwitchNormallyClosed": "On for a switch that rests closed and opens when pressed.",
-  "device:bootAction[*]":
-    "What holding this switch while the blaster powers on does. A restart from the menu or the console ignores it.",
+  "device:bootRules[*].action":
+    "What this rule does when all its switches are held as the blaster powers on. Rules are checked top down and the first match wins; a restart from the menu or the console ignores them.",
+  "device:bootRules[*].menu": "The rule needs the menu button held at power-on.",
+  "device:bootRules[*].trigger": "The rule needs the trigger held at power-on.",
+  "device:bootRules[*].rev":
+    "The rule needs the rev switch held at power-on. Not read with a dual-stage trigger, where every full pull holds rev.",
+  "device:bootRules[*].idle": "The rule needs the idle switch on at power-on.",
+  "device:bootRules[*].select0":
+    "The rule needs select line 0 held at power-on: a selector position, or a button. Read only with select fire on, and not when the menu button shares its pin.",
+  "device:bootRules[*].select1":
+    "The rule needs select line 1 held at power-on: a selector position, or a button. Read only with select fire on.",
+  "device:bootRules[*].select2":
+    "The rule needs select line 2 held at power-on: a selector position, or a button. Read only with select fire on.",
 
   // Device and display
   "device:blasterName": "Shown on the home screen and the About screen.",

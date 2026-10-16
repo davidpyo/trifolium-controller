@@ -14,10 +14,10 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import {
   extractRpmCsv,
-  findTrailingFlatStart,
   MS_PER_SAMPLE,
   parseRpmCsv,
   targetCrossings,
+  trailingFlatCut,
   wholeRows,
 } from "../rpm/parse";
 import { getByKey } from "../schema/keyPath";
@@ -59,6 +59,11 @@ export interface RpmLogProps {
   logText: string;
   /** device:useRpmLogging - whether the next rev records a capture at all. */
   capturing: boolean;
+  /** The box's text. Held by the app, which fills it with each capture that finishes. */
+  text: string;
+  onText: (text: string) => void;
+  /** A held Rev button for step 2, or null where the firmware has no command for it. */
+  revHold: React.ReactNode;
 }
 
 /** One step of a capture, numbered, green once it is done. */
@@ -105,8 +110,16 @@ function Step({
   );
 }
 
-export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogProps) {
-  const [text, setText] = React.useState("");
+export function RpmLog({
+  schema,
+  device,
+  onEdit,
+  logText,
+  capturing,
+  text,
+  onText: setText,
+  revHold,
+}: RpmLogProps) {
   const [trim, setTrim] = React.useState(true);
   const [showThrottle, setShowThrottle] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -135,10 +148,9 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
   const series: Series[] = React.useMemo(() => {
     if (!parsed?.motors.length) return [];
 
-    // Trim against the first motor's RPM: every column is sampled on the same tick, so one series
-    // decides the cut for all of them and the x-axis stays aligned.
+    // One cut for every column: they are sampled on the same tick, so the x-axis stays aligned.
     const cut = trim
-      ? findTrailingFlatStart(parsed.motors[0].rpm, MIN_FLAT_RUN, FLAT_JITTER)
+      ? trailingFlatCut(parsed, MIN_FLAT_RUN, FLAT_JITTER)
       : parsed.motors[0].rpm.length;
 
     const out: Series[] = [];
@@ -261,12 +273,13 @@ export function RpmLog({ schema, device, onEdit, logText, capturing }: RpmLogPro
           )}
         </Step>
         <Step n={2} title="Rev">
-          Pull the rev or the trigger. Every rev records a capture, then the blaster restarts on its
-          own and the console reconnects.
+          Pull the rev or the trigger, or hold the button below. Every rev records a capture, then
+          the blaster restarts on its own and the console reconnects.
+          {revHold}
         </Step>
         <Step n={3} title="Read">
-          Take the capture from the log to chart it. Rev again for another, and turn logging off when
-          you are done.
+          A finished capture charts here by itself, the newest if the log holds several. Rev again for
+          another, and turn logging off when you are done.
           <Box sx={{ mt: 1 }}>
             <Button size="small" variant="contained" onClick={takeFromLog}>
               Take from device log

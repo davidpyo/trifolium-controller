@@ -36,22 +36,24 @@ const HEADER_RE = /^(?:Voltage_mv,)?(?:Motor \d+,TargetRPM \d+,Throttle \d+,valu
 const DATA_ROW_RE = /^[\d.\-,]+$/;
 
 /**
- * Pulls the CSV block out of arbitrary log text, stripping the console's "(device) " prefix.
+ * Pulls the CSV block out of arbitrary log text, stripping the console's "(device) " prefix. A log
+ * that holds several captures gives the newest: each rev dumps one and restarts the blaster.
  *
- * Returns null when there is no header, or a header with no rows - a header alone is not a capture.
+ * Returns null when there is no header with rows under it - a header alone is not a capture.
  */
 export function extractRpmCsv(rawText: string): string | null {
   const lines = rawText.split(/\r?\n/).map((l) => l.replace(/^\s*\(device\)\s*/, "").trim());
 
-  const headerIdx = lines.findIndex((l) => HEADER_RE.test(l));
-  if (headerIdx === -1) return null;
-
-  const csv = [lines[headerIdx]];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    if (!DATA_ROW_RE.test(lines[i])) break;
-    csv.push(lines[i]);
+  for (let headerIdx = lines.length - 1; headerIdx >= 0; headerIdx--) {
+    if (!HEADER_RE.test(lines[headerIdx])) continue;
+    const csv = [lines[headerIdx]];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (!DATA_ROW_RE.test(lines[i])) break;
+      csv.push(lines[i]);
+    }
+    if (csv.length > 1) return csv.join("\n");
   }
-  return csv.length > 1 ? csv.join("\n") : null;
+  return null;
 }
 
 /** A line's fields, less the empty one after a trailing comma. */
@@ -150,6 +152,17 @@ export function findTrailingFlatStart(values: number[], minRun: number, jitterPc
   }
   const start = i + 1;
   return values.length - start >= minRun ? start : values.length;
+}
+
+/**
+ * Where to cut a capture's flat tail: the latest point any motor is still changing, so one that was
+ * never driven - flat from its first sample - does not cut the others away with it. A capture where
+ * every motor is flat is kept whole.
+ */
+export function trailingFlatCut(log: RpmLog, minRun: number, jitterPct: number): number {
+  const length = log.motors[0]?.rpm.length ?? 0;
+  const cut = Math.max(0, ...log.motors.map((m) => findTrailingFlatStart(m.rpm, minRun, jitterPct)));
+  return cut > 0 ? cut : length;
 }
 
 /** Round tick step for a range, so axis labels land on 1/2/5 x 10^n. */
