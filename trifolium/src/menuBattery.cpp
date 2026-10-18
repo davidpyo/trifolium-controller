@@ -45,7 +45,7 @@ static void storageDischargeFired()
         menuButton.update();
         for (int i = 0; i < 4; i++)
         {
-            if (deviceSettings.motorConfig[i].enabled && !isPusherEscChannel(i))
+            if (motorsEnabled[i]) // already excludes the pusher channel - boot cleared it
                 motorArr[i].sendThrottle(STORAGE_DISCHARGE_THROTTLE);
         }
         if (millis() - lastUpdate > 200)
@@ -73,7 +73,7 @@ static void storageDischargeFired()
     }
     for (int i = 0; i < 4; i++)
     {
-        if (deviceSettings.motorConfig[i].enabled)
+        if (motorsEnabled[i])
             motorArr[i].sendThrottle(0);
     }
     directMotorControlActive = false;
