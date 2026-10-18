@@ -171,6 +171,11 @@ bool revSafetyLatched = false;
 
 bool batteryWarningActive = false;
 
+// The pack read under Low V Cutoff with the wheels unloaded - see checkLowVoltageCutoff(). Cleared
+// only by a restart, which swapping the battery forces anyway: with the load off, a flat pack reads
+// back over the line within milliseconds, and that is no reason to rev on it again.
+bool batteryFlat = false;
+
 // Idle-hold's standing request: set by the BOOT_ACTION_IDLE_HOLD dispatch at power-on or the root
 // menu's Idle Mode toggle. Neither persists it - any reboot starts false.
 bool idleHoldActive = false;
@@ -200,10 +205,11 @@ burstFireType_t effectiveBurstMode(burstFireType_t selected)
     return safetyEngaged ? SAFE : selected;
 }
 
-// SAFE always spins fully down regardless, and the menu needs motors stopped for bench testing.
+// SAFE always spins fully down regardless, the menu needs motors stopped for bench testing, and a
+// flat pack gets no idle draw either.
 bool idleHoldWanted()
 {
-    return idleHoldActive && burstMode != SAFE && !menuIsOpen();
+    return idleHoldActive && burstMode != SAFE && !menuIsOpen() && !batteryFlat;
 }
 
 Bounce2::Button revSwitch = Bounce2::Button();
@@ -217,11 +223,51 @@ Bounce2::Button select2 = Bounce2::Button();
 Bounce2::Button* selectSwitches[3] = {&select0, &select1, &select2};
 uint8_t selectPins[3] = {PIN_NOT_USED, PIN_NOT_USED, PIN_NOT_USED}; // same as above
 
+// A rev held from the console. REV_HOLD on core 1 writes the mask, then pushes the deadline out; the
+// rev lapses by itself if the renewals stop.
+volatile uint8_t serialRevMask = 0;
+volatile uint32_t serialRevUntil_ms = 0;
+extern bool motorsEnabled[4];
+
+static bool serialRevHeld()
+{
+    return serialRevMask != 0 && (int32_t)(millis() - serialRevUntil_ms) < 0;
+}
+
+// The motors a rev spins, as a bit per motor: the console's pick while it holds one, else all.
+static uint8_t revMotors()
+{
+    return serialRevHeld() ? serialRevMask : 0x0F;
+}
+
+// The motors the current rev spins, or the last one did, fixed when it starts. Its dwell and idle
+// follow it, so a lease that lapses mid-rev cannot hand the left-out motors a target.
+static uint8_t revStartMask = 0x0F;
+
+static bool revsMotor(int i)
+{
+    return revStartMask & (1 << i);
+}
+
+// Some enabled motor is left out: of the rev under way, or at rest of the one a console hold would
+// start. A dart pushed through a wheel that is not turning jams.
+static bool revIsPartial()
+{
+    const uint8_t mask = flywheelState == STATE_IDLE ? revMotors() : revStartMask;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && !(mask & (1 << i)))
+            return true;
+    }
+    return false;
+}
+
 bool revRequestedNow()
 {
     if (requestRev)
         return true;
-    return !behaviorFor(burstMode).managesOwnRevLifecycle() && revSwitch.isPressed();
+    return !behaviorFor(burstMode).managesOwnRevLifecycle() &&
+           (revSwitch.isPressed() || serialRevHeld());
 }
 
 Motor motorsObj[4] = {Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0), Motor(0, 0, 0, 0)};
@@ -312,7 +358,7 @@ static bool wheelsAtSpeed()
 {
     for (int i = 0; i < 4; i++)
     {
-        if (motorsEnabled[i] && (int32_t)motorArr[i].motorRPM <= atSpeedRpm(i))
+        if (motorsEnabled[i] && revsMotor(i) && (int32_t)motorArr[i].motorRPM <= atSpeedRpm(i))
             return false;
     }
     return true;
@@ -441,20 +487,6 @@ void applyPrintTelemetry()
     printTelemetry = deviceSettings.printTelemetry;
 }
 
-// True if `pin` is held in its pressed state right now. Raw reads, because this runs before the
-// Bounce2 instances are attached.
-static bool heldAtBoot(uint8_t pin, bool normallyClosed)
-{
-    if (!pinDefined(pin))
-        return false;
-    pinMode(pin, INPUT_PULLUP);
-    bool pressedLevel = normallyClosed ? HIGH : LOW;
-    if (digitalRead(pin) != pressedLevel)
-        return false;
-    delay(50); // reject power-on electrical noise - must still read held after a beat
-    return digitalRead(pin) == pressedLevel;
-}
-
 struct BootSwitch
 {
     uint8_t pin;
@@ -490,28 +522,94 @@ static const char* bootSwitchName(uint8_t button)
     return button < BOOT_BTN_COUNT ? names[button] : "the switch";
 }
 
-// Which switch was held at power-on, and what the user mapped it to; first match wins. Only the
-// caller's POR check makes this safe: a permanently-held pin would re-trigger every boot, and for
-// ESC passthrough that is a lockout with BOOTSEL the only way out. Keep new actions inside it.
-static bootAction_t evaluateBootAction(uint8_t& firedButton)
+bool isBootInput(uint8_t button)
 {
-    firedButton = kNoBootButton;
-    for (uint8_t i = 0; i < BOOT_BTN_COUNT; i++)
+    switch (button)
     {
-        if (deviceSettings.bootAction[i] == BOOT_ACTION_NONE)
-            continue;
-        // With a dual-stage trigger, rev is the trigger's first stage, so pulling the trigger holds
-        // rev too. Honouring rev's action would shadow the trigger's own.
-        if (i == BOOT_BTN_REV && deviceSettings.dualStageTrigger)
-            continue;
-        const BootSwitch sw = bootSwitch(i);
-        if (heldAtBoot(sw.pin, sw.normallyClosed))
-        {
-            firedButton = i;
-            return deviceSettings.bootAction[i];
-        }
+    case BOOT_BTN_MENU:
+        return pinDefined(menuButtonPin);
+    case BOOT_BTN_TRIGGER:
+        return pinDefined(triggerSwitchPin);
+    case BOOT_BTN_REV:
+        // With a dual-stage trigger rev is the trigger's first stage, held by every full pull.
+        return pinDefined(revSwitchPin) && !deviceSettings.dualStageTrigger;
+    case BOOT_BTN_IDLE:
+        return pinDefined(idleSwitchPin);
+    case BOOT_BTN_SELECT0:
+    case BOOT_BTN_SELECT1:
+    case BOOT_BTN_SELECT2:
+    {
+        // With select-fire off the conflict engine never resolved these pins, so one may be another
+        // switch's GPIO. With button select-fire, select0 may be the menu button's own pin.
+        const uint8_t line = button - BOOT_BTN_SELECT0;
+        if (deviceSettings.selectFireType == NO_SELECT_FIRE || !pinDefined(selectPins[line]))
+            return false;
+        return !(line == 0 && deviceSettings.selectFireType == BUTTON_SELECT_FIRE &&
+                 selectPins[0] == menuButtonPin);
     }
-    return BOOT_ACTION_NONE;
+    default:
+        return false; // the cycle switch rests pressed whenever the pusher does
+    }
+}
+
+// The first rule whose switches are all held at power-on, or -1. A rule naming a switch that is not
+// a boot input never fires. Only the caller's POR check makes this safe: a permanently-held pin
+// would re-trigger every boot, and for ESC passthrough that is a lockout with BOOTSEL the only way
+// out. Keep new actions inside it.
+static int8_t evaluateBootRules()
+{
+    bool wanted[BOOT_BTN_COUNT] = {};
+    for (uint8_t r = 0; r < kMaxBootRules; r++)
+    {
+        const BootRule& rule = deviceSettings.bootRules[r];
+        if (rule.action == BOOT_ACTION_NONE)
+            continue;
+        for (uint8_t b = 0; b < BOOT_BTN_COUNT; b++)
+            wanted[b] = wanted[b] || (rule.on[b] && isBootInput(b));
+    }
+
+    // Raw reads, because the Bounce2 instances are not attached yet. A switch counts as held only if
+    // it still reads pressed after a beat, which rejects power-on electrical noise.
+    bool held[BOOT_BTN_COUNT] = {};
+    bool anyHeld = false;
+    for (uint8_t b = 0; b < BOOT_BTN_COUNT; b++)
+    {
+        if (!wanted[b])
+            continue;
+        const BootSwitch sw = bootSwitch(b);
+        pinMode(sw.pin, INPUT_PULLUP);
+        held[b] = digitalRead(sw.pin) == (sw.normallyClosed ? HIGH : LOW);
+        anyHeld = anyHeld || held[b];
+    }
+    if (!anyHeld)
+        return -1;
+    delay(50);
+    for (uint8_t b = 0; b < BOOT_BTN_COUNT; b++)
+    {
+        if (!held[b])
+            continue;
+        const BootSwitch sw = bootSwitch(b);
+        held[b] = digitalRead(sw.pin) == (sw.normallyClosed ? HIGH : LOW);
+    }
+
+    for (uint8_t r = 0; r < kMaxBootRules; r++)
+    {
+        const BootRule& rule = deviceSettings.bootRules[r];
+        if (rule.action == BOOT_ACTION_NONE)
+            continue;
+        bool named = false;
+        bool allHeld = true;
+        for (uint8_t b = 0; b < BOOT_BTN_COUNT; b++)
+        {
+            if (!rule.on[b])
+                continue;
+            named = true;
+            allHeld = allHeld && wanted[b] && held[b];
+        }
+        if (named && allHeld)
+            return (int8_t)r;
+    }
+    return -1;
 }
 
 // Pusher and motor channels this wiring can't drive, resolved before anything reads motorsEnabled[].
@@ -710,7 +808,7 @@ void setup()
         return;
     }
 
-    // Both before evaluateBootAction(), which reaches pinMode() through heldAtBoot(). resolve()
+    // Both before evaluateBootRules(), which calls pinMode() on the switches it reads. resolve()
     // builds its claimed-pin set from motorsEnabled[], so undrivable motors have to leave it first.
     validatePusherAndMotors();
     PinConflicts::resolve();
@@ -723,20 +821,25 @@ void setup()
         digitalWrite(escEnablePin, HIGH);
     }
 
-    // The action mapped to whichever switch is held at power-on. Runs before the pins below are
-    // attached, so it reads them raw.
+    // The action of the first boot rule whose switches are held at power-on. Runs before the pins
+    // below are attached, so it reads them raw.
     int8_t bootProfile = -1;
     if (bootReason == BootReason::POR)
     {
+        const int8_t fired = evaluateBootRules();
+        const bootAction_t action =
+            fired < 0 ? BOOT_ACTION_NONE : deviceSettings.bootRules[fired].action;
         uint8_t firedButton = kNoBootButton;
-        const bootAction_t action = evaluateBootAction(firedButton);
+        for (uint8_t b = 0; fired >= 0 && b < BOOT_BTN_COUNT && firedButton == kNoBootButton; b++)
+            if (deviceSettings.bootRules[fired].on[b])
+                firedButton = b;
         switch (action)
         {
         case BOOT_ACTION_BOOTLOADER:
             rp2040.rebootToBootloader();
             break;
         case BOOT_ACTION_ESC_PASSTHROUGH:
-            // The switch that asked for the session is the one that ends it.
+            // The rule's first switch ends the session it asked for.
             rebootPassthroughExit = firedButton;
             rebootReason = BootReason::TO_ESC_PASSTHROUGH;
             delay(100);
@@ -770,7 +873,7 @@ void setup()
     displayManager.setHasDisplay(displayAllowed);
 
     // The selector has to be readable before the profile is chosen, which has to happen before core 1
-    // is released. Still after evaluateBootAction(), which reads the same pins raw.
+    // is released. Still after evaluateBootRules(), which reads the same pins raw.
     if (pinDefined(revSwitchPin))
     {
         revSwitch.attach(revSwitchPin, INPUT_PULLUP);
@@ -1078,8 +1181,19 @@ static bool dartAllowsRev()
 
 static bool revStartWanted()
 {
+    static bool revRefusedForBattery = false;
     const bool wanted =
         shotsToFire > 0 || (revControlAllowed() && revRequestedNow() && !revSafetyLatched);
+    if (!wanted)
+        revRefusedForBattery = false;
+    else if (batteryFlat)
+    {
+        if (!revRefusedForBattery)
+            logger.warn("Battery flat, not revving - restart with a charged pack");
+        revRefusedForBattery = true;
+        shotsToFire = 0;
+        return false;
+    }
     if (!wanted || dartAllowsRev())
     {
         revHeldForDart = false;
@@ -1168,6 +1282,87 @@ static void updateDartSwitch()
     }
 }
 
+// A dual-stage trigger's half press firing a mode of its own. SUPPRESSED runs from a full press
+// until the rev contact opens, so easing back to a half press fires nothing.
+enum class HalfPress : uint8_t
+{
+    NONE,
+    ACTIVE,
+    SUPPRESSED,
+};
+static HalfPress halfPress = HalfPress::NONE;
+static int8_t halfPressModeIndex = NO_FIRE_MODE;
+// The fire mode the trigger is driving: the selected one, or the half press's while it fires.
+int8_t liveFireModeIndex = 0;
+
+// What the half press fires under the selected mode, or NO_FIRE_MODE where it only revs.
+static int8_t halfPressMode()
+{
+    if (!deviceSettings.dualStageTrigger || !pinDefined(revSwitchPin))
+        return NO_FIRE_MODE;
+    const FireModeConfig& selected = activeProfile.fireModes[firingMode];
+    const int8_t half = selected.revStageMode;
+    if (half < 0 || half >= (int8_t)activeProfile.activeModeCount || half == firingMode)
+        return NO_FIRE_MODE;
+    if (!halfPressCapable(effectiveBurstMode(selected.burstMode)) ||
+        !halfPressCapable(activeProfile.fireModes[half].burstMode))
+        return NO_FIRE_MODE;
+    return half;
+}
+
+// Which fire mode this tick's trigger event goes to, rewriting the event while the half press
+// drives its own mode.
+static int8_t routeTriggerEvent(TriggerEvent& event)
+{
+    const bool revHeld = pinDefined(revSwitchPin) && revSwitch.isPressed();
+    const bool triggerHeld = triggerSwitch.isPressed();
+    const int8_t half = halfPressMode();
+    switch (halfPress)
+    {
+    case HalfPress::ACTIVE:
+        if (triggerHeld)
+        {
+            // The full press takes over: the half press's mode never sees its release, and what it
+            // queued but has not started is dropped.
+            halfPress = HalfPress::SUPPRESSED;
+            shotsToFire = 0;
+            return firingMode;
+        }
+        if (half != halfPressModeIndex)
+        {
+            halfPress = HalfPress::SUPPRESSED;
+            return firingMode;
+        }
+        if (!revHeld)
+        {
+            halfPress = HalfPress::NONE;
+            event = TriggerEvent::RELEASED;
+            return half;
+        }
+        event = TriggerEvent::HELD;
+        return half;
+    case HalfPress::SUPPRESSED:
+        if (!revHeld)
+            halfPress = HalfPress::NONE;
+        return firingMode;
+    case HalfPress::NONE:
+        if (revHeld && triggerHeld)
+        {
+            halfPress = HalfPress::SUPPRESSED;
+            return firingMode;
+        }
+        if (revSwitch.pressed() && half != NO_FIRE_MODE)
+        {
+            halfPress = HalfPress::ACTIVE;
+            halfPressModeIndex = half;
+            event = TriggerEvent::PRESSED;
+            return half;
+        }
+        return firingMode;
+    }
+    return firingMode;
+}
+
 void mainFiringLogic()
 {
     if (pinDefined(revSwitchPin))
@@ -1221,13 +1416,34 @@ void mainFiringLogic()
         safetyEngaged = safetySwitch.isPressed();
     }
     updateDartSwitch();
-    int8_t previousFiringMode = firingMode;
+    static int8_t firingModeLastTick = -1;
+    if (firingModeLastTick == -1)
+        firingModeLastTick = firingMode;
     updateFiringMode();
-    burstMode = effectiveBurstMode(activeProfile.fireModes[firingMode].burstMode);
-    if (firingMode != previousFiringMode)
+    if (firingMode != firingModeLastTick)
+    {
         liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
+        // A mode change ends a burst in flight, as letting go does in AUTO..
+        if (shotsToFire > 1)
+            shotsToFire = 1;
+    }
+    firingModeLastTick = firingMode;
 
     requestRev = false;
+
+    TriggerEvent event = triggerSwitch.pressed()     ? TriggerEvent::PRESSED
+                         : triggerSwitch.released()  ? TriggerEvent::RELEASED
+                         : triggerSwitch.isPressed() ? TriggerEvent::HELD
+                                                     : TriggerEvent::IDLE;
+    int8_t modeIndex = firingMode;
+    if (menuIsOpen())
+        halfPress = pinDefined(revSwitchPin) && revSwitch.isPressed() ? HalfPress::SUPPRESSED
+                                                                      : HalfPress::NONE;
+    else
+        modeIndex = routeTriggerEvent(event);
+    liveFireModeIndex = modeIndex;
+    const FireModeConfig& liveMode = activeProfile.fireModes[modeIndex];
+    burstMode = effectiveBurstMode(liveMode.burstMode);
 
     if (menuIsOpen())
     {
@@ -1235,22 +1451,17 @@ void mainFiringLogic()
     }
     else
     {
-        TriggerEvent event = triggerSwitch.pressed()     ? TriggerEvent::PRESSED
-                             : triggerSwitch.released()  ? TriggerEvent::RELEASED
-                             : triggerSwitch.isPressed() ? TriggerEvent::HELD
-                                                         : TriggerEvent::IDLE;
-
         if (event == TriggerEvent::PRESSED)
-            liveTargetDPS = activeProfile.fireModes[firingMode].targetDPS;
+            liveTargetDPS = liveMode.targetDPS;
 
         FiringContext ctx{
             shotsToFire,
             liveTargetDPS,
             time_ms,
             triggerTime_ms,
-            activeProfile.fireModes[firingMode].binaryTriggerTimeout_ms,
-            activeProfile.fireModes[firingMode].burstLength,
-            activeProfile.fireModes[firingMode].reversible,
+            liveMode.binaryTriggerTimeout_ms,
+            liveMode.burstLength,
+            liveMode.reversible,
             requestRev,
             rpmScale_,
             buzzPulsesRequested_,
@@ -1317,39 +1528,120 @@ void updateSpeedPot()
 static uint32_t ledTime_ms = 0;
 static bool ledOn = true;
 
+static const uint32_t kFlatPackHold_ms = 1000;
+// Under this a cell, the divider has no pack on it: the board is running on USB alone.
+static const int32_t kNoPackPerCell_mv = 1000;
+
+static const uint8_t kLowBattBeacon = DSHOT_CMD_BEACON3;
+static const uint32_t kLowBattBeepEvery_ms = 10000;
+// An ESC ignores a command while its motor turns, so a beep waits for the wheels to stop, not just
+// for their target to.
+static const uint32_t kBeepMaxRpm = 300;
+
+// A DShot beacon command for every enabled ESC, sent by fwControlLoop() in place of one tick's
+// throttle once the wheels are stopped. 0 when none is waiting.
+static uint8_t pendingBeacon = 0;
+
+
+static bool wheelsUnloaded()
+{
+    return flywheelState == STATE_IDLE && !enableFwControl && pendingShotDetections == 0;
+}
+
+// Unloaded, and every enabled wheel's target down to zero.
+static bool wheelsStopped()
+{
+    if (!wheelsUnloaded())
+        return false;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && motorArr[i].targetRPM != 0)
+            return false;
+    }
+    return true;
+}
+
+// Stopped, and every enabled wheel's reported speed down too, so an ESC will act on a command.
+static bool wheelsQuiet()
+{
+    if (!wheelsStopped())
+        return false;
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && motorArr[i].motorRPM > kBeepMaxRpm)
+            return false;
+    }
+    return true;
+}
+
 void checkLowVoltageCutoff()
 {
     if (batteryMonitor->isDefined() && time_ms > 2000)
     {
         uint8_t cells = cellCount(deviceSettings.batteryType);
-        bool belowCutoff =
-            batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageCutoffPerCell_mv * cells;
-        // On the way into cutoff only: this runs every control loop iteration, so reporting each
-        // pass would put hundreds of lines a second on the port.
-        static bool cutoffReported = false;
-        if (belowCutoff)
+        const int32_t pack_mv = batteryMonitor->getVoltage_mv();
+        bool belowCutoff = pack_mv < deviceSettings.lowVoltageCutoffPerCell_mv * cells;
+
+        // Not until the pack has first read at or over the line: some dividers climb from near
+        // zero for tens of seconds after power-on, and USB power alone reads nothing. A pack
+        // plugged in already flat is not caught; the LED and LOW BATT still show it.
+        static bool cutoffArmed = false;
+        cutoffArmed = cutoffArmed || !belowCutoff;
+        static uint32_t flatSince_ms = 0; // 0 while the unloaded reading is at or over the line
+
+        // A pack taken out with USB still in reads as nothing rather than as flat, and whatever is
+        // plugged in next is a fresh pack, as it would be after a power-on.
+        static uint32_t noPackSince_ms = 0;
+        if (pack_mv >= kNoPackPerCell_mv * cells)
+            noPackSince_ms = 0;
+        else if (noPackSince_ms == 0)
+            noPackSince_ms = time_ms;
+        else if (time_ms - noPackSince_ms >= kFlatPackHold_ms && (cutoffArmed || batteryFlat))
         {
+            if (batteryFlat)
+                logger.info("Battery removed - the next pack is judged afresh");
+            batteryFlat = false;
+            cutoffArmed = false;
+            flatSince_ms = 0;
             if (pinDefined(escEnablePin))
-                digitalWrite(escEnablePin, LOW); // cut power to ESCs and pusher
-            if (!cutoffReported)
-            {
-                cutoffReported = true;
-                logger.error("Battery low, shutting down! ", batteryMonitor->getVoltage_mv(), "mv");
-            }
+                digitalWrite(escEnablePin, HIGH);
         }
-        else
+
+        if (!cutoffArmed || batteryFlat || !belowCutoff || !wheelsUnloaded())
+            flatSince_ms = 0;
+        else if (flatSince_ms == 0)
+            flatSince_ms = time_ms;
+        else if (time_ms - flatSince_ms >= kFlatPackHold_ms)
         {
-            cutoffReported = false;
+            batteryFlat = true;
+            lastRevTime_ms = 0; // ends a post-rev idle window along with the other idle sources
+            logger.error("Battery flat, ", pack_mv, "mv with the wheels unloaded - no rev or idle "
+                         "until restart");
         }
+
+        if (batteryFlat && pinDefined(escEnablePin) && wheelsStopped())
+            digitalWrite(escEnablePin, LOW); // cut power to ESCs and pusher
+
+        static uint32_t lastBeep_ms = 0; // 0 until a flat pack's first beep
+        if (!batteryFlat)
+            lastBeep_ms = 0;
+        else if (deviceSettings.lowBattBeep && pendingBeacon == 0 && wheelsQuiet() &&
+                 (lastBeep_ms == 0 || time_ms - lastBeep_ms >= kLowBattBeepEvery_ms))
+        {
+            pendingBeacon = kLowBattBeacon;
+            lastBeep_ms = time_ms;
+        }
+
         // Non-cutoff early warning - lowVoltageWarningPerCell_mv is above the cutoff, so this
-        // trips first as the battery depletes.
+        // trips first as the battery depletes. A flat pack keeps it up whatever it reads after.
         batteryWarningActive =
-            batteryMonitor->getVoltage_mv() < deviceSettings.lowVoltageWarningPerCell_mv * cells;
+            batteryFlat || pack_mv < deviceSettings.lowVoltageWarningPerCell_mv * cells;
 
         if (pinDefined(ledDataPin))
         {
             bool shouldBlink =
-                (deviceSettings.ledWarningMode == LED_WARNING_LOW_BATT && belowCutoff) ||
+                (deviceSettings.ledWarningMode == LED_WARNING_LOW_BATT &&
+                 (belowCutoff || batteryFlat)) ||
                 (deviceSettings.ledWarningMode == LED_WARNING_WARN_BATT && batteryWarningActive);
             if (!shouldBlink)
             {
@@ -1463,6 +1755,13 @@ static void kickMotorsToIdle()
     }
 }
 
+// The idle switch asking for idle. SAFE and a flat pack overrule it, as they do idle hold.
+static bool idleSwitchHeld()
+{
+    return pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE &&
+           !batteryFlat;
+}
+
 bool fwControlLoop()
 {
     if (directMotorControlActive)
@@ -1499,10 +1798,23 @@ bool fwControlLoop()
         return true;
     }
 
+    if (revIsPartial())
+        shotsToFire = 0;
+
     if (shotsToFire <= 0 || flywheelState != STATE_FULLSPEED)
     {
         dartWaitSince_ms = 0;
         speedWaitSince_ms = 0;
+    }
+
+    if (!revControlAllowed())
+    {
+        lastRevTime_ms = 0;
+        if (flywheelState == STATE_ACCELERATING)
+        {
+            flywheelState = STATE_IDLE;
+            logger.info("State transition: ACCELERATING to IDLE, rev not allowed");
+        }
     }
 
     switch (flywheelState)
@@ -1525,9 +1837,10 @@ bool fwControlLoop()
         {
             enableFwControl = true;
             revStartTime_us = loopStartTimer_us;
+            revStartMask = revMotors();
             for (int i = 0; i < 4; i++)
             {
-                motorArr[i].targetRPM = motorArr[i].revRPM; // Copy revRPM to targetRPM
+                motorArr[i].targetRPM = revsMotor(i) ? motorArr[i].revRPM : 0;
             }
             lastRevTime_ms = time_ms;
             flywheelState = STATE_ACCELERATING;
@@ -1581,18 +1894,16 @@ bool fwControlLoop()
                 // logger.info("Holding for dwell");
             }
         }
-        else if (((pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE) ||
-                  idleHoldWanted()) &&
-                 motorArr[0].targetRPM == 0 && motorArr[1].targetRPM == 0 &&
-                 motorArr[2].targetRPM == 0 && motorArr[3].targetRPM == 0)
+        else if ((idleSwitchHeld() || idleHoldWanted()) && motorArr[0].targetRPM == 0 &&
+                 motorArr[1].targetRPM == 0 && motorArr[2].targetRPM == 0 &&
+                 motorArr[3].targetRPM == 0)
         { // idle switch pressed from a full stop, or idle-hold engaging from a dead stop -
           // open-loop kick straight to idle RPM, since updateOpenLoop() only ever ratchets
           // throttle down, never up
             enableFwControl = false;
             kickMotorsToIdle();
         }
-        else if ((pinDefined(idleSwitchPin) && idleSwitch.isPressed() && burstMode != SAFE) ||
-                 idleHoldWanted() ||
+        else if (idleSwitchHeld() || idleHoldWanted() ||
                  (time_ms < lastRevTime_ms + dwellTime_ms + idleTime_ms && lastRevTime_ms > 0))
         { // idle flywheels - post-dwell idle window, the idle switch held, or idle-hold standing
           // at idle
@@ -1601,9 +1912,12 @@ bool fwControlLoop()
             {
                 currentSpindownSpeed += 1;
             }
+            // A rev's own idle window idles only the motors it spun; the idle switch and idle hold
+            // ask for every one.
+            const bool afterRevOnly = !idleSwitchHeld() && !idleHoldWanted();
             for (int i = 0; i < 4; i++)
             {
-                if (motorsEnabled[i])
+                if (motorsEnabled[i] && (!afterRevOnly || revsMotor(i)))
                 {
                     int32_t rpmDrop =
                         (currentSpindownSpeed * loopTime_us + 999) / 1000; // rounded up
@@ -1643,8 +1957,9 @@ bool fwControlLoop()
 
         // Every tick, not just at rev-start, so a mode can reshape the ramp live.
         for (int i = 0; i < 4; i++)
-            motorArr[i].targetRPM = (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
-                                                       : motorArr[i].revRPM;
+            motorArr[i].targetRPM = !revsMotor(i)        ? 0
+                                    : (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
+                                                          : motorArr[i].revRPM;
 
         // If all motors are at target RPM, update the blaster's state to FULLSPEED.
         if (wheelsAtSpeed()) {
@@ -1671,8 +1986,9 @@ bool fwControlLoop()
 
     case STATE_FULLSPEED:
         for (int i = 0; i < 4; i++)
-            motorArr[i].targetRPM = (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
-                                                        : motorArr[i].revRPM;
+            motorArr[i].targetRPM = !revsMotor(i)        ? 0
+                                    : (rpmScale_ >= 0.0f) ? (uint32_t)(motorArr[i].revRPM * rpmScale_)
+                                                          : motorArr[i].revRPM;
 
         if ((!revControlAllowed() || !revRequestedNow()) && shotsToFire == 0 && !firing)
         {
@@ -1791,6 +2107,17 @@ bool fwControlLoop()
                 }
             }
             break;
+        }
+    }
+    else if (pendingBeacon != 0 && wheelsQuiet())
+    {
+        // One frame per ESC, in place of this tick's zero throttle.
+        const uint8_t beacon = pendingBeacon;
+        pendingBeacon = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            if (motorsEnabled[i])
+                motorArr[i].esc->sendRaw11Bit(beacon);
         }
     }
     else
@@ -2152,7 +2479,7 @@ void loop1()
         {
             // Cross-core read-only mirror of core 0's firing state, same plain-global
             // sharing pattern as displayShotCounter above - only used for rendering here.
-            const FireModeConfig& liveFireMode = activeProfile.fireModes[firingMode];
+            const FireModeConfig& liveFireMode = activeProfile.fireModes[liveFireModeIndex];
             FiringContext fireCtx{
                 shotsToFire,
                 liveTargetDPS,
@@ -2167,11 +2494,20 @@ void loop1()
                 false, // render() never reads this
                 safetyEngaged,
             };
+            const int8_t selected = firingMode;
+            const String selectedName =
+                safetyEngaged ? String("SAFE") : activeProfile.fireModes[selected].effectiveName();
+            const int8_t half = halfPressMode();
+            const String halfName =
+                half != NO_FIRE_MODE ? activeProfile.fireModes[half].effectiveName() : String();
+            const PairStage pairStage = liveFireModeIndex != selected ? PairStage::HALF
+                                        : triggerSwitch.isPressed()   ? PairStage::FULL
+                                                                      : PairStage::NONE;
             // Real/set DPS for the home screen's optional 3rd RPM-column line - real is the
             // last measured extend-to-extend interval, set is the raw targetDPS setting.
             displayManager.renderTelemetry(
-                safetyEngaged ? "SAFE" : liveFireMode.effectiveName().c_str(),
-                activeProfile.name.c_str(),
+                selectedName.c_str(), half != NO_FIRE_MODE ? halfName.c_str() : nullptr,
+                pairStage, activeProfile.name.c_str(),
                 deviceSettings.blasterName.c_str(), motorArr, motorsEnabled, motorStages,
                 displayShotCounter, batteryMonitor->isDefined(),
                 batteryMonitor->getVoltage_mv(), deviceSettings.showCurrentRpmOnHomeScreen,

@@ -287,8 +287,18 @@ describe("enum option index vs stored value", () => {
     expect(node!.options?.[0]).toBe("Default");
   });
 
+  it("a mode's half press has a -1 floor and one more option than modes", () => {
+    const node = nodeFor("profile:fireModes[0].revStageMode");
+    expect(node).toBeDefined();
+    expect(node!.lo).toBe(-1);
+    expect(node!.hi).toBe(schema.activeModeCount - 1);
+    expect(node!.options?.length).toBe(schema.activeModeCount + 1);
+    expect(node!.options?.[0]).toBe("Rev Only");
+  });
+
   it("every other enum is a plain 0-based ordinal", () => {
-    const perPosition = /^(profile:switchPositionAssignment|device:switchPositionProfile)\[/;
+    const perPosition =
+      /^(profile:switchPositionAssignment\[|device:switchPositionProfile\[|profile:fireModes\[\d+\]\.revStageMode$)/;
     const offset = allNodes()
       .filter((n) => n.kind === "enum" && n.key && !perPosition.test(n.key))
       .filter((n) => (n.lo ?? 0) !== 0)

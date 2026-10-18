@@ -5,7 +5,7 @@ import json
 
 from helpers import armed_v12, enter, open_menu, schema
 
-from trifolium_sim import IDLE
+from trifolium_sim import ACCELERATING, FULLSPEED, IDLE
 
 SAFETY = {"safetySwitchPin": 11}
 
@@ -40,6 +40,43 @@ def test_the_safety_switch_holds_the_blaster_in_safe_with_no_rev_and_no_fire(bla
     b.run_ms(1000)
     b.release("trigger")
     assert b.extends()
+
+
+def test_engaging_the_safety_in_the_dwell_spins_the_wheels_down_without_waiting_it_out(blaster):
+    b = armed_v12(blaster, SAFETY)
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.release("rev")
+    b.run_ms(100)  # into the 1 s dwell
+    engaged(b)
+    b.run_ms(500)
+    assert b.peek("motors")[1]["targetRPM"] == 0
+
+
+def test_engaging_the_safety_mid_spin_up_ends_it(blaster):
+    b = blaster
+    b.wheel(3, loaded=0.5)  # never reaches firing speed, so the rev stays in ACCELERATING
+    armed_v12(b, {**SAFETY, "rampupTimeout_ms": 5000})
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", ACCELERATING, limit_ms=200)
+    engaged(b)
+    assert b.peek("flywheelState") == IDLE
+    b.run_ms(500)
+    assert b.peek("motors")[3]["targetRPM"] == 0
+
+
+def test_opening_the_menu_in_the_dwell_spins_the_wheels_down(blaster):
+    b = blaster
+    b.flash_profile(1, {"schemaVersion": 2, "dwellTime_ms": 5000})  # outlasts the menu's hold
+    armed_v12(b)
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.release("rev")
+    b.run_ms(100)
+    b.press("menu")
+    assert b.run_until_peek("menuOpen", True, limit_ms=b.wiring()["menuButtonHoldTime_ms"] + 200)
+    b.run_ms(500)
+    assert b.peek("motors")[1]["targetRPM"] == 0
 
 
 def test_the_firing_mode_row_names_the_switch_and_will_not_open_while_it_is_engaged(blaster):

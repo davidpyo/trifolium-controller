@@ -3,9 +3,9 @@ import { optionIndexFor, optionValueAt, withIndexOptions, withSlotNames } from "
 import type { SchemaNode } from "./types";
 
 const idValued: SchemaNode = {
-  label: "Menu Button",
+  label: "Action",
   kind: "enum",
-  key: "device:bootAction[0]",
+  key: "device:bootRules[0].action",
   lo: 0,
   hi: 2,
   step: 1,
@@ -74,9 +74,9 @@ describe("index-valued enums", () => {
 });
 
 const bootAction: SchemaNode = {
-  label: "Rev Switch",
+  label: "Action",
   kind: "enum",
-  key: "device:bootAction[2]",
+  key: "device:bootRules[2].action",
   lo: 0,
   hi: 6,
   step: 1,

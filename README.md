@@ -24,3 +24,5 @@ trifolium-controller
 ## See the wiki for more details about settings and development!
 
  https://github.com/davidpyo/trifolium-controller/wiki
+
+ The pages live in [`trifolium/wiki/`](trifolium/wiki) and are published to the wiki from `main`, so edit them there, alongside the code they describe. An edit made in the Wiki tab is overwritten by the next publish.

@@ -7,10 +7,10 @@
 //
 // Two things keep that honest, and both are load-bearing:
 //
-//   * Only rows carrying a rule are re-evaluated. Fifteen bindings deliberately carry none: their
+//   * Only rows carrying a rule are re-evaluated. Some bindings deliberately carry none: their
 //     visibility follows a resolved pin or a board property, and both are settled at boot from the
-//     post-conflict wiring. Re-deriving one from unsaved form state would show, say, a Boot Action
-//     row for a pin the device never attached.
+//     post-conflict wiring. Re-deriving one from unsaved form state would offer, say, a boot rule
+//     a switch the device never attached.
 //   * A rule whose term names nothing readable keeps the device's own answer. A profile that has
 //     not loaded yet, or a key this console cannot resolve, is a reason to defer to the device
 //     rather than to guess - guessing here hides a row the user is looking for.

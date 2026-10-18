@@ -315,64 +315,117 @@ struct RpmLoggingItemsInit
     }
 } rpmLoggingItemsInit;
 
-// What each switch does when held at power-on. Rows are indexed by bootButton_t and each is hidden
-// unless its pin is wired, so a build with no menu button or no cycle switch doesn't show them.
+// Boot rules: the switches held at power-on, and what that does. Rule 1 is checked first. A switch
+// row is hidden unless isBootInput() says the evaluator would read it.
 static const char* const bootActionLabels[] = {"None",   "Bootloader", "ESC Passthrough", "Idle Hold",
                                                "Slot 1", "Slot 2",     "Slot 3"};
 static_assert(sizeof(bootActionLabels) / sizeof(bootActionLabels[0]) == kBootActionIdCount, "bootActionLabels is out of step");
-#define BOOT_ACTION_ITEM(name, label, key, index)                                                  \
-    static EnumItem<bootAction_t> name(label, key, &deviceSettings.bootAction[index],              \
-                                       bootActionLabels, kBootActionIds, kBootActionIdCount)
-BOOT_ACTION_ITEM(bootActionMenuItem, "Menu Button", "device:bootAction[0]", BOOT_BTN_MENU);
-BOOT_ACTION_ITEM(bootActionTriggerItem, "Trigger", "device:bootAction[1]", BOOT_BTN_TRIGGER);
-BOOT_ACTION_ITEM(bootActionRevItem, "Rev Switch", "device:bootAction[2]", BOOT_BTN_REV);
-BOOT_ACTION_ITEM(bootActionCycleItem, "Cycle Switch", "device:bootAction[3]", BOOT_BTN_CYCLE);
-BOOT_ACTION_ITEM(bootActionIdleItem, "Idle Switch", "device:bootAction[4]", BOOT_BTN_IDLE);
-BOOT_ACTION_ITEM(bootActionSelect0Item, "Select 0", "device:bootAction[5]", BOOT_BTN_SELECT0);
-BOOT_ACTION_ITEM(bootActionSelect1Item, "Select 1", "device:bootAction[6]", BOOT_BTN_SELECT1);
-BOOT_ACTION_ITEM(bootActionSelect2Item, "Select 2", "device:bootAction[7]", BOOT_BTN_SELECT2);
-#undef BOOT_ACTION_ITEM
 
-static bool menuPinWired()
+static bool menuIsBootInput()
 {
-    return pinDefined(menuButtonPin);
+    return isBootInput(BOOT_BTN_MENU);
 }
-static bool triggerPinWired()
+static bool triggerIsBootInput()
 {
-    return pinDefined(triggerSwitchPin);
+    return isBootInput(BOOT_BTN_TRIGGER);
 }
-// With a dual-stage trigger the rev line is the trigger's first stage, so evaluateBootAction()
-// skips it and this row would be a lie.
-static bool revBootPinWired()
+static bool revIsBootInput()
 {
-    return pinDefined(revSwitchPin) && !deviceSettings.dualStageTrigger;
+    return isBootInput(BOOT_BTN_REV);
 }
-static bool cyclePinWired()
+static bool idleIsBootInput()
 {
-    return pinDefined(cycleSwitchPin);
+    return isBootInput(BOOT_BTN_IDLE);
 }
-static bool idlePinWired()
+static bool select0IsBootInput()
 {
-    return pinDefined(idleSwitchPin);
+    return isBootInput(BOOT_BTN_SELECT0);
 }
-static bool select0PinWired()
+static bool select1IsBootInput()
 {
-    return pinDefined(selectPins[0]);
+    return isBootInput(BOOT_BTN_SELECT1);
 }
-static bool select1PinWired()
+static bool select2IsBootInput()
 {
-    return pinDefined(selectPins[1]);
+    return isBootInput(BOOT_BTN_SELECT2);
 }
-static bool select2PinWired()
+
+static void moveBootRuleUp(uint8_t r)
 {
-    return pinDefined(selectPins[2]);
+    if (r == 0 || r >= kMaxBootRules)
+        return;
+    const BootRule above = deviceSettings.bootRules[r - 1];
+    deviceSettings.bootRules[r - 1] = deviceSettings.bootRules[r];
+    deviceSettings.bootRules[r] = above;
 }
+
+#define BOOT_RULE_TOGGLE(N, NAME, LABEL, KEY, BUTTON)                                              \
+    static ToggleItem bootRule##N##NAME##Item(LABEL, "device:bootRules[" #N "]." KEY,              \
+                                              &deviceSettings.bootRules[N].on[BUTTON])
+#define BOOT_RULE_SUBMENU(N, LABEL)                                                                \
+    static EnumItem<bootAction_t> bootRule##N##ActionItem(                                         \
+        "Action", "device:bootRules[" #N "].action", &deviceSettings.bootRules[N].action,          \
+        bootActionLabels, kBootActionIds, kBootActionIdCount);                                     \
+    BOOT_RULE_TOGGLE(N, Menu, "Menu Button", "menu", BOOT_BTN_MENU);                               \
+    BOOT_RULE_TOGGLE(N, Trigger, "Trigger", "trigger", BOOT_BTN_TRIGGER);                          \
+    BOOT_RULE_TOGGLE(N, Rev, "Rev Switch", "rev", BOOT_BTN_REV);                                   \
+    BOOT_RULE_TOGGLE(N, Idle, "Idle Switch", "idle", BOOT_BTN_IDLE);                               \
+    BOOT_RULE_TOGGLE(N, Select0, "Select 0", "select0", BOOT_BTN_SELECT0);                         \
+    BOOT_RULE_TOGGLE(N, Select1, "Select 1", "select1", BOOT_BTN_SELECT1);                         \
+    BOOT_RULE_TOGGLE(N, Select2, "Select 2", "select2", BOOT_BTN_SELECT2);                         \
+    static bool bootRule##N##NotFirst()                                                            \
+    {                                                                                              \
+        return N > 0;                                                                              \
+    }                                                                                              \
+    static void bootRule##N##MoveUp()                                                              \
+    {                                                                                              \
+        moveBootRuleUp(N);                                                                         \
+    }                                                                                              \
+    static PopBackActionItem bootRule##N##MoveUpItem("Move Up", bootRule##N##MoveUp);              \
+    static void bootRule##N##Clear()                                                               \
+    {                                                                                              \
+        deviceSettings.bootRules[N] = BootRule{BOOT_ACTION_NONE, {}};                              \
+    }                                                                                              \
+    static PopBackActionItem bootRule##N##ClearItem("Clear", bootRule##N##Clear);                  \
+    static MenuItem* bootRule##N##Items[] = {                                                      \
+        &bootRule##N##ActionItem,  &bootRule##N##MenuItem,    &bootRule##N##TriggerItem,           \
+        &bootRule##N##RevItem,     &bootRule##N##IdleItem,    &bootRule##N##Select0Item,           \
+        &bootRule##N##Select1Item, &bootRule##N##Select2Item, &bootRule##N##MoveUpItem,            \
+        &bootRule##N##ClearItem};                                                                  \
+    static SubmenuItem bootRule##N##Submenu(LABEL, bootRule##N##Items, 10);                        \
+    static struct BootRule##N##Init                                                                \
+    {                                                                                              \
+        BootRule##N##Init()                                                                        \
+        {                                                                                          \
+            bootRule##N##MenuItem.setVisibleWhen(menuIsBootInput);                                 \
+            bootRule##N##TriggerItem.setVisibleWhen(triggerIsBootInput);                           \
+            bootRule##N##RevItem.setVisibleWhen(revIsBootInput);                                   \
+            bootRule##N##IdleItem.setVisibleWhen(idleIsBootInput);                                 \
+            bootRule##N##Select0Item.setVisibleWhen(select0IsBootInput);                           \
+            bootRule##N##Select1Item.setVisibleWhen(select1IsBootInput);                           \
+            bootRule##N##Select2Item.setVisibleWhen(select2IsBootInput);                           \
+            bootRule##N##MoveUpItem.setVisibleWhen(bootRule##N##NotFirst);                         \
+        }                                                                                          \
+    } bootRule##N##Init;
+
+BOOT_RULE_SUBMENU(0, "Rule 1")
+BOOT_RULE_SUBMENU(1, "Rule 2")
+BOOT_RULE_SUBMENU(2, "Rule 3")
+BOOT_RULE_SUBMENU(3, "Rule 4")
+BOOT_RULE_SUBMENU(4, "Rule 5")
+BOOT_RULE_SUBMENU(5, "Rule 6")
+BOOT_RULE_SUBMENU(6, "Rule 7")
+BOOT_RULE_SUBMENU(7, "Rule 8")
+#undef BOOT_RULE_SUBMENU
+#undef BOOT_RULE_TOGGLE
+static_assert(kMaxBootRules == 8, "one BOOT_RULE_SUBMENU per rule");
 
 static MenuItem* bootActionItems[] = {
-    &bootActionMenuItem,    &bootActionTriggerItem, &bootActionRevItem,     &bootActionCycleItem,
-    &bootActionIdleItem,    &bootActionSelect0Item, &bootActionSelect1Item, &bootActionSelect2Item,
+    &bootRule0Submenu, &bootRule1Submenu, &bootRule2Submenu, &bootRule3Submenu,
+    &bootRule4Submenu, &bootRule5Submenu, &bootRule6Submenu, &bootRule7Submenu,
 };
-static SubmenuItem bootActionSubmenu("Boot Actions", bootActionItems, 8);
+static SubmenuItem bootActionSubmenu("Boot Actions", bootActionItems,
+                                     sizeof(bootActionItems) / sizeof(bootActionItems[0]));
 
 // How the pusher is driven, and the one field that says onto what. Off-device: they are wiring and
 // travel with the pin they select, so the four move together or the state is incoherent.
@@ -408,14 +461,6 @@ struct BootActionItemsInit
 {
     BootActionItemsInit()
     {
-        bootActionMenuItem.setVisibleWhen(menuPinWired);
-        bootActionTriggerItem.setVisibleWhen(triggerPinWired);
-        bootActionRevItem.setVisibleWhen(revBootPinWired);
-        bootActionCycleItem.setVisibleWhen(cyclePinWired);
-        bootActionIdleItem.setVisibleWhen(idlePinWired);
-        bootActionSelect0Item.setVisibleWhen(select0PinWired);
-        bootActionSelect1Item.setVisibleWhen(select1PinWired);
-        bootActionSelect2Item.setVisibleWhen(select2PinWired);
         pusherEscChannelItem.setVisibleWhen(usesEscPusher, &kUsesEscPusher);
         pusherDriveItem.setOffDevice();
         pusherEscChannelItem.setOffDevice();

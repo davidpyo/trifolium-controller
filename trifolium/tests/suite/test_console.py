@@ -125,6 +125,11 @@ def serve():
 def open_console(page, served, shim=SHIM):
     page.add_init_script(f"window.__SIM_SERIAL_URL = 'ws://127.0.0.1:{served.ws}';\n{shim}")
     page.goto(CONSOLE.as_uri())
+    # The tests read what the log says, so it is open; it opens by default on a wide screen.
+    bar = page.get_by_role("button", name=re.compile(r"^(Show|Hide) the log$"))
+    expect(bar).to_be_visible()
+    if bar.get_attribute("aria-expanded") == "false":
+        bar.click()
     return page
 
 
@@ -134,23 +139,55 @@ def connect(page):
 
 
 def choose(page, menu, item):
-    """A top-bar menu button, then one of its entries."""
-    page.get_by_role("button", name=re.compile(rf"^{re.escape(menu)}")).click()
+    """A menu button, then one of its entries."""
+    page.get_by_role("button", name=re.compile(rf"^{re.escape(menu)} ▾")).click()
     page.get_by_role("menuitem", name=re.compile(rf"^{re.escape(item)}")).click()
+
+
+def go(page, name):
+    """A page, from the navigation rail. A page holding unsaved edits says how many after a comma."""
+    rail = page.get_by_role("navigation", name="Sections").first
+    rail.get_by_role("button", name=re.compile(rf"^{re.escape(name)}(,|$)")).click()
+
+
+def write(page, store=None):
+    """Reviews what is staged and writes one store - "Blaster settings", "Profile Medium" - or all.
+
+    The bar says Review beside its own Write when every edit is in one store, and Review and write
+    when they are not; either opens the review."""
+    page.get_by_role("region", name="Unsaved changes").get_by_role(
+        "button", name=re.compile("^Review")).click()
+    sheet = page.get_by_role("dialog", name="Review changes")
+    if store:
+        sheet.get_by_role("button", name=f"Write only {store}").click()
+    else:
+        sheet.get_by_role("button", name=re.compile(r"^Write \d+ changes?$")).click()
+
+
+def nothing_unsaved(page, timeout=REBOOT_MS):
+    expect(page.get_by_text("No unsaved changes")).to_be_visible(timeout=timeout)
+
+
+def header(page):
+    return page.get_by_role("banner")
 
 
 def test_an_unwired_blaster_is_offered_presets_and_one_arms_it_across_the_reboot(page, serve):
     served = serve(preset=None)
     connect(open_console(page, served))
-    expect(page.get_by_text("Which board is this wired as?")).to_be_visible()
-    load = page.get_by_role("button", name="Load this wiring and restart")
-    expect(load).to_be_disabled()
+    expect(page.get_by_text("Which board is in this blaster?")).to_be_visible()
+    expect(page.get_by_role("button", name="Next")).to_be_disabled()
 
-    page.get_by_role("combobox", name="Board").click()
-    page.get_by_role("option", name="Trifolium v1.2").click()
-    load.click()  # no confirm: an unwired blaster has nothing to lose
+    page.get_by_role("radiogroup", name="Board").get_by_role("radio", name="Trifolium v1.2",
+                                                             exact=True).click()
+    page.get_by_role("button", name="Next").click()
+    # The firmware defaults, as a device with no wiring has them.
+    expect(page.get_by_role("radio", name="None", exact=True)).to_be_checked()
+    page.get_by_role("button", name="Next").click()
+    expect(page.get_by_text("One write, then the blaster restarts.", exact=False)).to_be_visible()
+    page.get_by_role("button", name="Set up blaster").click()
 
-    expect(page.get_by_text("Which board is this wired as?")).to_be_hidden(timeout=REBOOT_MS)
+    expect(page.get_by_text("Set up this blaster")).to_be_hidden(timeout=REBOOT_MS)
     expect(page.get_by_text(re.compile(r"Connected · fw \d"))).to_be_visible(timeout=REBOOT_MS)
     settings = served.settings()
     assert settings["wiringConfigured"] is True
@@ -211,17 +248,22 @@ def test_an_unwired_blaster_set_up_with_a_blaster_config_stores_the_whole_config
     served = serve(preset=None)
     connect(open_console(page, served))
 
-    page.get_by_role("combobox", name="Board").click()
-    page.get_by_role("option", name=board_name(board), exact=True).click()
-    page.get_by_role("combobox", name="Blaster config").click()
-    page.get_by_role("option", name=f"{name} (built on {board_name(blaster['board'])})").click()
+    page.get_by_role("radiogroup", name="Board").get_by_role("radio", name=board_name(board),
+                                                             exact=True).click()
+    page.get_by_role("button", name="Next").click()
+    page.get_by_role("radiogroup", name="Blaster config").get_by_role("radio", name=name,
+                                                                      exact=True).click()
     for note in blaster.get("notes", []):
         expect(page.get_by_text(note, exact=True)).to_be_visible()
-    page.get_by_role("button", name="Load the wiring and config, and restart").click()
+    page.get_by_role("button", name="Next").click()
+    writes = 1 + len(blaster["profiles"])
+    expect(page.get_by_text(f"{writes} writes, and the blaster restarts after each.",
+                            exact=False)).to_be_visible()
+    page.get_by_role("button", name="Set up blaster").click()
 
     expect(page.get_by_text(f"Set up as {name} on {board_name(board)}.")).to_be_visible(
         timeout=3 * REBOOT_MS)
-    expect(page.get_by_text("Which board is this wired as?")).to_be_hidden()
+    expect(page.get_by_text("Set up this blaster")).to_be_hidden()
     stored = [served.flash_json("/device.cfg")]
     stored += [served.flash_json(f"/profile{slot}.cfg") for slot in range(len(blaster["profiles"]))]
     pins = pin_keys()
@@ -257,21 +299,21 @@ def test_a_renamed_blaster_is_written_rebooted_into_and_read_back(page, serve):
     name.fill("bench")
     name.press("Enter")
 
-    choose(page, "Write to Device", "Device Config (1)")
-    expect(page.get_by_role("button", name=re.compile("^Write to Device"))).to_be_disabled(
-        timeout=REBOOT_MS)
+    write(page, "Blaster settings")
+    nothing_unsaved(page)
     expect(page.get_by_text(re.compile(r"Reconnected"))).to_be_visible(timeout=REBOOT_MS)
     assert served.settings()["blasterName"] == "bench"
-    expect(page.get_by_text("bench", exact=True)).to_be_visible()
+    expect(header(page).get_by_text("bench", exact=True)).to_be_visible()
 
 
 def test_a_device_reset_asks_for_the_word_that_names_what_is_lost_and_keeps_the_wiring(page, serve):
     served = serve(device={"blasterName": "marked"})
     connect(open_console(page, served))
-    page.get_by_role("button", name=re.compile("^Reset")).click()
-    entries = [item.inner_text().splitlines()[0] for item in page.get_by_role("menuitem").all()]
-    assert [e.split(":")[0] for e in entries] == ["Profile", "Device Settings", "Wiring", "Everything"]
-    page.get_by_role("menuitem", name=re.compile("^Device Settings")).click()
+    go(page, "Maintenance")
+    resets = page.get_by_role("group", name="Danger zone").get_by_role("button")
+    expect(resets).to_have_text(["Reset profile Medium…", "Reset blaster settings…",
+                                 "Clear wiring…", "Reset everything…"])
+    page.get_by_role("button", name="Reset blaster settings…").click()
 
     dialog = page.get_by_role("dialog")
     expect(dialog).to_contain_text("Your wiring and board survive")
@@ -317,10 +359,10 @@ def test_without_web_serial_the_console_goes_over_webusb_and_follows_the_device_
     name.fill("phone")
     name.press("Enter")
 
-    choose(page, "Write to Device", "Device Config (1)")
+    write(page, "Blaster settings")
     expect(page.get_by_text("Reconnected (device re-enumerated).")).to_be_visible(timeout=REBOOT_MS)
     assert served.settings()["blasterName"] == "phone"
-    expect(page.get_by_text("phone", exact=True)).to_be_visible()
+    expect(header(page).get_by_text("phone", exact=True)).to_be_visible()
 
 
 def test_over_webusb_disconnect_releases_the_device_and_the_allowed_one_reopens_without_a_picker(
@@ -343,7 +385,8 @@ def test_choose_device_asks_even_when_a_blaster_is_already_allowed(page, serve):
     expect(page.get_by_text(re.compile("Connect failed: No port selected"))).to_be_visible()
 
 
-def test_an_rpm_capture_from_a_rev_charts_every_motor_at_the_length_the_device_published(page, serve):
+def test_an_rpm_capture_from_a_rev_charts_by_itself_at_the_length_the_device_published(page, serve):
+    """No button to press: the capture is taken from the log as the console reconnects."""
     served = serve(device={"useRpmLogging": True})
     connect(open_console(page, served))
     served.wait_armed()
@@ -354,17 +397,66 @@ def test_an_rpm_capture_from_a_rev_charts_every_motor_at_the_length_the_device_p
         timeout=REBOOT_MS)
     expect(page.get_by_text(re.compile(r"Connected · fw \d"))).to_be_visible()
 
-    page.get_by_role("tab", name="RPM Log").click()
-    page.get_by_role("button", name="Take from device log").click()
+    go(page, "RPM capture")
     length = served.settings()["rpmLogLength"]
     expect(page.get_by_text(re.compile(rf"^2 motors, {length} samples"))).to_be_visible()
+
+
+def test_holding_rev_in_the_console_takes_a_capture(page, serve):
+    served = serve(device={"useRpmLogging": True})
+    connect(open_console(page, served))
+    served.wait_armed()
+    go(page, "RPM capture")
+    hold = page.get_by_role("button", name="Hold to rev")
+    expect(hold).to_be_enabled()
+    hold.hover()
+    page.mouse.down()
+    served.run_for(1500)
+    page.mouse.up()
+    expect(page.get_by_text("RPM capture finished - device is back.")).to_be_visible(
+        timeout=REBOOT_MS)
+    length = served.settings()["rpmLogLength"]
+    expect(page.get_by_text(re.compile(rf"^2 motors, {length} samples"))).to_be_visible()
+
+
+def test_a_capture_with_the_first_motor_left_out_still_charts(page, serve):
+    """Its flat trace once decided the trim on its own and cut every series to nothing."""
+    served = serve(device={"useRpmLogging": True})
+    connect(open_console(page, served))
+    served.wait_armed()
+    go(page, "RPM capture")
+    page.get_by_role("checkbox", name="Motor 2").uncheck()
+    hold = page.get_by_role("button", name="Hold to rev")
+    hold.hover()
+    page.mouse.down()
+    served.run_for(1500)
+    page.mouse.up()
+    expect(page.get_by_text("RPM capture finished - device is back.")).to_be_visible(
+        timeout=REBOOT_MS)
+    expect(page.get_by_text(re.compile(r"^2 motors, \d+ samples"))).to_be_visible()
+    expect(page.get_by_text("(charting 0)")).to_have_count(0)
+    longest = page.evaluate(
+        "Math.max(...[...document.querySelectorAll('svg path')].map(p => (p.getAttribute('d') || '').length))")
+    assert longest > 1000
+
+
+def test_the_motor_test_button_spins_that_motor(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    served.wait_armed()
+    go(page, "Blaster settings")
+    motors = page.get_by_role("group", name="Motors & PID")
+    expect(motors.get_by_role("button", name="Test motor 1")).to_have_count(0)  # not enabled
+    motors.get_by_role("button", name="Test motor 2").click()
+    expect(page.get_by_text("Motor 2 spun.")).to_be_visible()
+    expect(motors.get_by_role("button", name="Set motor 4 to Reversed")).to_be_disabled()
 
 
 def test_a_setting_that_governs_others_shows_and_hides_them_as_it_is_edited(page, serve):
     """The console evaluates the schema's visibleWhen itself, so the rows move before any write."""
     served = serve()
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Device").click()
+    go(page, "Blaster settings")
     expect(page.get_by_text("EMA Filter", exact=True)).to_be_visible()
     expect(page.get_by_text("Throttle Cap", exact=True)).to_have_count(0)
 
@@ -373,8 +465,7 @@ def test_a_setting_that_governs_others_shows_and_hides_them_as_it_is_edited(page
     expect(page.get_by_text("I Threshold", exact=True)).to_have_count(0)
     expect(page.get_by_text("Throttle Cap", exact=True)).to_be_visible()
 
-    page.get_by_role("button", name=re.compile("^Write to Device")).click()
-    expect(page.get_by_role("menuitem", name=re.compile(r"^Device Config \(1\)"))).to_be_visible()
+    expect(page.get_by_role("region", name="Unsaved changes")).to_contain_text("1 unsaved change")
     assert served.settings()["flywheelControl"] == "pid"
 
 
@@ -433,22 +524,37 @@ def test_a_splash_image_is_uploaded_drawn_at_the_next_boot_and_cleared(page, ser
     connect(open_console(page, served))
     image = tmp_path / "splash.png"
     write_png(image, lit)
-    page.get_by_role("tab", name="Splash").click()
-    expect(page.get_by_text("The console does not read a splash back from the device")).to_be_visible()
+    go(page, "Splash screen")
+    expect(page.get_by_text("On the blaster: the built-in splash")).to_be_visible()
     with page.expect_file_chooser() as chooser:
         page.get_by_role("button", name="Choose image").click()
     chooser.value.set_files(str(image))
+    page.get_by_role("button", name="Upload to device").click()
+    served.until(lambda: served.flash("/splash.bin") == packed(lit))
+    expect(page.get_by_text("On the blaster: your custom splash")).to_be_visible()
+
+    # What Download saves uploads back to the same bytes.
+    with page.expect_download() as download:
+        page.get_by_role("button", name="Download").click()
+    saved = tmp_path / "downloaded.png"
+    download.value.save_as(saved)
+    page.get_by_role("button", name="Clear custom splash").click()
+    served.until(lambda: served.flash("/splash.bin") is None)
+    expect(page.get_by_text("On the blaster: the built-in splash")).to_be_visible()
+    with page.expect_file_chooser() as chooser:
+        page.get_by_role("button", name="Choose image").click()
+    chooser.value.set_files(str(saved))
     page.get_by_role("button", name="Upload to device").click()
     served.until(lambda: served.flash("/splash.bin") == packed(lit))
 
     # The boot draws its version and board over the splash's bottom rows.
     expected = ["".join("1" if lit(x, y) else "0" for x in range(128)) for y in range(48)]
     with rebooting(page):
-        choose(page, "Reboot", "Reboot")
+        header(page).get_by_role("button", name="Restart", exact=True).click()
         served.until(lambda: served.bench("panel", pixels=True)["pixels"][:48] == expected,
                       REBOOT_MS / 1000)
 
-    page.get_by_role("tab", name="Splash").click()
+    go(page, "Splash screen")
     page.get_by_role("button", name="Clear custom splash").click()
     served.until(lambda: served.flash("/splash.bin") is None)
 
@@ -457,8 +563,9 @@ def test_a_splash_image_is_uploaded_drawn_at_the_next_boot_and_cleared(page, ser
 
 
 def save_full_backup(page, folder):
+    go(page, "Overview")
     with page.expect_download() as download:
-        choose(page, "Backup", "Full Backup")
+        choose(page, "Back up", "Full Backup")
     saved = folder / "backup.json"
     download.value.save_as(saved)
     return saved
@@ -478,15 +585,15 @@ def test_a_full_backup_holds_every_store_and_loading_it_puts_a_changed_setting_b
     name.fill("changed")
     name.press("Enter")
     with rebooting(page):
-        choose(page, "Write to Device", "Device Config (1)")
+        write(page, "Blaster settings")
     assert served.settings()["blasterName"] == "changed"
 
     with page.expect_file_chooser() as chooser:
-        choose(page, "Load Backup", "Full Backup")
+        choose(page, "Restore", "Full Backup")
     chooser.value.set_files(str(saved))
     expect(page.get_by_text("Loaded backup.json — 1 value(s) differ from the device.")).to_be_visible()
     with rebooting(page):
-        choose(page, "Write to Device", "Device Config (1)")
+        write(page, "Blaster settings")
     assert served.settings()["blasterName"] == "example"
 
 
@@ -501,18 +608,21 @@ def test_a_full_backup_puts_back_every_profile_not_only_the_one_on_screen(page, 
     saved.write_text(json.dumps(bundle), encoding="utf-8")
 
     with page.expect_file_chooser() as chooser:
-        choose(page, "Load Backup", "Full Backup")
+        choose(page, "Restore", "Full Backup")
     chooser.value.set_files(str(saved))
+    pending = page.get_by_role("region", name="Unsaved changes")
+    expect(pending).to_contain_text("4 unsaved changes")
     with rebooting(page):
-        choose(page, "Write to Device (4)", "Device Config (1)")
+        write(page, "Blaster settings")
     assert served.settings()["blasterName"] == "restored"
 
     # The write re-read the device, and the three profiles from the backup are still waiting.
+    expect(pending).to_contain_text("3 unsaved changes")
     with rebooting(page):
-        choose(page, "Write to Device (3)", "Everything (3)")
+        write(page)
     names = [served.flash_json(f"/profile{slot}.cfg")["name"] for slot in range(3)]
     assert names == ["Low B", "Medium B", "High B"]
-    expect(page.get_by_role("button", name=re.compile("^Write to Device"))).to_be_disabled()
+    nothing_unsaved(page)
 
 
 def test_a_backup_offered_as_the_wrong_kind_is_refused_and_stages_nothing(page, serve, tmp_path):
@@ -520,20 +630,20 @@ def test_a_backup_offered_as_the_wrong_kind_is_refused_and_stages_nothing(page, 
     connect(open_console(page, served))
     bundle = save_full_backup(page, tmp_path)
     with page.expect_download() as download:
-        choose(page, "Backup", "Device Config")
+        choose(page, "Back up", "Device Config")
     device = tmp_path / "device.json"
     download.value.save_as(device)
 
     with page.expect_file_chooser() as chooser:
-        choose(page, "Load Backup", "Device Config")
+        choose(page, "Restore", "Device Config")
     chooser.value.set_files(str(bundle))
     expect(page.get_by_text(re.compile(r"backup\.json is a full backup, not a device config"))).to_be_visible()
 
     with page.expect_file_chooser() as chooser:
-        choose(page, "Load Backup", "Profile into")
+        choose(page, "Restore", "Profile into")
     chooser.value.set_files(str(device))
     expect(page.get_by_text(re.compile(r"device\.json does not look like a profile"))).to_be_visible()
-    expect(page.get_by_role("button", name=re.compile("^Write to Device"))).to_be_disabled()
+    nothing_unsaved(page, timeout=5000)
 
 
 # ---- profiles ----------------------------------------------------------------------------------
@@ -542,7 +652,7 @@ def test_a_backup_offered_as_the_wrong_kind_is_refused_and_stages_nothing(page, 
 def test_copy_to_puts_the_shown_profile_onto_another_slot_and_keeps_that_slots_name(page, serve):
     served = serve(profiles={1: {"schemaVersion": 2, "name": "Medium", "dwellTime_ms": 2500}})
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Profile").click()
+    go(page, "Profiles")
     page.get_by_role("button", name="Copy to...").click()
     dialog = page.get_by_role("dialog")
     dialog.get_by_role("combobox", name="Copy to").click()
@@ -562,7 +672,7 @@ def mode_rows(page):
 def test_fire_modes_added_changed_and_deleted_in_the_editor_reach_the_running_profile(page, serve):
     served = serve()
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Profile").click()
+    go(page, "Profiles")
 
     page.get_by_role("group", name="Fire Modes").get_by_role("button", name="+").click()
     added = mode_rows(page).nth(4)  # the header row, modes 1-3, then the new one
@@ -574,7 +684,7 @@ def test_fire_modes_added_changed_and_deleted_in_the_editor_reach_the_running_pr
     mode_rows(page).nth(1).get_by_role("button", name="✕").click()  # AUTO
 
     with rebooting(page):
-        choose(page, "Write to Device", "Profile: Medium")
+        write(page, "Profile Medium")
     stored = served.flash_json("/profile1.cfg")
     modes = stored["fireModes"][:stored["activeModeCount"]]
     assert [m["burstMode"] for m in modes] == ["binary", "semi", "burst"]
@@ -584,12 +694,12 @@ def test_fire_modes_added_changed_and_deleted_in_the_editor_reach_the_running_pr
 
 def test_an_edit_to_one_fire_mode_marks_that_mode_alone(page, serve):
     connect(open_console(page, serve()))
-    page.get_by_role("tab", name="Profile").click()
+    go(page, "Profiles")
     first, second = mode_rows(page).nth(1).get_by_role("combobox"), mode_rows(page).nth(2).get_by_role("combobox")
     first.click()
     page.get_by_role("option", name="SEMI", exact=True).click()
 
-    # The red outline is a thicker border on the field's notched outline.
+    # The edit mark is a thicker border on the field's notched outline.
     outline = "el => getComputedStyle(el.parentElement.querySelector('.MuiOutlinedInput-notchedOutline')).borderTopWidth"
     assert first.evaluate(outline) == "2px"
     assert second.evaluate(outline) == "1px"
@@ -602,37 +712,53 @@ def wiring_row(page, control):
     return page.get_by_role("group", name="Wiring").get_by_role("row", name=re.compile(rf"^{control} "))
 
 
+def test_changing_the_board_shows_what_moves_before_it_loads(page, serve):
+    served = serve(preset="trifolium_v1_2")
+    connect(open_console(page, served))
+    header(page).get_by_role("button", name=re.compile(r"^Board: ")).click()
+    board = page.get_by_role("radiogroup", name="Board")
+    expect(board.get_by_role("radio", name="Trifolium v1.2", exact=True)).to_be_checked()
+    board.get_by_role("radio", name="Trifolium v1.1", exact=True).click()
+    page.get_by_role("button", name="Next").click()
+    expect(page.get_by_text("in place of Trifolium v1.2", exact=False)).to_be_visible()
+    assert served.settings()["boardId"] == "trifolium_v1_2"  # nothing written until confirmed
+    page.get_by_role("button", name="Load wiring").click()
+
+    expect(page.get_by_text("Loaded the Trifolium v1.1 wiring.")).to_be_visible(timeout=REBOOT_MS)
+    assert served.settings()["boardId"] == "trifolium_v1_1"
+    expect(page.get_by_role("radiogroup", name="Board")).to_be_hidden()
+
 def test_a_pin_edited_in_the_wiring_table_is_marked_modified_and_written(page, serve):
     served = serve()
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Wiring").click()
+    go(page, "Wiring")
     trigger = wiring_row(page, "Trigger").get_by_role("spinbutton")
     trigger.fill("20")
     trigger.press("Tab")
-    expect(page.get_by_text("Trifolium v1.2 (modified)")).to_be_visible()
+    expect(header(page).get_by_text("Trifolium v1.2 (modified)")).to_be_visible()
 
     with rebooting(page):
-        choose(page, "Write to Device", "Device Config (1)")
+        write(page, "Blaster settings")
     assert served.settings()["triggerSwitchPin"] == 20
-    expect(page.get_by_text("Trifolium v1.2 (modified)")).to_be_visible()
+    expect(header(page).get_by_text("Trifolium v1.2 (modified)")).to_be_visible()
 
 
 def test_unused_is_a_choice_in_the_wiring_table_and_writes_255(page, serve):
     served = serve()
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Wiring").click()
+    go(page, "Wiring")
     wiring_row(page, "Rev").get_by_role("button", name="unused").click()
     expect(wiring_row(page, "Rev").get_by_role("spinbutton")).to_be_disabled()
 
     with rebooting(page):
-        choose(page, "Write to Device", "Device Config (1)")
+        write(page, "Blaster settings")
     assert served.settings()["revSwitchPin"] == 255
 
 
 def test_each_pin_field_in_the_wiring_table_is_named_for_its_pin(page, serve):
     served = serve()
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Wiring").click()
+    go(page, "Wiring")
     table = page.get_by_role("group", name="Wiring")
     expect(wiring_row(page, "Trigger").get_by_role("spinbutton", name="Trigger Pin")).to_be_visible()
     expect(table.get_by_role("spinbutton", name="ESC 1 Pin", exact=True)).to_be_visible()
@@ -661,7 +787,7 @@ def test_a_diagram_label_too_long_for_one_line_is_given_its_room_rather_than_dra
     Select 2's label."""
     served = serve(device={"menuButtonPin": 9})
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Wiring").click()
+    go(page, "Wiring")
     expect(page.get_by_text(re.compile("^Menu Button / Select 0")).first).to_be_visible()
 
     deadline = time.monotonic() + 3
@@ -674,20 +800,53 @@ def test_a_diagram_label_too_long_for_one_line_is_given_its_room_rather_than_dra
     assert found["hits"] == []
 
 
-def test_a_boot_action_that_loads_a_slot_names_the_profile_there_even_before_a_rename_is_written(
+def boot_rule(page, n):
+    return page.get_by_role("group", name="Boot Actions").get_by_role("row", name=f"Rule {n}")
+
+
+def test_a_boot_rule_that_loads_a_slot_names_the_profile_there_even_before_a_rename_is_written(
         page, serve):
     served = serve()
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Profile").click()
+    go(page, "Profiles")
     name = page.get_by_role("textbox", name="Name", exact=True)
     names = ["Low", "Medium", "High"]
     names[names.index(name.input_value())] = "Indoor"
     name.fill("Indoor")
 
-    page.get_by_role("tab", name="Wiring").click()
-    wiring_row(page, "Rev").get_by_role("combobox").click()
+    go(page, "Blaster settings")
+    boot_rule(page, 3).get_by_role("combobox").click()
     slots = page.get_by_role("option").filter(has_text=re.compile("^Slot"))
     expect(slots).to_have_text([f"Slot {i + 1} · {n}" for i, n in enumerate(names)])
+
+
+def test_dragging_a_boot_rule_to_the_top_shifts_the_rest_down_one(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    go(page, "Blaster settings")
+    before = served.settings()["bootRules"]
+    boot_rule(page, 3).get_by_role("button", name="Drag rule 3").drag_to(boot_rule(page, 1))
+
+    with rebooting(page):
+        write(page, "Blaster settings")
+    after = served.settings()["bootRules"]
+    assert after[:4] == [before[2], before[0], before[1], before[3]]
+
+
+def test_a_boot_rule_moves_with_the_arrow_keys_on_its_handle(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    go(page, "Blaster settings")
+    before = served.settings()["bootRules"]
+    handle = boot_rule(page, 1).get_by_role("button", name="Drag rule 1")
+    handle.focus()
+    page.keyboard.press("ArrowDown")
+    expect(boot_rule(page, 2).get_by_role("button", name="Drag rule 2")).to_be_focused()
+
+    with rebooting(page):
+        write(page, "Blaster settings")
+    after = served.settings()["bootRules"]
+    assert after[:3] == [before[1], before[0], before[2]]
 
 
 # ---- released firmware and the console's own build ---------------------------------------------
@@ -723,6 +882,7 @@ def serve_releases(page, files):
 
 
 def open_flash_dialog(page):
+    go(page, "Firmware")
     page.get_by_role("button", name="Flash Firmware").click()
     return page.get_by_role("dialog")
 
@@ -796,6 +956,7 @@ def test_the_footer_names_the_build_and_offers_the_offline_copy(page, serve):
 
 def test_a_setting_says_what_it_does_and_the_mode_list_what_each_mode_does(page, serve):
     connect(open_console(page, serve()))
+    go(page, "Profiles")
     label = page.locator("#root").get_by_text("Spindown Speed", exact=True)  # not the tooltip's
     label.hover()
     expect(page.get_by_role("tooltip")).to_contain_text("How quickly the flywheels may slow down")
@@ -804,6 +965,152 @@ def test_a_setting_says_what_it_does_and_the_mode_list_what_each_mode_does(page,
     page.get_by_role("group", name="Fire Modes").get_by_role("combobox").first.click()
     plasma = page.get_by_role("option", name="PLASMA", exact=True)
     expect(plasma).to_have_accessible_description(re.compile(r"^A charge-up shot"))
+
+
+# ---- staging and search ------------------------------------------------------------------------
+
+
+def ema_row(page):
+    return page.locator('[data-key="device:EMAFilter"]')
+
+
+def test_an_edit_says_what_the_device_holds_and_reverting_it_in_the_review_puts_it_back(page, serve):
+    connect(open_console(page, serve()))
+    go(page, "Blaster settings")
+    field = ema_row(page).get_by_role("spinbutton")
+    before = field.input_value()
+    field.fill("3" if before != "3" else "2")
+    field.press("Tab")
+    expect(ema_row(page)).to_contain_text(f"was {before}")
+
+    page.get_by_role("region", name="Unsaved changes").get_by_role("button", name="Review").click()
+    sheet = page.get_by_role("dialog", name="Review changes")
+    expect(sheet).to_contain_text("EMA Filter")
+    sheet.get_by_role("button", name="Revert EMA Filter").click()
+    expect(sheet).to_contain_text("Nothing to write")
+    sheet.get_by_role("button", name="Close").last.click()
+    expect(field).to_have_value(before)
+    nothing_unsaved(page, timeout=5000)
+
+
+def test_an_edit_put_back_by_hand_is_no_longer_unsaved(page, serve):
+    connect(open_console(page, serve()))
+    go(page, "Blaster settings")
+    field = ema_row(page).get_by_role("spinbutton")
+    before = field.input_value()
+    field.fill("3" if before != "3" else "2")
+    field.press("Tab")
+    expect(page.get_by_role("region", name="Unsaved changes")).to_contain_text("1 unsaved change")
+    field.fill(before)
+    field.press("Tab")
+    nothing_unsaved(page, timeout=5000)
+
+
+def test_search_finds_a_setting_by_what_it_does_and_opens_it(page, serve):
+    connect(open_console(page, serve()))
+    page.keyboard.press("Control+K")
+    page.get_by_role("combobox", name="Search settings and commands").fill("slow down")
+    page.get_by_role("option", name=re.compile("^Spindown Speed")).click()
+    rail = page.get_by_role("navigation", name="Sections").first
+    expect(rail.get_by_role("button", name="Profiles")).to_have_attribute("aria-current", "page")
+    row = page.locator('[data-key="profile:spindownSpeed"]')
+    expect(row.get_by_role("spinbutton")).to_be_focused()
+
+
+def test_an_edit_to_one_store_is_written_from_the_bar_in_one_click(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    page.get_by_role("button", name="Rename this blaster").click()
+    name = page.get_by_role("textbox").first
+    name.fill("direct")
+    name.press("Enter")
+    with rebooting(page):
+        page.get_by_role("region", name="Unsaved changes").get_by_role(
+            "button", name="Write to blaster").click()
+    assert served.settings()["blasterName"] == "direct"
+    nothing_unsaved(page)
+
+
+def test_read_from_device_in_the_top_bar_puts_back_what_the_blaster_holds(page, serve):
+    connect(open_console(page, serve()))
+    go(page, "Blaster settings")
+    field = ema_row(page).get_by_role("spinbutton")
+    before = field.input_value()
+    field.fill("3" if before != "3" else "2")
+    field.press("Tab")
+    header(page).get_by_role("button", name="Read", exact=True).click()
+    nothing_unsaved(page)
+    expect(field).to_have_value(before)
+
+
+def test_the_console_reopens_on_the_page_it_was_left_on(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    go(page, "Wiring")
+    page.reload()
+    connect(page)
+    rail = page.get_by_role("navigation", name="Sections").first
+    expect(rail.get_by_role("button", name="Wiring")).to_have_attribute("aria-current", "page")
+
+
+def test_a_boot_that_dropped_a_pin_opens_on_overview_whatever_page_was_left_open(page, serve):
+    served = serve(device={"triggerSwitchPin": 1})
+    open_console(page, served)
+    go(page, "Wiring")
+    page.reload()
+    connect(page)
+    rail = page.get_by_role("navigation", name="Sections").first
+    expect(rail.get_by_role("button", name="Overview")).to_have_attribute("aria-current", "page")
+
+
+def log_height(page):
+    return page.get_by_role("log").bounding_box()["height"]
+
+
+def test_verbose_logging_is_switched_from_the_log_bar(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    verbose = page.get_by_role("switch", name="Verbose logging")
+    expect(verbose).not_to_be_checked()
+    verbose.click()
+    expect(verbose).to_be_checked(timeout=REBOOT_MS)
+    expect(page.get_by_text(re.compile(r"Connected · fw \d"))).to_be_visible(timeout=REBOOT_MS)
+    assert served.settings()["printTelemetry"] is True
+    # Moved, not copied: the top bar's menu no longer carries it.
+    header(page).get_by_role("button", name=re.compile("^More")).click()
+    expect(page.get_by_role("menuitem", name=re.compile("verbose", re.I))).to_have_count(0)
+
+def test_the_log_is_resized_from_its_top_edge_and_keeps_its_height(page, serve):
+    open_console(page, serve())
+    handle = page.get_by_role("separator", name="Resize the log")
+    before = log_height(page)
+    box = handle.bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x, y - 90, steps=5)
+    page.mouse.up()
+    taller = log_height(page)
+    assert taller == pytest.approx(before + 90, abs=4)
+
+    handle.focus()
+    page.keyboard.press("ArrowDown")
+    assert log_height(page) == pytest.approx(taller - 18, abs=2)
+
+    page.reload()
+    assert log_height(page) == pytest.approx(taller - 18, abs=2)
+    page.get_by_role("separator", name="Resize the log").dblclick()
+    assert log_height(page) == pytest.approx(before, abs=2)
+
+
+def test_every_page_has_the_same_width(page, serve):
+    open_console(page, serve())
+    widths = set()
+    for name in ("Overview", "Profiles", "Blaster settings", "Wiring", "Maintenance", "Firmware"):
+        go(page, name)
+        heading = page.locator("#main h2").first
+        widths.add(round(heading.evaluate("el => el.closest('#main > div').getBoundingClientRect().width")))
+    assert len(widths) == 1, widths
 
 
 # ---- the simulator panel -----------------------------------------------------------------------
@@ -972,7 +1279,7 @@ def test_a_wired_speed_pot_is_a_slider_that_moves_the_rev_target(page, serve):
 
 def test_an_encoder_select_fire_shows_each_combination_of_its_lines_in_place_of_the_switch(page, serve):
     connect(open_console(page, serve(device={"selectFireType": "encoder"})))
-    page.get_by_role("tab", name="Profile").click()
+    go(page, "Profiles")
     encoder = page.get_by_role("group", name="Selector Encoder")
     expect(encoder).to_be_visible()
     expect(page.get_by_role("group", name="Selector Switch")).to_be_hidden()
@@ -987,13 +1294,13 @@ def test_an_encoder_select_fire_shows_each_combination_of_its_lines_in_place_of_
 def test_a_profile_picked_for_an_encoder_position_is_written_to_the_device(page, serve):
     served = serve(device={"selectFireType": "encoder"})
     connect(open_console(page, served))
-    page.get_by_role("tab", name="Profile").click()
+    go(page, "Profiles")
     position3 = page.get_by_role("group", name="Selector Encoder").locator("tbody tr").nth(3)
     position3.locator("td:nth-child(4)").get_by_role("combobox").click()
     page.get_by_role("option", name="Low", exact=True).click()
 
     with rebooting(page):
-        choose(page, "Write to Device", "Device Config (1)")
+        write(page, "Blaster settings")
     assert served.settings()["switchPositionProfile"][:3] == [0, 1, 0]
 
 

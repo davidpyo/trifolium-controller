@@ -54,6 +54,7 @@ extern bool escDashboardOpen;                  // lets Rev spin flywheels while 
 
 bool pinDefined(uint8_t pin);
 bool isPusherEscChannel(uint8_t motorIndex);
+bool isBootInput(uint8_t button); // a bootButton_t a boot rule can use on this wiring - main.cpp
 bool selectorReaches(uint8_t index); // menuSelectFire.cpp
 
 // Shared list-layout constants - menuCore.cpp's renderList() and menuTextEditor.cpp's

@@ -9,6 +9,8 @@ export interface SerialPort {
   getInfo(): SerialPortInfo;
 }
 
+export const SerialPort: new (device: unknown) => SerialPort;
+
 export const serial: {
   requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>;
   getPorts(): Promise<SerialPort[]>;

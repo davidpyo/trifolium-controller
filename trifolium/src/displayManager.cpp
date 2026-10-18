@@ -205,7 +205,8 @@ void DisplayManager::drawDartStream(int16_t x, int16_t y, int16_t w, int16_t h, 
 }
 
 void DisplayManager::renderTelemetry(
-    const char* fireModeString, const char* profileName, const char* blasterName,
+    const char* fireModeString, const char* halfModeString, PairStage pairStage,
+    const char* profileName, const char* blasterName,
     FlywheelMotor motorArr[4], const bool motors[4], const motorStage_t motorStage[4],
     uint32_t displayShotCounter, bool isBatteryAdcDefined, int32_t batteryVoltage_mv,
     bool showCurrentRpm, bool idleHoldActive, bool batteryWarningActive,
@@ -271,8 +272,21 @@ void DisplayManager::renderTelemetry(
 
     if (homeScreenDisplayMode == HOME_COUNTER)
     {
-        display_.setCursor(0, 56);
-        display_.print(fireModeString);
+        const int16_t rowRoom = 128 - (int16_t)motorRpmString.length() * 6 - 7;
+        const bool pairFits =
+            halfModeString &&
+            (int16_t)(strlen(fireModeString) + 1 + strlen(halfModeString)) * 6 <= rowRoom;
+        if (pairFits)
+        {
+            int16_t x = printLit(fireModeString, 0, 56, pairStage == PairStage::FULL);
+            x += printLit("/", x, 56, false);
+            printLit(halfModeString, x, 56, pairStage == PairStage::HALF);
+        }
+        else
+        {
+            display_.setCursor(0, 56);
+            display_.print(pairStage == PairStage::HALF ? halfModeString : fireModeString);
+        }
 
         display_.drawFastHLine(0, 54, 128, 1);
 
@@ -354,10 +368,17 @@ void DisplayManager::renderTelemetry(
         }
 
         int16_t nameY = (homeScreenDisplayMode == HOME_BOTH) ? 17 : 20;
-        display_.setTextSize(2);
-        display_.setCursor(128 - (int16_t)strlen(fireModeString) * 12 - 1, nameY);
-        display_.print(fireModeString);
-        display_.setTextSize(1); // reset - the branches below print their own text explicitly
+        if (halfModeString)
+        {
+            drawModePair(fireModeString, halfModeString, pairStage, nameY);
+        }
+        else
+        {
+            display_.setTextSize(2);
+            display_.setCursor(128 - (int16_t)strlen(fireModeString) * 12 - 1, nameY);
+            display_.print(fireModeString);
+            display_.setTextSize(1); // reset - the branches below print their own text explicitly
+        }
 
         display_.drawFastHLine(0, 54, 128, 1);
 
@@ -383,4 +404,30 @@ void DisplayManager::renderTelemetry(
     }
 
     display_.display();
+}
+
+// Size-1 text, drawn inverted with a pixel of background around it when lit. Returns its width.
+int16_t DisplayManager::printLit(const char* text, int16_t x, int16_t y, bool lit)
+{
+    const int16_t w = (int16_t)strlen(text) * 6;
+    if (lit)
+    {
+        display_.fillRect(x - 1, y - 1, w + 1, 9, SSD1306_WHITE);
+        display_.setTextColor(SSD1306_BLACK);
+    }
+    display_.setCursor(x, y);
+    display_.print(text);
+    if (lit)
+        display_.setTextColor(SSD1306_WHITE);
+    return w;
+}
+
+// The selected mode over its half press, right-aligned in the box one size-2 name would fill.
+void DisplayManager::drawModePair(const char* full, const char* half, PairStage stage, int16_t y)
+{
+    display_.setTextSize(1);
+    printLit(full, 127 - (int16_t)strlen(full) * 6, y, stage == PairStage::FULL);
+    String halfLine = String("\xAB ") + half; // CP437's one-half sign
+    printLit(halfLine.c_str(), 127 - (int16_t)halfLine.length() * 6, y + 8,
+             stage == PairStage::HALF);
 }

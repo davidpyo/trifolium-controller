@@ -9,7 +9,35 @@
 namespace
 {
 const char* DEVICE_PATH = "/device.cfg";
+
+// A boot rule's key for each switch, indexed by bootButton_t. These strings are on-disk contract.
+// The cycle switch has none, so no config can put it in a rule.
+const char* const kBootSwitchKeys[BOOT_BTN_COUNT] = {
+    "menu", "trigger", "rev", nullptr, "idle", "select0", "select1", "select2",
+};
+
+// One single-switch rule per non-none entry of a "bootAction" array, in its index order - which
+// was the order the per-switch actions were checked in, so the device boots exactly as it did.
+// Rev is dropped on a dual-stage trigger, where its action never fired.
+void bootRulesFromLegacy(JsonArrayConst legacy, DeviceSettings& out)
+{
+    for (uint8_t r = 0; r < kMaxBootRules; r++)
+        out.bootRules[r] = BootRule{BOOT_ACTION_NONE, {}};
+    uint8_t n = 0;
+    for (uint8_t b = 0; b < BOOT_BTN_COUNT && b < legacy.size() && n < kMaxBootRules; b++)
+    {
+        const bootAction_t action =
+            enumFromJson(legacy[b], kBootActionIds, kBootActionIdCount, BOOT_ACTION_NONE);
+        if (action == BOOT_ACTION_NONE || !kBootSwitchKeys[b])
+            continue;
+        if (b == BOOT_BTN_REV && out.dualStageTrigger)
+            continue;
+        out.bootRules[n].action = action;
+        out.bootRules[n].on[b] = true;
+        n++;
+    }
 }
+} // namespace
 
 // Owned by main.cpp - factoryResetSettings() reads the live wiring off it.
 extern DeviceSettings deviceSettings;
@@ -170,9 +198,18 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
 
     doc["dualStageTrigger"] = settings.dualStageTrigger;
 
-    JsonArray bootAction = doc["bootAction"].to<JsonArray>();
-    for (int i = 0; i < BOOT_BTN_COUNT; i++)
-        bootAction.add(enumIdOf(settings.bootAction[i], kBootActionIds, kBootActionIdCount));
+    // Every switch key on every rule, empty ones included: fromJson overlays, so a key left out
+    // would keep whatever the device held before.
+    JsonArray bootRules = doc["bootRules"].to<JsonArray>();
+    for (uint8_t r = 0; r < kMaxBootRules; r++)
+    {
+        const BootRule& rule = settings.bootRules[r];
+        JsonObject entry = bootRules.add<JsonObject>();
+        entry["action"] = enumIdOf(rule.action, kBootActionIds, kBootActionIdCount);
+        for (uint8_t b = 0; b < BOOT_BTN_COUNT; b++)
+            if (kBootSwitchKeys[b])
+                entry[kBootSwitchKeys[b]] = rule.on[b];
+    }
 
     doc["pusherType"] = enumIdOf(settings.pusherType, kPusherTypeIds, kPusherTypeIdCount);
     doc["pusherDrive"] = enumIdOf(settings.pusherDrive, kPusherDriveIds, kPusherDriveIdCount);
@@ -239,6 +276,7 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
     doc["lowVoltageCutoffPerCell_mv"] = settings.lowVoltageCutoffPerCell_mv;
     doc["lowVoltageWarningPerCell_mv"] = settings.lowVoltageWarningPerCell_mv;
     doc["voltageCalibrationFactor"] = settings.voltageCalibrationFactor;
+    doc["lowBattBeep"] = settings.lowBattBeep;
 
     doc["selectFireType"] = enumIdOf(settings.selectFireType, kSelectFireTypeIds, kSelectFireTypeIdCount);
     doc["variableFPS"] = settings.variableFPS;
@@ -326,15 +364,31 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
 
     out.dualStageTrigger = doc["dualStageTrigger"] | out.dualStageTrigger;
 
-    // Absent on a migrated v2 file, which leaves every entry at its factory value - and the factory
+    // Absent on a migrated v2 file, which leaves every rule at its factory value - and the factory
     // values are the behaviour v2 hardcoded, so a migrated device boots the same way it always did.
-    JsonArrayConst bootAction = doc["bootAction"];
-    if (!bootAction.isNull())
+    // A file with only the older per-switch "bootAction" array is converted rather than ignored.
+    JsonArrayConst bootRules = doc["bootRules"];
+    if (!bootRules.isNull())
     {
-        for (int i = 0; i < BOOT_BTN_COUNT && i < (int)bootAction.size(); i++)
-            out.bootAction[i] =
-                enumFromJson(bootAction[i], kBootActionIds, kBootActionIdCount, out.bootAction[i]);
+        for (uint8_t r = 0; r < kMaxBootRules && r < bootRules.size(); r++)
+        {
+            JsonObjectConst entry = bootRules[r];
+            if (entry.isNull())
+                continue;
+            BootRule& rule = out.bootRules[r];
+            rule.action = enumFromJson(entry["action"], kBootActionIds, kBootActionIdCount, rule.action);
+            for (uint8_t b = 0; b < BOOT_BTN_COUNT; b++)
+                if (kBootSwitchKeys[b])
+                    rule.on[b] = entry[kBootSwitchKeys[b]] | rule.on[b];
+        }
     }
+    else if (!doc["bootAction"].isNull())
+    {
+        bootRulesFromLegacy(doc["bootAction"], out);
+    }
+    // Held whenever the pusher rests on it, so a rule naming it would fire on an ordinary boot.
+    for (uint8_t r = 0; r < kMaxBootRules; r++)
+        out.bootRules[r].on[BOOT_BTN_CYCLE] = false;
 
     // enumFromJson() leaves an unrecognised value at the default. escPin() indexes a 4-element array
     // with pusherEscChannel, and a hand-written config reaches this before any clamp runs.
@@ -427,6 +481,7 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
     out.lowVoltageWarningPerCell_mv =
         doc["lowVoltageWarningPerCell_mv"] | out.lowVoltageWarningPerCell_mv;
     out.voltageCalibrationFactor = doc["voltageCalibrationFactor"] | out.voltageCalibrationFactor;
+    out.lowBattBeep = doc["lowBattBeep"] | out.lowBattBeep;
 
     out.selectFireType = enumFromJson(doc["selectFireType"], kSelectFireTypeIds,
                                       kSelectFireTypeIdCount, out.selectFireType);

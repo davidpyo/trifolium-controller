@@ -1,6 +1,7 @@
 """What several suites set up the same way."""
 
 import json
+import os
 import re
 
 import pytest
@@ -134,3 +135,17 @@ def differences(got, want, where):
         close = isinstance(got, (int, float)) and abs(got - want) <= 1e-4 * max(1.0, abs(want))
         return [] if close else [f"{where}: {got!r}, the file says {want!r}"]
     return [] if got == want else [f"{where}: {got!r}, the file says {want!r}"]
+
+
+def check_golden(name, panel):
+    path = SUITE / "golden" / f"{name}.pbm"
+    actual = panel.pbm()
+    if os.environ.get("TRIFOLIUM_UPDATE_GOLDEN"):
+        path.write_text(actual, encoding="ascii", newline="\n")
+        return
+    assert path.is_file(), f"no golden image {path} - run once with TRIFOLIUM_UPDATE_GOLDEN=1 and review it"
+    if path.read_text(encoding="ascii") != actual:
+        failed = PROJECT / ".pio" / "native" / f"{name}.actual.pbm"
+        failed.parent.mkdir(parents=True, exist_ok=True)
+        failed.write_text(actual, encoding="ascii", newline="\n")
+        pytest.fail(f"{name} differs from its golden image; this run's is at {failed}\n{panel.ascii()}")

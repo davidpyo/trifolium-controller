@@ -108,8 +108,8 @@ describe("resolveNodes", () => {
   it("leaves a row with no rule exactly as the device sent it", () => {
     const bootAction: SchemaNode = {
       label: "Menu Button",
-      kind: "enum",
-      key: "device:bootAction[0]",
+      kind: "bool",
+      key: "device:bootRules[0].menu",
       visible: false,
     };
     const [node] = resolveNodes([bootAction], payloads({ menuButtonPin: 19 }));

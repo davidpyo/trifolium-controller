@@ -127,14 +127,14 @@ enum bootAction_t : uint8_t
     BOOT_ACTION_COUNT,
 };
 
-// Index into DeviceSettings::bootAction[]. Fixed order, and the order evaluateBootAction() checks
-// them in, so the first held switch wins. Persisted positionally - APPEND ONLY.
+// The switches a boot rule can name, indexing BootRule::on[]. A legacy "bootAction" array is indexed
+// by this order too, and fromJson still reads one - APPEND ONLY.
 enum bootButton_t : uint8_t
 {
     BOOT_BTN_MENU,
     BOOT_BTN_TRIGGER,
     BOOT_BTN_REV,
-    BOOT_BTN_CYCLE,
+    BOOT_BTN_CYCLE, // a slot kept for the layout: the cycle switch is never a boot input
     BOOT_BTN_IDLE,
     BOOT_BTN_SELECT0,
     BOOT_BTN_SELECT1,
@@ -145,6 +145,16 @@ enum bootButton_t : uint8_t
 // "no switch", for a caller naming one. Deliberately not a member of the enum above, which is
 // persisted positionally.
 constexpr uint8_t kNoBootButton = BOOT_BTN_COUNT;
+
+// Held at power-on: every switch marked in on[] down at once, other switches ignored. A rule with
+// action NONE is an empty slot. Rules are checked in array order and the first match wins.
+struct BootRule
+{
+    bootAction_t action;
+    bool on[BOOT_BTN_COUNT];
+};
+
+constexpr uint8_t kMaxBootRules = 8;
 
 // An ordinal like every other persisted enum, so it carries a name in the config and is bounds
 // checked by the same reader. A stored value may also be a bare bit rate (DSHOT300 = 300), which

@@ -1,49 +1,41 @@
 import React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Divider from "@mui/material/Divider";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
-import Paper from "@mui/material/Paper";
-import Stack from "@mui/material/Stack";
+import ListItemText from "@mui/material/ListItemText";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { compareVersions } from "../firmware/releases";
-import type { LogLine } from "../serial/transport";
-import { dropOutlineSx, useFileDrop } from "./FileDrop";
-import { LogView } from "./LogView";
-import { MenuButton } from "./MenuButton";
 
-// Header: who this blaster is on the left, the device conversation in the middle, actions right.
-//
-// Identity lives here rather than in the config form because it is what you check before doing
-// anything else - which blaster, which board, is it even connected. The name and the board are both
-// editable in place for the same reason: they are the two fields you change once and then never
-// look at again, so a form row apiece was space spent on nothing.
-//
-// Every destructive or store-scoped action is a MenuButton. See there for why one-click Save is a
-// trap: device settings, a profile slot and the whole device are three different things.
+// Which blaster this is, on which board, and whether it is connected: what you check before doing
+// anything else. Everything that acts on the blaster lives on the page it belongs to now - writing
+// in the unsaved-changes bar, restarts and resets under Maintenance, backups on Overview.
 
 /** What kind of file the user says they are loading, so a mismatch is an error rather than a guess. */
 export type LoadIntent = "bundle" | "device" | "profile";
 
-/** Shared by the hidden picker in App and the header's drop target. */
+/** Shared by the hidden picker in App and the drop targets. */
 export const CONFIG_ACCEPT = [".json", "application/json"] as const;
 
 /**
  * The first firmware whose log lines wait for a reply to finish instead of landing inside it. Before
  * it, verbose logging could garble a DUMP_* reply or an ack; from it, verbose is only extra output.
  */
-const FW_LOGS_WAIT_FOR_REPLIES = "2.1.1";
+export const FW_LOGS_WAIT_FOR_REPLIES = "2.1.1";
+
+/** The connected firmware's version when verbose is on and it can still garble replies, else null. */
+export const garblingFirmware = (verbose: boolean, fw: string | null): string | null =>
+  verbose && fw && compareVersions(fw, FW_LOGS_WAIT_FOR_REPLIES) < 0 ? fw : null;
 
 export interface TopBarProps {
-  lines: LogLine[];
-  onClearLog: () => void;
-  onSaveLog: () => void;
   live: boolean;
   busy: boolean;
   /** Null when nothing is connected. */
-  identity: { wiring: string; fw: string } | null;
+  fw: string | null;
   supported: boolean;
   /** The browser shows its picker on every connect, so Choose Device would be a second Connect. */
   asksEveryTime: boolean;
@@ -53,57 +45,122 @@ export interface TopBarProps {
   nameMaxLen?: number;
   nameCharset?: string;
   onBlasterName: (value: string) => void;
-
-  /**
-   * Which preset the device's wiring came from, as a label. Read-only: a preset is loaded from the
-   * picker, not chosen from a dropdown here, because loading one replaces every pin and that wants
-   * a confirmation rather than a select. The button below opens the picker.
-   */
+  /** Which preset the wiring came from, "(modified)" when it no longer matches. */
   wiringLabel: string;
-  onOpenPresets: () => void;
 
-  deviceDirty: number;
-  profileDirty: number;
-  /** Every staged edit, the other profiles' included. */
-  totalDirty: number;
-  profileName: string;
-  profileReboots: boolean;
+  /** Opens Change board, from the board name. Absent where there is no board to change. */
+  onChangeBoard?: () => void;
 
-  verbose: boolean;
-  onToggleVerbose: () => void;
-
+  onSearch?: () => void;
   /** `choose` shows the browser's picker even when one allowed blaster is plugged in. */
   onConnect: (choose: boolean) => void;
   onDisconnect: () => void;
-  onReadAll: () => void;
-  onReboot: (mode: "normal" | "bootloader" | "passthrough") => void;
-  onReset: (kind: "profile" | "device" | "wiring" | "everything") => void;
-  onWriteDevice: () => void;
-  onWriteProfile: () => void;
-  onWriteEverything: () => void;
-  /** Opens the PICOBOOT flasher. Offline too: a board left in BOOTSEL is reachable from there. */
-  onFlashFirmware: () => void;
-  onSaveDeviceFile: () => void;
-  onSaveProfileFile: () => void;
-  onSaveBundleFile: () => void;
-  onLoadFile: (intent: LoadIntent) => void;
-  /** A backup dropped on the header. The kind is asked for afterwards, as the menu asks first. */
-  onDropFile: (file: File) => void;
-  onDropReject: (message: string) => void;
+
+  /**
+   * What the blaster does on request, one reach from any page: re-read it, restart it, and the menu
+   * beside them for the restarts that hand it to something else, and the flasher.
+   * Absent while nothing is connected, except the flasher, which also serves a board in BOOTSEL.
+   */
+  actions?: {
+    onRead: () => void;
+    onRestart: () => void;
+    onBootloader: () => void;
+    onPassthrough: () => void;
+  };
+  onFlash: () => void;
 }
 
-const actionSx = {
-  py: 0.25,
-  minHeight: 0,
-  fontSize: 12,
-  textTransform: "none",
-  // Two of these share a row in a 300px column, so the longest label - "Write to Device (12)" -
-  // has to fit half of it on one line.
-  whiteSpace: "nowrap",
-  px: 0.5,
-} as const;
+/** The menu beside Read and Restart. */
+function BlasterMenu({
+  live,
+  busy,
+  actions,
+  onFlash,
+}: {
+  live: boolean;
+  busy: boolean;
+  actions?: TopBarProps["actions"];
+  onFlash: () => void;
+}) {
+  const [anchor, setAnchor] = React.useState<HTMLElement | null>(null);
+  const close = () => setAnchor(null);
+  const items: { label: string; detail: string; onClick: () => void; live?: boolean }[] = [
+    ...(actions
+      ? [
+          // On a phone Read and Restart have no room of their own, so they lead the menu there.
+          {
+            label: "Read from Device",
+            detail: "Read every setting again; unsaved edits are discarded",
+            onClick: actions.onRead,
+            live: true,
+          },
+          {
+            label: "Restart",
+            detail: "A normal restart; the console reconnects on its own",
+            onClick: actions.onRestart,
+            live: true,
+          },
+          {
+            label: "Restart into bootloader",
+            detail: "USB flashing mode; the serial port goes away",
+            onClick: actions.onBootloader,
+            live: true,
+          },
+          {
+            label: "Start ESC passthrough",
+            detail: "Lets an ESC configurator take the port",
+            onClick: actions.onPassthrough,
+            live: true,
+          },
+        ]
+      : []),
+    { label: "Flash firmware…", detail: "Write a release or a .uf2 over USB", onClick: onFlash },
+  ];
+  return (
+    <>
+      <Button
+        size="small"
+        variant="outlined"
+        aria-haspopup="menu"
+        aria-expanded={Boolean(anchor)}
+        onClick={(e) => setAnchor(e.currentTarget)}
+        sx={{ minWidth: 0, px: 1 }}
+      >
+        <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+          Blaster
+        </Box>
+        <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+          More
+        </Box>
+        &nbsp;&#x25BE;
+      </Button>
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close}>
+        {items.map((item, i) => (
+          <MenuItem
+            key={item.label}
+            disabled={busy || (item.live && !live)}
+            onClick={() => {
+              close();
+              item.onClick();
+            }}
+            sx={{ py: 0.5, display: i < 2 && actions ? { xs: "flex", sm: "none" } : undefined }}
+          >
+            <ListItemText
+              primary={<Typography variant="body2">{item.label}</Typography>}
+              secondary={
+                <Typography variant="caption" color="text.secondary">
+                  {item.detail}
+                </Typography>
+              }
+            />
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
+  );
+}
 
-/** device:blasterName, shown as a heading until the pencil turns it into a field. */
+/** device:blasterName, shown as the heading until the pencil turns it into a field. */
 function NameField({
   value,
   maxLen,
@@ -119,9 +176,9 @@ function NameField({
 
   if (!editing) {
     return (
-      <Stack direction="row" spacing={0.25} sx={{ alignItems: "center", minWidth: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, minWidth: 0 }}>
         <Typography
-          sx={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2, minWidth: 0 }}
+          sx={{ fontWeight: 650, fontSize: 15, lineHeight: 1.2, minWidth: 0 }}
           noWrap
           title={value}
         >
@@ -137,7 +194,7 @@ function NameField({
             &#x270E;
           </IconButton>
         </Tooltip>
-      </Stack>
+      </Box>
     );
   }
 
@@ -146,7 +203,13 @@ function NameField({
       size="small"
       autoFocus
       value={value}
-      slotProps={{ htmlInput: { maxLength: maxLen, style: { padding: "2px 6px", fontSize: 14 } } }}
+      slotProps={{
+        htmlInput: {
+          maxLength: maxLen,
+          "aria-label": "Blaster name",
+          style: { padding: "2px 6px", fontSize: 14 },
+        },
+      }}
       onChange={(e) => {
         // Same filter the form field applies: drop anything the on-device text editor cannot
         // represent, rather than storing a name the user could never fix on the blaster itself.
@@ -159,426 +222,289 @@ function NameField({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === "Escape") setEditing(false);
       }}
-      sx={{ width: "100%" }}
+      sx={{ width: 170 }}
     />
   );
 }
 
+/** A small rounded label: the board, a state. */
+export function Chip({
+  children,
+  tone,
+  mono,
+  title,
+}: {
+  children: React.ReactNode;
+  tone?: "ok" | "warn" | "bad" | "accent";
+  mono?: boolean;
+  title?: string;
+}) {
+  const colour = {
+    ok: "success.main",
+    warn: "warning.main",
+    bad: "error.main",
+    accent: "primary.main",
+  }[tone ?? "ok"];
+  return (
+    <Box
+      component="span"
+      title={title}
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.5,
+        fontSize: mono ? 11.5 : 12,
+        fontFamily: mono ? "ui-monospace, Consolas, monospace" : undefined,
+        px: 1,
+        borderRadius: 999,
+        border: 1,
+        borderColor: tone ? colour : "divider",
+        color: tone ? colour : "text.secondary",
+        whiteSpace: "nowrap",
+        lineHeight: 1.6,
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+const Dot = ({ on, busy }: { on: boolean; busy?: boolean }) => (
+  <Box
+    component="span"
+    aria-hidden
+    sx={{
+      width: 8,
+      height: 8,
+      borderRadius: "50%",
+      flex: "none",
+      bgcolor: busy ? "warning.main" : on ? "success.main" : "text.disabled",
+    }}
+  />
+);
+
 export function TopBar(props: TopBarProps) {
   const {
-    lines,
-    onClearLog,
-    onSaveLog,
     live,
     busy,
-    identity,
+    fw,
     supported,
     asksEveryTime,
-    blasterName,
-    nameMaxLen,
-    nameCharset,
-    onBlasterName,
     wiringLabel,
-    onOpenPresets,
-    deviceDirty,
-    profileDirty,
-    totalDirty,
-    profileName,
-    profileReboots,
-    verbose,
-    onToggleVerbose,
+    onChangeBoard,
+    actions,
+    onFlash,
+    onSearch,
     onConnect,
     onDisconnect,
-    onReadAll,
-    onReboot,
-    onReset,
-    onWriteDevice,
-    onWriteProfile,
-    onWriteEverything,
-    onFlashFirmware,
-    onSaveDeviceFile,
-    onSaveProfileFile,
-    onSaveBundleFile,
-    onLoadFile,
-    onDropFile,
-    onDropReject,
   } = props;
 
-  // The connected firmware's version when verbose is on and can still garble replies, else null.
-  const garblingFw =
-    verbose && identity && compareVersions(identity.fw, FW_LOGS_WAIT_FOR_REPLIES) < 0
-      ? identity.fw
-      : null;
-
-  const { over, dropProps } = useFileDrop({
-    accept: CONFIG_ACCEPT,
-    what: "a .json config file",
-    onFile: onDropFile,
-    onReject: onDropReject,
-  });
+  const connectHelp = !supported
+    ? "Needs Chrome or Edge on a computer, or Chrome on Android"
+    : asksEveryTime
+      ? "Pick the blaster from the list. Android asks each time you connect."
+      : "Opens the blaster this browser already allowed, when it is the only one plugged in. Otherwise asks which.";
 
   return (
-    <Paper variant="outlined" sx={{ p: 1 }}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: "stretch" }}>
-        <Stack
-          spacing={0.25}
+    <Box
+      component="header"
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: { xs: 1, sm: 1.5 },
+        px: { xs: 1.5, sm: 1.75 },
+        py: 1,
+        borderBottom: 1,
+        borderColor: "divider",
+        bgcolor: "background.paper",
+        minWidth: 0,
+      }}
+    >
+      <Typography
+        component="span"
+        sx={{
+          display: { xs: "none", sm: "inline" },
+          flex: "none",
+          fontWeight: 700,
+          letterSpacing: ".06em",
+          fontSize: 12,
+        }}
+      >
+        TRIFOLIUM
+      </Typography>
+      <Box
+        sx={{ width: "1px", height: 22, bgcolor: "divider", display: { xs: "none", sm: "block" } }}
+      />
+
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+        <NameField
+          value={props.blasterName}
+          maxLen={props.nameMaxLen}
+          charset={props.nameCharset}
+          onChange={props.onBlasterName}
+        />
+        <Box sx={{ display: { xs: "none", md: "inline-flex" } }}>
+          {onChangeBoard ? (
+            <Box
+              component="button"
+              type="button"
+              onClick={onChangeBoard}
+              title="Change board"
+              aria-label={`Board: ${wiringLabel}. Change board`}
+              sx={{ border: 0, bgcolor: "transparent", p: 0, cursor: "pointer", font: "inherit" }}
+            >
+              <Chip>{wiringLabel}</Chip>
+            </Box>
+          ) : (
+            <Chip title="The board preset this blaster's wiring came from">{wiringLabel}</Chip>
+          )}
+        </Box>
+      </Box>
+
+      <Box sx={{ flex: 1 }} />
+
+      {onSearch && (
+        <Box
+          component="button"
+          type="button"
+          onClick={onSearch}
+          aria-label="Search settings and commands"
           sx={{
-            width: 190,
-            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
             border: 1,
             borderColor: "divider",
+            bgcolor: "background.default",
+            color: "text.disabled",
             borderRadius: 1,
-            px: 1,
             py: 0.5,
-            justifyContent: "center",
-            minWidth: 0,
+            pl: 1.25,
+            pr: 1,
+            minWidth: { md: 220 },
+            font: "inherit",
+            fontSize: 13,
+            cursor: "pointer",
           }}
         >
-          <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: 1 }}>
-            TRIFOLIUM
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
-            Config Console
-          </Typography>
-          {/*
-            The name is the one thing in this panel a person looks for first, and at spacing 0.25 it
-            sat hard against the rule above it and the board picker below. Its own margins rather
-            than a wider Stack spacing, so only this row loosens and the rest of the panel stays as
-            dense as it was.
-          */}
-          <Divider sx={{ mt: 0.75, mb: 0 }} />
-
-          <Box sx={{ py: 0.75 }}>
-            <NameField
-              value={blasterName}
-              maxLen={nameMaxLen}
-              charset={nameCharset}
-              onChange={onBlasterName}
-            />
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            aria-hidden
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" />
+          </svg>
+          <Box component="span" sx={{ display: { xs: "none", md: "inline" } }}>
+            Search settings and commands
           </Box>
+          <Box
+            component="span"
+            sx={{
+              ml: "auto",
+              display: { xs: "none", md: "inline" },
+              fontSize: 11,
+              fontFamily: "ui-monospace, Consolas, monospace",
+            }}
+          >
+            Ctrl K
+          </Box>
+        </Box>
+      )}
 
-          <Divider sx={{ mt: 0, mb: 0.75 }} />
-
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            <Typography variant="caption" color="text.disabled" noWrap>
-              {identity ? identity.wiring : wiringLabel}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: "none" }}>
+        {busy && <CircularProgress size={14} aria-label="Working" />}
+        <Dot on={live} />
+        {live ? (
+          <>
+            <Typography component="span" sx={{ fontSize: 13, whiteSpace: "nowrap" }}>
+              Connected · fw {fw}
             </Typography>
-            {live && (
-              <Button
-                size="small"
-                disabled={busy}
-                onClick={onOpenPresets}
-                sx={{ minWidth: 0, p: 0, fontSize: 11, textTransform: "none" }}
-              >
-                change
-              </Button>
-            )}
-          </Box>
-
-          <Typography variant="caption" color={live ? "success.main" : "text.disabled"} noWrap>
-            {identity ? `Connected · fw ${identity.fw}` : "Not Connected"}
-          </Typography>
-        </Stack>
-
-        <LogView lines={lines} onClear={onClearLog} onSave={onSaveLog} />
-
-        <Stack spacing={0.25} sx={{ width: 300, flexShrink: 0 }}>
-          {live ? (
-            <Button
-              size="small"
-              color="error"
-              variant="outlined"
-              sx={actionSx}
-              onClick={onDisconnect}
-            >
-              Disconnect
-            </Button>
-          ) : (
-            <Stack direction="row" spacing={0.5}>
-              <Tooltip
-                title={
-                  !supported
-                    ? "Needs Chrome or Edge on a computer, or Chrome on Android"
-                    : asksEveryTime
-                      ? "Pick the blaster from the list. Android asks each time you connect."
-                      : "Opens the blaster this browser already allowed, when it is the only one plugged in. Otherwise asks which."
-                }
-              >
-                <span style={{ display: "flex", flex: 1 }}>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    fullWidth
-                    sx={actionSx}
-                    disabled={!supported}
-                    onClick={() => onConnect(false)}
-                  >
-                    Connect
-                  </Button>
-                </span>
-              </Tooltip>
-              {!asksEveryTime && (
-                <Tooltip title="Pick from the browser's list: a blaster this browser hasn't used yet, or one of several plugged in">
-                  <span style={{ display: "flex", flex: 1 }}>
+            {actions && (
+              <Box sx={{ display: { xs: "none", sm: "flex" }, gap: 0.75 }}>
+                <Tooltip title="Read every setting from the blaster again. Unsaved edits are discarded.">
+                  <span>
                     <Button
                       size="small"
                       variant="outlined"
-                      fullWidth
-                      sx={actionSx}
-                      disabled={!supported}
-                      onClick={() => onConnect(true)}
+                      disabled={busy}
+                      onClick={actions.onRead}
                     >
-                      Choose Device
+                      Read
                     </Button>
                   </span>
                 </Tooltip>
-              )}
-            </Stack>
-          )}
-
-          {/*
-            Read and Write share a row. They are opposites and read as a pair, and the column was
-            four rows deep against a left panel that had room to spare - this buys the name above
-            its own breathing room without making the header taller.
-
-            The Tooltip needs the span: a disabled MUI Button fires no pointer events, so a tooltip
-            bound straight to it never opens, which is the whole point of saying why it is disabled.
-          */}
-          <Stack direction="row" spacing={0.25} sx={{ alignItems: "stretch" }}>
-            <Tooltip title="Discards unsaved edits">
-              <span style={{ flex: 1, display: "flex" }}>
+                <Tooltip title="Restart the blaster. The console reconnects on its own.">
+                  <span>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={busy}
+                      onClick={actions.onRestart}
+                    >
+                      Restart
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Box>
+            )}
+            <BlasterMenu live={live} busy={busy} actions={actions} onFlash={onFlash} />
+            <Button
+              size="small"
+              color="inherit"
+              onClick={onDisconnect}
+              sx={{ color: "text.secondary" }}
+            >
+              Disconnect
+            </Button>
+          </>
+        ) : (
+          <>
+            <Typography
+              component="span"
+              sx={{
+                fontSize: 13,
+                whiteSpace: "nowrap",
+                color: "text.secondary",
+                display: { xs: "none", sm: "inline" },
+              }}
+            >
+              Not Connected
+            </Typography>
+            <Tooltip title={connectHelp}>
+              <span>
                 <Button
                   size="small"
-                  variant="outlined"
-                  fullWidth
-                  sx={actionSx}
-                  disabled={!live || busy}
-                  onClick={onReadAll}
+                  variant="contained"
+                  disabled={!supported}
+                  onClick={() => onConnect(false)}
                 >
-                  Read from Device
+                  Connect
                 </Button>
               </span>
             </Tooltip>
-            <MenuButton
-              label={busy ? "..." : `Write to Device${totalDirty ? ` (${totalDirty})` : ""}`}
-              variant="contained"
-              color="warning"
-              disabled={!live || busy || totalDirty === 0}
-              tooltip={totalDirty ? "" : "No unsaved changes"}
-              sx={actionSx}
-              actions={[
-                {
-                  label: `Everything${totalDirty ? ` (${totalDirty})` : ""}`,
-                  detail: "The device settings and every profile with changes, in turn",
-                  disabled: totalDirty === 0,
-                  onClick: onWriteEverything,
-                },
-                {
-                  label: `Device Config${deviceDirty ? ` (${deviceDirty})` : ""}`,
-                  detail: deviceDirty
-                    ? "LOAD_DEVICE — reboots the blaster"
-                    : "No device changes",
-                  disabled: deviceDirty === 0,
-                  onClick: onWriteDevice,
-                },
-                {
-                  label: `Profile: ${profileName}${profileDirty ? ` (${profileDirty})` : ""}`,
-                  detail: !profileDirty
-                    ? "No changes to this profile"
-                    : profileReboots
-                      ? "LOAD_PROFILE — active slot, so it reboots"
-                      : "LOAD_PROFILE — not the active slot, no reboot",
-                  disabled: profileDirty === 0,
-                  onClick: onWriteProfile,
-                },
-              ]}
-            />
-          </Stack>
-
-          <Stack direction="row" spacing={0.25}>
-            <MenuButton
-              label="Backup"
-              sx={actionSx}
-              tooltip="Write a file to this computer"
-              actions={[
-                {
-                  label: "Full Backup",
-                  detail: "Device settings and every profile, in one file",
-                  onClick: onSaveBundleFile,
-                },
-                {
-                  label: "Device Config",
-                  detail: "Device settings only, without the profiles",
-                  onClick: onSaveDeviceFile,
-                },
-                {
-                  label: `Profile: ${profileName}`,
-                  detail: "Just the slot shown on the Profile tab",
-                  onClick: onSaveProfileFile,
-                },
-              ]}
-            />
-            {/*
-              The button is its own drop target. The picker behind it lives in a menu, so a drag
-              has nothing else to aim at, and a strip of its own cost header space this column does
-              not have. Which store the file is for is asked after the drop - the one place the
-              declare-first rule has to bend, since a dragged file never passed through the menu.
-            */}
-            <Box
-              {...dropProps}
-              sx={{ display: "flex", flex: 1, ...dropOutlineSx(over), outlineOffset: 2 }}
-            >
-              <MenuButton
-                label="Load Backup"
-                sx={actionSx}
-                tooltip="Read a file from this computer into the form, or drop one on this button"
-                actions={[
-                  {
-                    label: "Full Backup",
-                    detail: "Replaces device settings and all profiles",
-                    onClick: () => onLoadFile("bundle"),
-                  },
-                  {
-                    label: "Device Config",
-                    detail: "Replaces device settings only",
-                    onClick: () => onLoadFile("device"),
-                  },
-                  {
-                    label: `Profile into ${profileName}`,
-                    detail: "Replaces the slot shown on the Profile tab",
-                    onClick: () => onLoadFile("profile"),
-                  },
-                ]}
-              />
-            </Box>
-          </Stack>
-
-          <Stack direction="row" spacing={0.25}>
-            {/*
-              The same three the OLED's Reboot menu offers, because a device with no screen - or
-              one whose menu button the conflict engine just detached - has no other way to reach
-              them. Bootloader in particular is the route to reflashing without the BOOTSEL button.
-            */}
-            <MenuButton
-              label="Reboot"
-              sx={actionSx}
-              disabled={!live || busy}
-              tooltip={live ? "Restart the blaster" : "Connect first"}
-              actions={[
-                {
-                  label: "Reboot",
-                  detail: "Restart normally",
-                  onClick: () => onReboot("normal"),
-                },
-                {
-                  label: "Bootloader",
-                  detail: "USB drive mode, for flashing a .uf2",
-                  onClick: () => onReboot("bootloader"),
-                },
-                {
-                  label: "ESC Passthrough",
-                  detail: "Hand the ESC pins to a host configurator",
-                  onClick: () => onReboot("passthrough"),
-                },
-              ]}
-            />
-            {/*
-              Three resets rather than one, because they lose different things and the device keeps
-              them apart: a device reset preserves the wiring by the firmware's own no-OLED-row
-              rule, so "reset everything" would be a lie about what it does. Each confirms with its
-              own typed word - see ResetDialog.
-            */}
-            <MenuButton
-              label="Reset"
-              color="error"
-              sx={actionSx}
-              disabled={!live || busy}
-              tooltip={live ? "Put something back to defaults" : "Connect first"}
-              // Least destructive first, so the pointer travels further the more it costs and the
-              // bottom of the list is the one nobody reaches by accident.
-              actions={[
-                {
-                  label: `Profile: ${profileName}`,
-                  detail: "Just the slot shown on the Profile tab",
-                  onClick: () => onReset("profile"),
-                },
-                {
-                  label: "Device Settings",
-                  detail: "Factory defaults; wiring and profiles kept",
-                  onClick: () => onReset("device"),
-                },
-                {
-                  label: "Wiring",
-                  detail: "Pins back to this board's defaults",
-                  onClick: () => onReset("wiring"),
-                },
-                { label: "-" },
-                {
-                  label: "Everything",
-                  detail: "All profiles and all device settings",
-                  onClick: () => onReset("everything"),
-                },
-              ]}
-            />
-          </Stack>
-
-          {/*
-            Not a shortcut for the RPI-RP2 drive but a replacement for it: a host with a BitLocker
-            removable-drive policy cannot write to that drive at all, and PICOBOOT is a USB
-            interface rather than a volume. Enabled offline as well, because a board left in its
-            bootloader has no serial port and is exactly the one that needs this. The dialog it
-            opens is also where a .uf2 is downloaded from.
-          */}
-          <Tooltip title="Write a .uf2 to the blaster over USB, without the RPI-RP2 drive">
-            <span>
-              <Button
-                size="small"
-                variant="outlined"
-                fullWidth
-                sx={actionSx}
-                disabled={busy}
-                onClick={onFlashFirmware}
-              >
-                Flash Firmware
-              </Button>
-            </span>
-          </Tooltip>
-
-          <Divider sx={{ my: 0.25 }} />
-
-          <Tooltip
-            title={
-              verbose
-                ? "Turn the device's warn/info log back off. Reboots the blaster."
-                : "Turn on the device's warn/info log: switch presses, state changes, shots and overrunning loops. Not needed for an RPM capture; reboots the blaster."
-            }
-          >
-            <span>
-              <Button
-                size="small"
-                fullWidth
-                variant={verbose ? "contained" : "outlined"}
-                color={verbose ? "warning" : "inherit"}
-                sx={actionSx}
-                disabled={!live || busy}
-                onClick={onToggleVerbose}
-              >
-                {verbose ? "Verbose Logging: On" : "Verbose Logging"}
-              </Button>
-            </span>
-          </Tooltip>
-        </Stack>
-      </Stack>
-
-      {garblingFw && (
-        <Box sx={{ mt: 0.5 }}>
-          <Typography variant="caption" color="warning.main">
-            With verbose logging on, firmware {garblingFw} can garble its replies, so a read or write
-            may fail or show stale values. Update to {FW_LOGS_WAIT_FOR_REPLIES} or later to fix it for
-            good, or turn verbose off first.
-          </Typography>
-        </Box>
-      )}
-    </Paper>
+            {!asksEveryTime && (
+              <Tooltip title="Pick from the browser's list: a blaster this browser hasn't used yet, or one of several plugged in">
+                <span>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={!supported}
+                    onClick={() => onConnect(true)}
+                  >
+                    Choose Device
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+            <BlasterMenu live={live} busy={busy} onFlash={onFlash} />
+          </>
+        )}
+      </Box>
+    </Box>
   );
 }

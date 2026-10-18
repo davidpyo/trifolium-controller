@@ -42,6 +42,14 @@ const BAUD = 115200;
 export const OPEN_OPTIONS = { baudRate: BAUD, bufferSize: 512 * 1024 };
 
 /**
+ * The polyfill asks for its whole bufferSize in one USB transfer, which a phone can refuse, so it
+ * keeps its default. Over WebUSB nothing is read until the page asks, so nothing is lost waiting.
+ */
+export function openOptionsFor(api: SerialApi | null): SerialOptions {
+  return api === usbSerial ? { baudRate: BAUD } : OPEN_OPTIONS;
+}
+
+/**
  * The USB identity every Trifolium enumerates with: arduino-pico's for the Raspberry Pi Pico
  * (`board = rpipico`), and one image runs on every board.
  */
@@ -220,6 +228,8 @@ export class SerialTransport {
   private disconnecting = false;
   /** Kept across a reboot the device performed itself, so reopenAfterReboot() has a port to retry. */
   private rebootedPort: Port | null = null;
+  /** A reopen that only the user's Connect can finish: Android's permission ends with the reboot. */
+  private reconnectWaiter: ((ok: boolean) => void) | null = null;
 
   constructor(private events: TransportEvents = {}) {}
 
@@ -234,6 +244,11 @@ export class SerialTransport {
 
   get connected(): boolean {
     return this.port !== null;
+  }
+
+  /** A rebooted device is waiting for Connect, which carries on whatever the reboot interrupted. */
+  get awaitingReconnect(): boolean {
+    return this.reconnectWaiter !== null;
   }
 
   private log(kind: LogKind, text: string) {
@@ -259,15 +274,20 @@ export class SerialTransport {
       );
       return false;
     }
-    const allowed = choose ? null : await this.onlyAllowedPort(api);
+    // On Android a known device may be the one a reboot just disconnected, and only the picker can
+    // be granted the one that came back.
+    const allowed = choose || SerialTransport.asksEveryTime ? null : await this.onlyAllowedPort(api);
     try {
       this.port = allowed ?? (await api.requestPort());
-      await this.port.open(OPEN_OPTIONS);
+      await this.port.open(openOptionsFor(api));
 
       this.attach(this.port);
 
       this.log("ok", allowed ? "Connected to the blaster this browser already allowed." : "Connected.");
       void this.readLoop(); // runs until the reader errors or is cancelled
+      const waiter = this.reconnectWaiter;
+      this.reconnectWaiter = null;
+      waiter?.(true);
       return true;
     } catch (e) {
       // Without the picker, a port held by another tab or program is the likely failure, and
@@ -368,14 +388,29 @@ export class SerialTransport {
     this.rebootedPort = null;
     if (!remembered) return false;
 
+    if (SerialTransport.asksEveryTime) {
+      this.log(
+        "out",
+        "The blaster restarted. Android asks permission again after a restart: press Connect to carry on.",
+      );
+      return new Promise((resolve) => {
+        this.reconnectWaiter = resolve;
+      });
+    }
+
     this.log("out", "Waiting for the device to come back...");
+    let lastError = "";
+    let listedAgain = false;
     for (let i = 0; i < attempts; i++) {
       await new Promise((r) => setTimeout(r, delayMs));
-      for (const port of await this.reconnectCandidates(remembered)) {
+      const candidates = await this.reconnectCandidates(remembered);
+      listedAgain ||= candidates.length > 1;
+      for (const port of candidates) {
         try {
-          await port.open(OPEN_OPTIONS);
-        } catch {
-          continue; // not enumerated yet, still claimed by the OS, or already open
+          await port.open(openOptionsFor(serialApi()));
+        } catch (e) {
+          lastError = (e as Error).message; // not enumerated yet, still claimed by the OS, or already open
+          continue;
         }
         this.attach(port);
         this.log("ok", port === remembered ? "Reconnected." : "Reconnected (device re-enumerated).");
@@ -383,9 +418,12 @@ export class SerialTransport {
         return true;
       }
     }
+    const listed = listedAgain ? "" : " The browser never listed it again.";
+    const said = lastError ? ` Opening it last failed with: ${lastError}.` : "";
     this.log(
       "err",
-      `Device did not come back within ${Math.round((attempts * delayMs) / 1000)}s. Reconnect manually.`,
+      `Device did not come back within ${Math.round((attempts * delayMs) / 1000)}s.${listed}${said}` +
+        " Reconnect manually.",
     );
     return false;
   }
@@ -446,9 +484,10 @@ export class SerialTransport {
         const line = (value ?? "").trim();
         if (!line) continue;
 
-        // Anything not claimed by a waiting caller is device chatter worth showing.
+        // Anything not claimed by a waiting caller is device chatter worth showing - except the acks
+        // of a command sent quietly, which say only that it was taken again.
         const claimed = this.listeners.some((l) => l.predicate(line));
-        if (!claimed) this.log("in", line);
+        if (!claimed && !this.isQuietAck(line)) this.log("in", line);
 
         this.listeners = this.listeners.filter(({ predicate, resolve }) => {
           if (!predicate(line)) return true;
@@ -499,6 +538,29 @@ export class SerialTransport {
     await this.write(`${text}\n`);
   }
 
+  /** Commands sendQuiet() has sent, whose successful acks are kept out of the log too. */
+  private quiet = new Set<string>();
+
+  /**
+   * sendLine() for a command repeated several times a second - a held rev's renewals - which would
+   * otherwise bury everything else in the log. A refusal still shows: only `"ok":true` acks are
+   * dropped.
+   */
+  async sendQuiet(text: string): Promise<void> {
+    this.quiet.add(text.split(" ")[0]);
+    await this.write(`${text}\n`);
+  }
+
+  private isQuietAck(line: string): boolean {
+    if (!this.quiet.size || !line.startsWith("{")) return false;
+    try {
+      const reply = JSON.parse(line) as { cmd?: string; ok?: boolean };
+      return reply.ok === true && reply.cmd !== undefined && this.quiet.has(reply.cmd);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Sends a command followed by raw bytes - the splash upload, which is the one binary path.
    *
@@ -533,8 +595,14 @@ export class SerialTransport {
    * line can arrive before the reply and would otherwise be parsed as one - reading as firmware too
    * old to answer, on exactly the devices the board picker exists for.
    */
-  async request<T>(command: string, timeoutMs = TIMEOUT_SHORT_MS): Promise<T | null> {
-    await this.sendLine(command);
+  async request<T>(
+    command: string,
+    timeoutMs = TIMEOUT_SHORT_MS,
+    { quiet = false }: { quiet?: boolean } = {},
+  ): Promise<T | null> {
+    // A poll asked every second leaves no trace either way: its reply is claimed, so not logged.
+    if (quiet) await this.write(`${command}\n`);
+    else await this.sendLine(command);
     const line = await this.waitForLine(repliesTo(command), timeoutMs);
     if (line === null) {
       this.log("err", `No reply to ${command} within ${timeoutMs} ms.`);

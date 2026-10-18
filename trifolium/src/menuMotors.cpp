@@ -14,14 +14,18 @@ extern bool motorsEnabled[4];
 
 static bool testOneMotor(int motorIndex)
 {
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setCursor(0, 20);
-    display.print("Motor " + String(motorIndex + 1));
-    display.setTextSize(1);
-    display.setCursor(0, 56);
-    display.print("any press = stop");
-    display.display();
+    // The console runs this too, on a blaster that may have no panel.
+    if (displayManager.hasDisplay())
+    {
+        display.clearDisplay();
+        display.setTextSize(2);
+        display.setCursor(0, 20);
+        display.print("Motor " + String(motorIndex + 1));
+        display.setTextSize(1);
+        display.setCursor(0, 56);
+        display.print("any press = stop");
+        display.display();
+    }
 
     DismissDetector dismiss;
     unsigned long testStart = millis();
@@ -65,23 +69,25 @@ static void holdAllMotorsStopped(int frames)
 // it. This only decides which absolute command comes next; the spin at the end is the arbiter.
 static bool nextDirectionReversed[4] = {false, false, false, false};
 
-static void changeEscDirection(int motorIndex)
+static void writeEscDirection(int motorIndex, bool reversed)
 {
-    const bool reversed = nextDirectionReversed[motorIndex];
     nextDirectionReversed[motorIndex] = !reversed;
 
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setCursor(0, 8);
-    display.print("Motor " + String(motorIndex + 1));
-    display.setTextSize(1);
-    display.setCursor(0, 32);
-    // Says what was just written, never what the ESC had. The difference matters: the second is
-    // something nothing on this blaster can know.
-    display.print(reversed ? "Set: Reversed" : "Set: Normal");
-    display.setCursor(0, 48);
-    display.print("writing to ESC...");
-    display.display();
+    if (displayManager.hasDisplay())
+    {
+        display.clearDisplay();
+        display.setTextSize(2);
+        display.setCursor(0, 8);
+        display.print("Motor " + String(motorIndex + 1));
+        display.setTextSize(1);
+        display.setCursor(0, 32);
+        // Says what was just written, never what the ESC had. The difference matters: the second
+        // is something nothing on this blaster can know.
+        display.print(reversed ? "Set: Reversed" : "Set: Normal");
+        display.setCursor(0, 48);
+        display.print("writing to ESC...");
+        display.display();
+    }
 
     directMotorControlActive = true;
     holdAllMotorsStopped(ESC_SETTLE_FRAMES);
@@ -106,6 +112,25 @@ static void changeEscDirection(int motorIndex)
     testOneMotor(motorIndex);
     holdAllMotorsStopped(1);
     directMotorControlActive = false;
+}
+
+static void changeEscDirection(int motorIndex)
+{
+    writeEscDirection(motorIndex, nextDirectionReversed[motorIndex]);
+}
+
+// The menu items' work, for the serial commands. The caller has checked motorsEnabled[motorIndex].
+void runMotorTest(uint8_t motorIndex)
+{
+    directMotorControlActive = true;
+    testOneMotor(motorIndex);
+    holdAllMotorsStopped(1);
+    directMotorControlActive = false;
+}
+
+void runMotorDirection(uint8_t motorIndex, bool reversed)
+{
+    writeEscDirection(motorIndex, reversed);
 }
 
 static const char* const motorStageLabels[] = {"Stage 1", "Stage 2"};

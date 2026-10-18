@@ -11,6 +11,7 @@
 #include "deviceSettings.h"
 #include "deviceStore.h"
 #include "splashStore.h"
+#include "bitmaps.h" // splash - what DUMP_SPLASH reports when no custom one is set
 #include "bootStatus.h"
 #include "schemaDump.h"
 #include "gpioReport.h"
@@ -22,7 +23,6 @@ extern ShotProfile activeProfile;
 extern uint8_t activeProfileIndex; // the slot activeProfile came from, named in its dump
 extern DeviceSettings deviceSettings;
 extern bool wiringLive; // this boot's copy of the boot gate, for the refusal in ESC_PASSTHROUGH
-
 // Core 0's flywheel state, for DUMP_MOTORS. Read unsynchronised from core 1, same as the menu's
 // ESC dashboard does - every field is a word-sized scalar and the answer is a snapshot either way.
 extern FlywheelMotor motorArr[4];
@@ -40,6 +40,16 @@ extern uint32_t dartWaitSince_ms;
 bool idleHoldWanted();
 bool menuIsOpen();
 bool revControlAllowed();
+extern bool batteryFlat;
+extern int16_t shotsToFire;
+extern volatile uint8_t serialRevMask;
+extern volatile uint32_t serialRevUntil_ms;
+void runMotorTest(uint8_t motorIndex);                  // menuMotors.cpp
+void runMotorDirection(uint8_t motorIndex, bool reversed); // menuMotors.cpp
+
+// How long one REV_HOLD keeps the rev up. The console renews it well inside this, so a closed tab or
+// a pulled cable lets go within it.
+static constexpr uint32_t kSerialRevLease_ms = 300;
 
 volatile bool serialCommandSeen = false;
 
@@ -80,6 +90,66 @@ static void ackOk(const char* command, int index, bool clamped, bool rebooting)
     }
     Serial.print(clamped ? ",\"clamped\":true" : ",\"clamped\":false");
     Serial.println(rebooting ? ",\"rebooting\":true}" : ",\"rebooting\":false}");
+}
+
+// Why a motor action from the console cannot run now, or nullptr. These spin a wheel, so they wait
+// for the blaster to be at rest, the same as the menu that offers them.
+static void printBase64(const uint8_t* data, size_t len)
+{
+    static const char kAlphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < len; i += 3)
+    {
+        const uint32_t n = (uint32_t)data[i] << 16 | (i + 1 < len ? (uint32_t)data[i + 1] << 8 : 0) |
+                           (i + 2 < len ? data[i + 2] : 0);
+        Serial.print(kAlphabet[n >> 18 & 63]);
+        Serial.print(kAlphabet[n >> 12 & 63]);
+        Serial.print(i + 1 < len ? kAlphabet[n >> 6 & 63] : '=');
+        Serial.print(i + 2 < len ? kAlphabet[n & 63] : '=');
+    }
+}
+
+static bool motorActionRunning = false; // the test loop answers serial while it spins
+
+static const char* motorActionRefusal(int index)
+{
+    if (motorActionRunning)
+        return "a motor action is already running";
+    if (!wiringLive)
+        return "no wiring configured";
+    if (index < 0 || index > 3 || !motorsEnabled[index])
+        return "no such motor enabled";
+    if (menuIsOpen())
+        return "menu open";
+    if (safetyEngaged)
+        return "safety engaged";
+    if (flywheelState != STATE_IDLE || shotsToFire > 0)
+        return "blaster busy";
+    for (int i = 0; i < 4; i++)
+    {
+        if (motorsEnabled[i] && motorArr[i].targetRPM != 0)
+            return "wheels still turning";
+    }
+    return nullptr;
+}
+
+static void runMotorAction(const char* command, int index, bool test, bool reversed)
+{
+    const char* refusal = motorActionRefusal(index);
+    if (refusal)
+    {
+        ackError(command, refusal);
+        return;
+    }
+    // Acked first: the spin takes seconds, and the console only needs to know it started.
+    ackOk(command, index, false, false);
+    SerialLock::printKept();
+    motorActionRunning = true;
+    if (test)
+        runMotorTest((uint8_t)index);
+    else
+        runMotorDirection((uint8_t)index, reversed);
+    motorActionRunning = false;
 }
 
 // Rejects a payload whose schema version isn't the one this build speaks, before it reaches
@@ -161,6 +231,63 @@ void handleSerialCommands()
         Serial.flush();
         delay(100);
         rp2040.rebootToBootloader();
+    }
+    else if (command == "REV_HOLD")
+    {
+        // Revs the motors in the mask (bit 0 = motor 1) for one lease; the console renews it while
+        // its button is held. The usual gates apply: no rev in SAFE, with the menu open or on a flat
+        // pack. There is no fire counterpart, by design.
+        if (!hasIndex || explicitIndex < 1 || explicitIndex > 15)
+        {
+            ackError("REV_HOLD", "needs a motor mask, 1-15");
+            return;
+        }
+        if (!wiringLive)
+        {
+            ackError("REV_HOLD", "no wiring configured");
+            return;
+        }
+        if (!revControlAllowed())
+        {
+            ackError("REV_HOLD", menuIsOpen() ? "menu open" : "SAFE");
+            return;
+        }
+        if (batteryFlat)
+        {
+            ackError("REV_HOLD", "battery flat");
+            return;
+        }
+        uint8_t mask = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            if (motorsEnabled[i] && (explicitIndex & (1 << i)))
+                mask |= 1 << i;
+        }
+        if (!mask)
+        {
+            ackError("REV_HOLD", "no enabled motor in the mask");
+            return;
+        }
+        serialRevMask = mask;
+        serialRevUntil_ms = millis() + kSerialRevLease_ms;
+        ackOk("REV_HOLD", mask, false, false);
+    }
+    else if (command == "REV_RELEASE")
+    {
+        serialRevMask = 0;
+        ackOk("REV_RELEASE", -1, false, false);
+    }
+    else if (command == "MOTOR_TEST")
+    {
+        runMotorAction("MOTOR_TEST", hasIndex ? explicitIndex : -1, true, false);
+    }
+    else if (command == "MOTOR_NORMAL")
+    {
+        runMotorAction("MOTOR_NORMAL", hasIndex ? explicitIndex : -1, false, false);
+    }
+    else if (command == "MOTOR_REVERSED")
+    {
+        runMotorAction("MOTOR_REVERSED", hasIndex ? explicitIndex : -1, false, true);
     }
     else if (command == "ESC_PASSTHROUGH")
     {
@@ -466,12 +593,16 @@ void handleSerialCommands()
     }
     else if (command == "DUMP_SPLASH")
     {
+        // The image the next boot draws: the custom one, or the built-in one when none is set. In
+        // the layout LOAD_SPLASH takes, base64 so it fits one JSON line.
         uint8_t buf[SplashStore::SPLASH_BYTES];
-        if (!SplashStore::loadCustomSplash(buf))
-        {
-            logger.error("DUMP_SPLASH: no custom splash set");
-            return;
-        }
-        Serial.write(buf, SplashStore::SPLASH_BYTES);
+        const bool custom = SplashStore::loadCustomSplash(buf);
+        if (!custom)
+            memcpy(buf, splash, SplashStore::SPLASH_BYTES);
+        Serial.print("{\"cmd\":\"DUMP_SPLASH\",\"ok\":true,\"custom\":");
+        Serial.print(custom ? "true" : "false");
+        Serial.print(",\"b64\":\"");
+        printBase64(buf, SplashStore::SPLASH_BYTES);
+        Serial.println("\"}");
     }
 }

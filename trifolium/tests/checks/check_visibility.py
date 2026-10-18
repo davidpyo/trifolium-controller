@@ -243,7 +243,7 @@ def declared_keys(sources):
     The rules themselves are cut out first. A term's own key is a string literal like any other, so
     harvesting the whole file would let a typo vouch for itself and the check would pass on nothing.
     Everything else is taken as-is rather than matched against a declaration pattern, because some
-    items are declared through a macro (BOOT_ACTION_ITEM) and would otherwise look undeclared.
+    items are declared through a macro (BOOT_RULE_SUBMENU) and would otherwise look undeclared.
     """
     keys = set()
     for text in sources.values():

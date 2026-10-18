@@ -6,7 +6,8 @@
   "diagram": "diana_v1_1",
   "notes": [
     "Two motors, no menu button. The idle switch and a third select line sit where a Trifolium puts rev and menu.",
-    "Adds the I2C pads v1.0 did not bring out, on the same GP14/GP15 pair a Trifolium uses. Set Display Attached to use one."
+    "Adds the I2C pads v1.0 did not bring out, on the same GP14/GP15 pair a Trifolium uses. Set Display Attached to use one.",
+    "A spare GPIO17 pad sits just below the BOOT button, with a GND pad above it. Nothing is assigned to it."
   ],
   "unread": {
     "telem": 255,

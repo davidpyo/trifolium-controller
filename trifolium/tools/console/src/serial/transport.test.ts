@@ -6,11 +6,13 @@ import {
   blasterPorts,
   configFrom,
   isReply,
+  openOptionsFor,
   rebootAnnouncement,
   repliesTo,
   serialApi,
+  type SerialApi,
 } from "./transport";
-import { serial as usbSerial } from "../vendor/web-serial-polyfill/dist/serial.js";
+import { SerialPort as UsbSerialPort, serial as usbSerial } from "../vendor/web-serial-polyfill/dist/serial.js";
 import deviceJson from "../fixtures/device.json";
 import profile0 from "../fixtures/profile0.json";
 
@@ -20,9 +22,55 @@ const deviceDump = JSON.stringify({ cmd: "DUMP_DEVICE", ...deviceJson });
 const profileDump = (index: number) =>
   JSON.stringify({ cmd: "DUMP_PROFILE", index, ...profile0 });
 
-describe("OPEN_OPTIONS", () => {
-  it("buffers the largest RPM capture: 2000 rows of up to 241 bytes", () => {
+describe("opening a port", () => {
+  it("buffers the largest RPM capture on Web Serial: 2000 rows of up to 241 bytes", () => {
+    const native = {} as SerialApi;
+    expect(openOptionsFor(native)).toBe(OPEN_OPTIONS);
     expect(OPEN_OPTIONS.bufferSize).toBeGreaterThanOrEqual(2000 * 241);
+  });
+
+  /** A blaster on WebUSB, as the polyfill sees one, that records each read it is asked for. */
+  function blasterOverUsb() {
+    const asked: number[] = [];
+    const endpoint = (direction: string, endpointNumber: number) => ({ direction, endpointNumber, packetSize: 64 });
+    const device = {
+      opened: false,
+      configuration: {},
+      configurations: [
+        {
+          interfaces: [
+            { interfaceNumber: 0, alternates: [{ interfaceClass: 2, endpoints: [] }] },
+            { interfaceNumber: 1, alternates: [{ interfaceClass: 10, endpoints: [endpoint("in", 1), endpoint("out", 2)] }] },
+          ],
+        },
+      ],
+      open: async () => { device.opened = true; },
+      close: async () => { device.opened = false; },
+      claimInterface: async () => {},
+      controlTransferOut: async () => ({ status: "ok" }),
+      transferIn: (_endpoint: number, length: number) => {
+        asked.push(length);
+        return new Promise(() => {}); // the blaster has nothing to say
+      },
+    };
+    return { port: new UsbSerialPort(device), asked };
+  }
+
+  it("asks a phone for USB reads of 256 bytes, as the polyfill does by default", async () => {
+    const { port, asked } = blasterOverUsb();
+    await port.open(openOptionsFor(usbSerial));
+    void port.readable!.getReader().read();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toEqual([256]);
+  });
+
+  it("would ask a phone for half a megabyte in one USB read with Web Serial's buffer", async () => {
+    // What the RPM capture's buffer did to Android: the polyfill reads its bufferSize at once.
+    const { port, asked } = blasterOverUsb();
+    await port.open(OPEN_OPTIONS);
+    void port.readable!.getReader().read();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toEqual([512 * 1024]);
   });
 });
 
@@ -208,5 +256,80 @@ describe("serialApi", () => {
     vi.stubGlobal("navigator", { userAgent: DESKTOP });
     expect(serialApi()).toBeNull();
     expect(SerialTransport.supported).toBe(false);
+  });
+});
+
+describe("a reboot on Android", () => {
+  const ANDROID = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile";
+
+  /** A blaster on WebUSB that never says anything, as the polyfill opens one. */
+  const blaster = () => {
+    const device = {
+      opened: false,
+      configuration: {},
+      configurations: [
+        {
+          interfaces: [
+            { interfaceNumber: 0, alternates: [{ interfaceClass: 2, endpoints: [] }] },
+            {
+              interfaceNumber: 1,
+              alternates: [
+                {
+                  interfaceClass: 10,
+                  endpoints: [
+                    { direction: "in", endpointNumber: 1, packetSize: 64 },
+                    { direction: "out", endpointNumber: 2, packetSize: 64 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      open: async () => { device.opened = true; },
+      close: async () => { device.opened = false; },
+      claimInterface: async () => {},
+      controlTransferOut: async () => ({ status: "ok" }),
+      transferIn: () => new Promise(() => {}),
+      transferOut: async () => ({ status: "ok" }),
+    };
+    return device;
+  };
+
+  /** Android's WebUSB: the picker grants a device; the page's known devices are the stale one. */
+  function phone() {
+    const before = blaster();
+    const usb = {
+      picked: 0,
+      requestDevice: async () => {
+        usb.picked++;
+        return usb.picked === 1 ? before : blaster();
+      },
+      getDevices: vi.fn(async () => [before]), // still listed, though the reboot disconnected it
+    };
+    vi.stubGlobal("navigator", { userAgent: ANDROID, usb });
+    return usb;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("waits for Connect instead of polling, then carries on through the picker", async () => {
+    const usb = phone();
+    const transport = new SerialTransport();
+    expect(await transport.connect(false)).toBe(true);
+    await transport.disconnect("Rebooting.", true);
+
+    const reopened = transport.reopenAfterReboot();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(transport.awaitingReconnect).toBe(true);
+    expect(usb.getDevices).not.toHaveBeenCalled();
+
+    expect(await transport.connect(false)).toBe(true);
+    expect(await reopened).toBe(true);
+    expect(usb.picked).toBe(2); // the picker both times, never the disconnected device
+    expect(transport.awaitingReconnect).toBe(false);
+    expect(transport.connected).toBe(true);
   });
 });

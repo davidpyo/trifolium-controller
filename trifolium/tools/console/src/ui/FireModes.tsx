@@ -12,6 +12,7 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import { withIndexOptions } from "../schema/enumValue";
 import { getByKey } from "../schema/keyPath";
 import {
   fireModeLeafOf,
@@ -55,6 +56,12 @@ interface FireMode {
  */
 const ALWAYS_SHOWN = ["includeInCycle"];
 
+/** Properties most blasters never use, left out altogether when no mode has them. */
+const HIDDEN_WHEN_UNUSED = ["revStageMode"];
+
+/** Properties whose value is an index into this list of modes. */
+const MODE_INDEX = ["revStageMode"];
+
 /** Column order: name first, since it is the one property every mode has. */
 const COLUMN_ORDER = [
   "name",
@@ -63,6 +70,7 @@ const COLUMN_ORDER = [
   "targetDPS",
   "binaryTriggerTimeout_ms",
   "reversible",
+  "revStageMode",
   "includeInCycle",
 ];
 
@@ -128,11 +136,20 @@ export interface FireModesProps {
 }
 
 export function FireModes({ schema, profile, onEdit, onReplaceModes }: FireModesProps) {
-  const columns = editorColumns(schema);
   const all = (profile as { fireModes?: FireMode[] })?.fireModes ?? [];
   const declared = (profile as { activeModeCount?: number })?.activeModeCount ?? all.length;
   const modes = all.slice(0, Math.min(declared, all.length));
   const bootMode = (profile as { defaultFiringMode?: number })?.defaultFiringMode;
+  const capFor = (mode: FireMode) => schema.fireModeCaps?.find((c) => c.burstMode === mode.burstMode);
+  const columns = editorColumns(schema).filter(
+    (col) =>
+      !HIDDEN_WHEN_UNUSED.includes(leafOf(col.key)) ||
+      modes.some((mode, i) => isVisible({ ...applyCap(col, capFor(mode)), key: keyForMode(col, i) })),
+  );
+  // The list as edited here, which a mode-index picker points into.
+  const modeNames = modes.map(
+    (mode, i) => mode.name?.trim() || capFor(mode)?.name || `Mode ${i + 1}`,
+  );
 
   if (!columns.length) {
     return <Alert severity="info">This firmware reports no per-mode fields.</Alert>;
@@ -149,7 +166,15 @@ export function FireModes({ schema, profile, onEdit, onReplaceModes }: FireModes
    */
   const remove = (index: number) => {
     if (modes.length <= 1) return; // the firmware refuses to drop the last mode
-    onReplaceModes(modes.filter((_, i) => i !== index));
+    const shifted = (half: unknown) =>
+      typeof half !== "number" ? half : half === index ? -1 : half > index ? half - 1 : half;
+    onReplaceModes(
+      modes
+        .filter((_, i) => i !== index)
+        .map((mode) =>
+          "revStageMode" in mode ? { ...mode, revStageMode: shifted(mode.revStageMode) } : mode,
+        ),
+    );
 
     if (typeof bootMode === "number") {
       if (bootMode === index) onEdit("profile:defaultFiringMode", 0);
@@ -208,7 +233,7 @@ export function FireModes({ schema, profile, onEdit, onReplaceModes }: FireModes
           </TableHead>
           <TableBody>
             {modes.map((mode, index) => {
-              const cap = schema.fireModeCaps?.find((c) => c.burstMode === mode.burstMode);
+              const cap = capFor(mode);
               const isBoot = index === bootMode;
               return (
                 <TableRow key={index}>
@@ -231,7 +256,10 @@ export function FireModes({ schema, profile, onEdit, onReplaceModes }: FireModes
                   {columns.map((col) => {
                     const key = keyForMode(col, index);
                     // Keyed to this mode, not the column's: the key is what marks a cell edited.
-                    const resolved = { ...applyCap(col, cap), key };
+                    const capped = { ...applyCap(col, cap), key };
+                    const resolved = MODE_INDEX.includes(leafOf(col.key))
+                      ? withIndexOptions(capped, modeNames)
+                      : capped;
                     if (!isVisible(resolved)) {
                       return (
                         <TableCell key={col.key} sx={cellSx}>

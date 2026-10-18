@@ -33,7 +33,7 @@ struct Entry
 // core 1, and nothing writes the results afterwards, so they are lock-free to read from either
 // core.
 //
-// Must run before evaluateBootAction(), which reaches pinMode() through heldAtBoot() and would
+// Must run before evaluateBootRules(), which calls pinMode() on the switches it reads and would
 // otherwise attach an input on a pin something else drives.
 void resolve();
 
