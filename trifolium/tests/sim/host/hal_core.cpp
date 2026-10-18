@@ -36,6 +36,20 @@ extern "C" char* utoa(unsigned value, char* string, int radix)
     return string;
 }
 
+#ifndef _WIN32
+// newlib and the Windows CRT have itoa and Apple's libc does not; String's constructors call it.
+extern "C" char* itoa(int value, char* string, int radix)
+{
+    if (value < 0 && radix == 10)
+    {
+        string[0] = '-';
+        utoa(0u - (unsigned)value, string + 1, radix);
+        return string;
+    }
+    return utoa((unsigned)value, string, radix);
+}
+#endif
+
 // cores/rp2040/WMath.cpp, whose uint32_t seed only matches Common.h's unsigned long on the RP2040.
 void randomSeed(unsigned long seed)
 {

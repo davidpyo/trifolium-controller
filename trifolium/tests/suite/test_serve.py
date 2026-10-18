@@ -3,15 +3,13 @@ port, JSON lines on its bench port."""
 
 import json
 import socket
-import subprocess
-import sys
 import time
 
 import pytest
 
 serial = pytest.importorskip("serial")
 
-from helpers import SIM  # noqa: E402
+from helpers import start_server  # noqa: E402
 
 from trifolium_sim import preset  # noqa: E402
 
@@ -19,34 +17,20 @@ from trifolium_sim import preset  # noqa: E402
 THREE_CELL = {"batteryType": "3s", "motorConfig": [{"motorKv": 6000, "motorPolesDiv2": 6}] * 4}
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def serve(*args):
-    ports = free_port(), free_port()
-    proc = subprocess.Popen([sys.executable, "-m", "trifolium_sim.serve", "--display", "--instant-escs",
-                             "--port", str(ports[0]), "--control-port", str(ports[1]),
-                             "--ws-port", str(free_port()), *args],
-                            cwd=str(SIM), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    assert b"serial on socket://" in proc.stdout.readline()
-    return proc, ports
-
-
 @pytest.fixture
 def served():
-    proc, ports = serve()
-    yield ports
+    proc, serial_port, control_port, _, _ = start_server("--display", "--instant-escs")
+    yield serial_port, control_port
     proc.terminate()
     proc.wait(timeout=10)
 
 
 @pytest.fixture
 def capturing():
-    proc, ports = serve("--preset", "trifolium_v1_2", "--device", json.dumps({"useRpmLogging": True}))
-    yield ports
+    proc, serial_port, control_port, _, _ = start_server(
+        "--display", "--instant-escs", "--preset", "trifolium_v1_2",
+        "--device", json.dumps({"useRpmLogging": True}))
+    yield serial_port, control_port
     proc.terminate()
     proc.wait(timeout=10)
 
@@ -110,7 +94,8 @@ def motors(control_port):
 def test_the_served_blaster_has_the_motors_and_the_pack_its_config_describes():
     """The panel is the blaster as configured: its own motors on a charged pack of its own battery
     type, not the simulator's stock 3200 Kv motors on 4S."""
-    proc, (_, control_port) = serve("--preset", "trifolium_v1_2", "--device", json.dumps(THREE_CELL))
+    proc, _, control_port, _, _ = start_server(
+        "--preset", "trifolium_v1_2", "--device", json.dumps(THREE_CELL))
     try:
         assert motors(control_port) == [(6000, 6)] * 4
         assert bench(control_port, op="snapshot")["packMv"] == 3 * 4100
@@ -191,7 +176,8 @@ def test_an_announced_reboot_has_happened_by_the_time_the_host_reads_the_announc
         boots = bench(control_port, op="state")["boots"]
         assert bench(control_port, op="speed", speed=0.1)["ok"]  # ack to reboot, paced: ~1 s
         host.sendall(("LOAD_DEVICE\n" + json.dumps(preset("trifolium_v1_2")) + "\n").encode())
-        assert b'"rebooting":true' in read_until(host, b'"rebooting":true', 30)
+        ack = read_until(host, b'"rebooting":true}\r\n', 30)
+        assert b'"rebooting":true}\r\n' in ack, ack  # ended: a host acts on whole lines
         assert bench(control_port, op="state")["boots"] == boots + 1
 
 

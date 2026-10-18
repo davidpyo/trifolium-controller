@@ -37,7 +37,7 @@ env.Append(CPPDEFINES=[("HAL_STDLIB_NONISO_CPP", env.StringifyMacro(noniso.repla
 env.Replace(PROGNAME="trifolium-sim")
 
 # hal_heap.cpp counts the firmware's heap at the allocator.
-env.Append(LINKFLAGS=["-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free"])
+env.Append(CCFLAGS=["-include", os.path.join(hal, "heap_count.h")])
 
 # The MinGW runtime linked in, so trifolium-sim runs from any shell - not only one with that
 # toolchain on PATH, where another program's libstdc++ would be picked up instead.

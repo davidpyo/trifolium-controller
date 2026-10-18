@@ -1,5 +1,5 @@
-// The heap the firmware's cores use, counted at the allocator: the link wraps malloc, calloc,
-// realloc and free (native_env.py), and operator new reaches them through the static libstdc++.
+// The heap the firmware's cores use, counted at the allocator: hal/heap_count.h points every
+// source's malloc, calloc, realloc and free here, and operator new is replaced below.
 // An allocation that would take the count past the RP2040's heap fails, as newlib's does.
 // A thread is told apart by its id rather than a thread_local, whose first touch can allocate.
 
@@ -9,6 +9,13 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <new>
+
+// The C library's own, which the counted versions below hand on to.
+#undef malloc
+#undef calloc
+#undef realloc
+#undef free
 
 #ifdef _WIN32
 // Not <windows.h>, whose INPUT collides with Arduino's.
@@ -16,14 +23,6 @@ extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId(void
 #else
 #include <pthread.h>
 #endif
-
-extern "C"
-{
-void* __real_malloc(size_t n);
-void* __real_calloc(size_t count, size_t n);
-void* __real_realloc(void* p, size_t n);
-void __real_free(void* p);
-}
 
 namespace
 {
@@ -144,33 +143,33 @@ uint32_t untrack(void* p)
 
 extern "C"
 {
-void* __wrap_malloc(size_t n)
+void* hal_malloc(size_t n)
 {
     if (!onCore())
-        return __real_malloc(n);
+        return malloc(n);
     Guard g;
     if (refuse(n))
         return nullptr;
-    void* p = __real_malloc(n);
+    void* p = malloc(n);
     if (p)
         track(p, n);
     return p;
 }
 
-void* __wrap_calloc(size_t count, size_t n)
+void* hal_calloc(size_t count, size_t n)
 {
     if (!onCore())
-        return __real_calloc(count, n);
+        return calloc(count, n);
     Guard g;
     if (refuse(count * n))
         return nullptr;
-    void* p = __real_calloc(count, n);
+    void* p = calloc(count, n);
     if (p)
         track(p, count * n);
     return p;
 }
 
-void* __wrap_realloc(void* old, size_t n)
+void* hal_realloc(void* old, size_t n)
 {
     const bool counted = onCore();
     Guard g;
@@ -181,7 +180,7 @@ void* __wrap_realloc(void* old, size_t n)
             track(old, before - 4); // back as it was; the old block stands
         return nullptr;
     }
-    void* p = __real_realloc(old, n);
+    void* p = realloc(old, n);
     if (!p && n)
     {
         if (before)
@@ -193,15 +192,29 @@ void* __wrap_realloc(void* old, size_t n)
     return p;
 }
 
-void __wrap_free(void* p)
+void hal_free(void* p)
 {
     if (p)
     {
         Guard g;
         untrack(p);
     }
-    __real_free(p);
+    free(p);
 }
+}
+
+// Plain new and delete only: the C++ library routes its array, nothrow and sized variants through
+// these two. Nothing here is over-aligned, so the align_val_t ones are left alone.
+void* operator new(size_t n)
+{
+    void* p = hal_malloc(n ? n : 1);
+    if (!p)
+        throw std::bad_alloc();
+    return p;
+}
+void operator delete(void* p) noexcept
+{
+    hal_free(p);
 }
 
 namespace hal
