@@ -5,7 +5,7 @@ it. The v1.2 preset enables motors 2 and 4, on ESC pins 1 and 3."""
 import pytest
 from helpers import armed_v12, open_menu
 
-from trifolium_sim import FULLSPEED, IDLE
+from trifolium_sim import ACCELERATING, FULLSPEED, IDLE
 
 TEST_THROTTLE = 400  # menuMotors.cpp's FLYWHEEL_TEST_THROTTLE
 SPIN_DIRECTION_1, SPIN_DIRECTION_2, SAVE_SETTINGS = 7, 8, 12
@@ -23,6 +23,15 @@ def hold_rev(b, mask, ms, every_ms=100):
     for _ in range(ms // every_ms):
         assert b.command(f"REV_HOLD {mask}")["ok"] is True
         b.run_ms(every_ms)
+
+
+def held_rev_errors(b, mask, ms, every_ms=100):
+    """hold_rev() that collects each ack's refusal, None where it was accepted."""
+    errors = []
+    for _ in range(ms // every_ms):
+        errors.append(b.command(f"REV_HOLD {mask}").get("err"))
+        b.run_ms(every_ms)
+    return errors
 
 
 def test_motor_test_spins_that_motor_alone_then_stops(blaster):
@@ -158,3 +167,35 @@ def test_a_rev_hold_is_refused_in_safe_and_with_the_menu_open(blaster, make_blas
     b = armed_v12(make_blaster())
     open_menu(b)
     assert b.command(f"REV_HOLD {BOTH}")["err"] == "menu open"
+
+
+ABORTED = "rev aborted - let go to rev again"
+
+
+def test_a_held_rev_through_a_rampup_timeout_stays_down_until_the_hold_lets_go(blaster):
+    b = blaster
+    b.wheel(3, loaded=0.5)  # tops out short of firing speed on this pack
+    armed_v12(b, display=False)
+    errors = held_rev_errors(b, BOTH, 2000)
+    assert errors[0] is None and errors[-1] == ABORTED
+    assert b.peek("flywheelState") == IDLE
+    assert b.peek("motors")[3]["targetRPM"] == 0
+
+    assert b.command("REV_RELEASE")["ok"] is True
+    b.run_ms(50)
+    assert b.command(f"REV_HOLD {BOTH}")["ok"] is True
+    assert b.run_until_peek("flywheelState", ACCELERATING, limit_ms=100)
+
+
+def test_with_no_rev_switch_a_rev_safety_timeout_clears_once_the_hold_lapses(blaster):
+    b = blaster
+    b.flash_profile(1, {"schemaVersion": 2, "revSafetyTimeout_ms": 1000})
+    armed_v12(b, {"revSwitchPin": 255}, display=False)
+    errors = held_rev_errors(b, BOTH, 2500)
+    assert errors[0] is None and errors[-1] == ABORTED
+    assert b.peek("flywheelState") == IDLE
+
+    b.run_ms(400)  # the lease runs out
+    assert b.peek("revSafetyLatched") is False
+    assert b.command(f"REV_HOLD {BOTH}")["ok"] is True
+    assert b.run_until_peek("flywheelState", ACCELERATING, limit_ms=100)

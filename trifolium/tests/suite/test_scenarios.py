@@ -4,6 +4,9 @@ and the solenoid's timing."""
 
 import pytest
 from helpers import armed_v12, close_menu, open_menu, schema
+from test_dart_sensing import pulses
+from test_firing_modes import one_mode
+from test_idle_hold import power_on_holding_rev
 
 from trifolium_sim import ACCELERATING, FULLSPEED, IDLE, MENU, POWER_ON_MAGIC
 
@@ -171,6 +174,98 @@ def test_a_wheel_that_cannot_reach_firing_speed_aborts_the_rev_inside_rampup_tim
     assert b.extends() == []  # no dart fired into wheels that are not at speed
     motors = b.peek("motors")
     assert motors[1]["targetRPM"] == 0 and motors[3]["targetRPM"] == 0
+
+
+def test_a_rev_held_through_a_rampup_timeout_stays_down_until_it_is_released(blaster):
+    b = blaster
+    b.wheel(3, loaded=0.5)
+    armed_v12(b)
+    b.press("rev")
+    assert b.run_until_peek("revSafetyLatched", True, limit_ms=700)
+    b.run_ms(1500)
+    assert b.peek("flywheelState") == IDLE
+    assert b.peek("motors")[3]["targetRPM"] == 0
+
+    b.release("rev")
+    b.run_ms(100)
+    assert b.peek("revSafetyLatched") is False
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", ACCELERATING, limit_ms=100)
+
+
+def test_an_esc_that_goes_silent_at_full_speed_stops_the_firing_until_rev_is_let_go(blaster):
+    """motorRPM holds its last reading without new eRPM, so a browned-out ESC would otherwise read
+    as at speed for good."""
+    b = armed_v12(blaster)
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.wheel(3, replies=False)
+    b.run_ms(150)
+    assert b.peek("flywheelState") == IDLE
+    b.tap("trigger")
+    b.run_ms(500)
+    assert b.extends() == []
+    assert b.peek("motors")[3]["targetRPM"] == 0
+
+    b.wheel(3, replies=True)
+    b.release("rev")
+    b.run_ms(100)
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.tap("trigger")
+    b.run_ms(200)
+    assert b.extends()
+
+
+def test_an_esc_going_silent_on_a_shot_awaiting_its_rpm_drop_still_spins_down_at_once(blaster):
+    b = blaster
+    b.darts(loaded=False)  # a dry fire: the drop the shot counter waits on never comes
+    armed_v12(b, {"useRpmBaseShotCounter": True})
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.press("trigger")
+    assert b.run_until(lambda: b.extends(), 100)
+    b.wheel(3, replies=False)
+    b.run_ms(600)  # without the abort clearing it, the wait holds full speed past the ramp
+    assert b.peek("motors")[1]["targetRPM"] == 0
+
+
+def test_an_esc_going_silent_mid_push_lets_that_push_finish_and_starts_no_other(blaster):
+    b = one_mode(blaster, "auto", burstLength=100)
+    b.press("trigger")
+    assert b.run_until(lambda: len(b.extends()) >= 2, 1000)
+    b.run_ms(40)  # so the reading goes stale with a push under way
+    b.wheel(3, replies=False)
+    assert b.run_until_peek("flywheelState", IDLE, limit_ms=200)
+    pushes = pulses(b)
+    assert pushes[-1] == pytest.approx(pushes[-2], abs=1)  # not cut short
+    retracted_us = b.edges(b.wiring()["pusherFetPin"])[-1][0]
+    assert b.uptime_us - retracted_us <= 2000  # the abort waited for it
+    fired = len(b.extends())
+    b.run_ms(500)
+    assert len(b.extends()) == fired
+    assert b.peek("motors")[3]["targetRPM"] == 0
+
+
+def test_after_an_abort_idle_hold_waits_for_a_rev_to_reach_full_speed(blaster):
+    """A restarted ESC arms only on zero throttle."""
+    b = power_on_holding_rev(blaster)
+    idle = b.peek("motors")[1]["targetRPM"]
+    assert idle > 0
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.wheel(3, replies=False)
+    assert b.run_until_peek("flywheelState", IDLE, limit_ms=200)
+    b.release("rev")
+    b.wheel(3, replies=True)
+    b.run_ms(1500)
+    assert b.peek("motors")[1]["targetRPM"] == 0
+
+    b.press("rev")
+    assert b.run_until_peek("flywheelState", FULLSPEED, limit_ms=600)
+    b.release("rev")
+    b.run_ms(1500)
+    assert b.peek("motors")[1]["targetRPM"] == idle
 
 
 def test_rev_safety_timeout_spins_the_wheels_down_under_a_held_rev_until_it_is_released(blaster):

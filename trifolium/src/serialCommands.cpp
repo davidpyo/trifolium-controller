@@ -41,6 +41,7 @@ bool idleHoldWanted();
 bool menuIsOpen();
 bool revControlAllowed();
 extern bool batteryFlat;
+extern bool revSafetyLatched;
 extern int16_t shotsToFire;
 extern volatile uint8_t serialRevMask;
 extern volatile uint32_t serialRevUntil_ms;
@@ -270,6 +271,13 @@ void handleSerialCommands()
         }
         serialRevMask = mask;
         serialRevUntil_ms = millis() + kSerialRevLease_ms;
+        // An aborted rev stays down until every rev source lets go, this hold included, so the
+        // hold is renewed even when refused.
+        if (revSafetyLatched)
+        {
+            ackError("REV_HOLD", "rev aborted - let go to rev again");
+            return;
+        }
         ackOk("REV_HOLD", mask, false, false);
     }
     else if (command == "REV_RELEASE")
