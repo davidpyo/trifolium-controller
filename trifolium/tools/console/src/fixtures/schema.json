@@ -2412,10 +2412,10 @@
                   "step": 10
                 },
                 {
-                  "label": "Max Spinup Voltage (mV)",
+                  "label": "Spinup Torque Limit (mV)",
                   "kind": "int",
-                  "key": "device:motorConfig[0].maxSpinupVoltage_mv",
-                  "lo": 10000,
+                  "key": "device:motorConfig[0].spinupTorqueLimit_mv",
+                  "lo": 6000,
                   "hi": 30000,
                   "step": 100
                 },
@@ -2491,10 +2491,10 @@
                   "step": 10
                 },
                 {
-                  "label": "Max Spinup Voltage (mV)",
+                  "label": "Spinup Torque Limit (mV)",
                   "kind": "int",
-                  "key": "device:motorConfig[1].maxSpinupVoltage_mv",
-                  "lo": 10000,
+                  "key": "device:motorConfig[1].spinupTorqueLimit_mv",
+                  "lo": 6000,
                   "hi": 30000,
                   "step": 100
                 },
@@ -2570,10 +2570,10 @@
                   "step": 10
                 },
                 {
-                  "label": "Max Spinup Voltage (mV)",
+                  "label": "Spinup Torque Limit (mV)",
                   "kind": "int",
-                  "key": "device:motorConfig[2].maxSpinupVoltage_mv",
-                  "lo": 10000,
+                  "key": "device:motorConfig[2].spinupTorqueLimit_mv",
+                  "lo": 6000,
                   "hi": 30000,
                   "step": 100
                 },
@@ -2649,10 +2649,10 @@
                   "step": 10
                 },
                 {
-                  "label": "Max Spinup Voltage (mV)",
+                  "label": "Spinup Torque Limit (mV)",
                   "kind": "int",
-                  "key": "device:motorConfig[3].maxSpinupVoltage_mv",
-                  "lo": 10000,
+                  "key": "device:motorConfig[3].spinupTorqueLimit_mv",
+                  "lo": 6000,
                   "hi": 30000,
                   "step": 100
                 },

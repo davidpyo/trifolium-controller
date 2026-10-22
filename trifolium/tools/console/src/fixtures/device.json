@@ -152,7 +152,7 @@
       "ki": 4,
       "motorKv": 3200,
       "motorPolesDiv2": 7,
-      "maxSpinupVoltage_mv": 30000
+      "spinupTorqueLimit_mv": 30000
     },
     {
       "enabled": true,
@@ -161,7 +161,7 @@
       "ki": 4,
       "motorKv": 3200,
       "motorPolesDiv2": 7,
-      "maxSpinupVoltage_mv": 30000
+      "spinupTorqueLimit_mv": 30000
     },
     {
       "enabled": false,
@@ -170,7 +170,7 @@
       "ki": 4,
       "motorKv": 3200,
       "motorPolesDiv2": 7,
-      "maxSpinupVoltage_mv": 30000
+      "spinupTorqueLimit_mv": 30000
     },
     {
       "enabled": true,
@@ -179,7 +179,7 @@
       "ki": 4,
       "motorKv": 3200,
       "motorPolesDiv2": 7,
-      "maxSpinupVoltage_mv": 30000
+      "spinupTorqueLimit_mv": 30000
     }
   ],
   "flywheelControl": "pid",

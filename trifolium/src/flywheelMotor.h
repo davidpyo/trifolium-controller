@@ -46,15 +46,14 @@ class FlywheelMotor
     void updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, int32_t maxThrottle,
                    uint8_t EMAFilter, uint32_t half, uint8_t iThreshold, int batteryType);
     void updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywheelState, int32_t maxThrottle,
-                   int batteryType, int32_t throttleCap);
+                   int32_t throttleCap);
     void updateOpenLoop(int32_t batteryVoltage_mv, int32_t maxThrottle);
     void resetControl(flywheelControlType_t mode);
     void sendThrottle(int32_t value);
 
     // Clamps to 0..maxThrottle and to the throttle at which battery voltage x throttle reaches the
-    // motor's voltage limit, raised to whatever targetRPM needs.
-    int32_t limitThrottle(int32_t throttle, int32_t maxThrottle, int32_t batteryVoltage_mv,
-                          int batteryType) const;
+    // motor's spin-up torque limit above the voltage its current RPM generates.
+    int32_t limitThrottle(int32_t throttle, int32_t maxThrottle, int32_t batteryVoltage_mv) const;
 
     // Consumes one telemetry frame and reports telemetryErpmSeen, for callers driving throttle
     // directly with no control loop running to drain the FIFO.

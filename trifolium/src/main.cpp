@@ -392,7 +392,7 @@ void applyMotorConfig()
         motorsObj[i] = Motor(deviceSettings.motorConfig[i].kp, deviceSettings.motorConfig[i].ki,
                              deviceSettings.motorConfig[i].motorKv,
                              deviceSettings.motorConfig[i].motorPolesDiv2,
-                             deviceSettings.motorConfig[i].maxSpinupVoltage_mv);
+                             deviceSettings.motorConfig[i].spinupTorqueLimit_mv);
     }
 }
 
@@ -2083,8 +2083,7 @@ bool fwControlLoop()
                 if (motorsEnabled[i])
                 {
                     motorArr[i].updateTBH(throttleReferenceVoltage_mv(), flywheelState,
-                                          maxThrottle, deviceSettings.batteryType,
-                                          deviceSettings.throttleCap);
+                                          maxThrottle, deviceSettings.throttleCap);
                 }
             }
             break;

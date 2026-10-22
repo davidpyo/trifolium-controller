@@ -90,46 +90,23 @@ def test_the_throttle_never_leaves_0_to_1999_and_saturates_on_a_target_past_the_
     assert b.escs()[1]["lastThrottle"] == 0
 
 
-def test_a_motor_voltage_limit_caps_throttle_rising_with_sag_and_with_the_target_rpm(blaster):
-    b = blaster
-    b.flash_profile(1, {"schemaVersion": 2, "revRPM": [20000, 20000, 20000, 45000]})
-    limited = {"maxSpinupVoltage_mv": 10000}
-    armed_v12(b, {"motorConfig": [{"enabled": True}, limited, {}, limited]}, display=False)
-
-    def peak_throttles():
-        b.press("rev")
-        seen = []
-        for _ in range(300):
-            b.run_ms(2)
-            seen.append([b.escs()[i]["lastThrottle"] for i in (1, 3, 0)])
-        b.release("rev")
-        b.run_ms(3000)
-        return [max(column) for column in zip(*seen)]
-
-    # 20000 RPM needs 6.25 V + 2 V headroom, under the limit. 45000 RPM needs 14.06 V + 2 V, so the
-    # cap rises to that. approx: the battery reading is quantized by the ADC
-    assert peak_throttles() == [
-        pytest.approx(1999 * 10000 / 16400, rel=0.01),
-        pytest.approx(1999 * 16062 / 16400, rel=0.01),
-        1999,
-    ]
-    b.set_pack(14000)  # above the 3.3 V/cell cutoff
-    assert peak_throttles()[0] == pytest.approx(1999 * 10000 / 14000, rel=0.01)
-
-
 @pytest.mark.parametrize("control", ["pid", "tbh"])
-def test_voltage_limited_spinup_recovers_from_battery_sag(blaster, control):
-    b = armed_v12(blaster, {
-        "flywheelControl": control,
-        "motorConfig": [{}, {"maxSpinupVoltage_mv": 10000}, {},
-                        {"maxSpinupVoltage_mv": 10000}],
-    }, display=False)
+def test_a_spinup_torque_limit_holds_motor_voltage_that_far_above_the_wheels_own(blaster, control):
+    limited = {"spinupTorqueLimit_mv": 6000}
+    b = armed_v12(blaster, {"flywheelControl": control, "motorConfig": [{}, limited, {}, limited]},
+                  display=False)
     b.press("rev")
-    b.run_ms(20)
-    startup_throttle = b.escs()[1]["lastThrottle"]
-    b.set_pack(13300)  # still above the cutoff, but needs more throttle for the same motor voltage
+    drive_v = []
+    # Past ~60% of the target, TBH's own head start asks for less than the limit.
+    while motor(b)["motorRPM"] < TARGET * 0.6:
+        b.run_ms(1)
+        # The motor generates RPM / Kv volts. approx 16.4 V: the battery reading is quantized by
+        # the ADC
+        drive_v.append(b.escs()[1]["lastThrottle"] * 16.4 / 1999 - motor(b)["motorRPM"] / 3200)
+        assert len(drive_v) < 1000
+    assert min(drive_v) == pytest.approx(6, abs=0.1)
+    assert max(drive_v) == pytest.approx(6, abs=0.1)
     assert b.run_until(lambda: motor(b)["motorRPM"] >= TARGET - 500, 450)
-    assert b.escs()[1]["lastThrottle"] > startup_throttle
 
 
 def test_open_loop_spin_down_only_ever_lowers_the_throttle(blaster):

@@ -136,17 +136,17 @@ void FlywheelMotor::updatePID(int32_t batteryVoltage_mv, int32_t loopTime_us, in
     }
 
     PIDErrorPrior = PIDError;
-    PIDOutput = limitThrottle(PIDOutput, maxThrottle, batteryVoltage_mv, batteryType);
+    PIDOutput = limitThrottle(PIDOutput, maxThrottle, batteryVoltage_mv);
     esc->sendThrottle(PIDOutput);
 }
 
 void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywheelState,
-                              int32_t maxThrottle, int batteryType, int32_t throttleCap)
+                              int32_t maxThrottle, int32_t throttleCap)
 {
     /*
     so slightly confusing, but we use PIDIntegral for TBH variable, and KI for gain, and PIDOutput
-    for our error accumulator, which we cap at the voltage-limited throttle. Just trying to reuse variables to save runtime
-    memory
+    for our error accumulator, which we cap at the torque-limited throttle. Just trying to reuse
+    variables to save runtime memory
     */
     uint32_t erpm;
     if (readTelemetry(erpm)) // no new reading means hold motorRPM/motorRPMFilter as they are
@@ -166,12 +166,12 @@ void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywhee
 
     if (!firstCrossing)
     {
-        // Recompute startup drive as the pack sags or the target rises. A clamped accumulator
-        // cannot recover on its own until the first crossing.
+        // Recompute startup drive as the pack sags, the target rises or the torque limit rises with
+        // the wheel's speed. A clamped accumulator cannot follow on its own until the first
+        // crossing.
         int32_t openLoopThrottle =
             maxThrottle * targetRPM / batteryVoltage_mv * 1000 / m_config->m_motorKv;
-        PIDOutput = limitThrottle(openLoopThrottle + throttleCap, maxThrottle,
-                                  batteryVoltage_mv, batteryType);
+        PIDOutput = limitThrottle(openLoopThrottle + throttleCap, maxThrottle, batteryVoltage_mv);
         PIDIntegral = 2 * openLoopThrottle - PIDOutput;
     }
 
@@ -190,7 +190,7 @@ void FlywheelMotor::updateTBH(int32_t batteryVoltage_mv, flywheelState_t flywhee
         PIDErrorPrior = PIDError;
     }
 
-    PIDOutput = limitThrottle(PIDOutput, maxThrottle, batteryVoltage_mv, batteryType);
+    PIDOutput = limitThrottle(PIDOutput, maxThrottle, batteryVoltage_mv);
     // prevent output from being zero if non zero targetRPM since we don't want to hard brake if we
     // overshoot for heat optimization
     if ((flywheelState == STATE_ACCELERATING || flywheelState == STATE_FULLSPEED) &&
@@ -219,12 +219,12 @@ void FlywheelMotor::updateOpenLoop(int32_t batteryVoltage_mv, int32_t maxThrottl
 }
 
 int32_t FlywheelMotor::limitThrottle(int32_t throttle, int32_t maxThrottle,
-                                     int32_t batteryVoltage_mv, int batteryType) const
+                                     int32_t batteryVoltage_mv) const
 {
-    // Same 0.5 V/cell headroom as motorRpmCeiling(), so every allowed RPM target gets its voltage.
-    int32_t targetVoltage_mv = (int64_t)targetRPM * 1000 / m_config->m_motorKv +
-                               cellCount((batteryType_t)batteryType) * 500;
-    int32_t limit = (int64_t)maxThrottle *
-                    max(m_config->m_maxSpinupVoltage_mv, targetVoltage_mv) / batteryVoltage_mv;
+    // Winding current follows the motor voltage above what the motor generates at its speed, so
+    // holding that margin fixed holds the spin-up current fixed, the fastest spin-up for its heat.
+    int32_t limit_mv =
+        (int64_t)motorRPM * 1000 / m_config->m_motorKv + m_config->m_spinupTorqueLimit_mv;
+    int32_t limit = (int64_t)maxThrottle * limit_mv / batteryVoltage_mv;
     return constrain(throttle, 0, min(maxThrottle, limit));
 }
