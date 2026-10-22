@@ -90,6 +90,25 @@ def test_the_throttle_never_leaves_0_to_1999_and_saturates_on_a_target_past_the_
     assert b.escs()[1]["lastThrottle"] == 0
 
 
+@pytest.mark.parametrize("control", ["pid", "tbh"])
+def test_a_spinup_torque_limit_holds_motor_voltage_that_far_above_the_wheels_own(blaster, control):
+    limited = {"spinupTorqueLimit_mv": 6000}
+    b = armed_v12(blaster, {"flywheelControl": control, "motorConfig": [{}, limited, {}, limited]},
+                  display=False)
+    b.press("rev")
+    drive_v = []
+    # Past ~60% of the target, TBH's own head start asks for less than the limit.
+    while motor(b)["motorRPM"] < TARGET * 0.6:
+        b.run_ms(1)
+        # The motor generates RPM / Kv volts. approx 16.4 V: the battery reading is quantized by
+        # the ADC
+        drive_v.append(b.escs()[1]["lastThrottle"] * 16.4 / 1999 - motor(b)["motorRPM"] / 3200)
+        assert len(drive_v) < 1000
+    assert min(drive_v) == pytest.approx(6, abs=0.1)
+    assert max(drive_v) == pytest.approx(6, abs=0.1)
+    assert b.run_until(lambda: motor(b)["motorRPM"] >= TARGET - 500, 450)
+
+
 def test_open_loop_spin_down_only_ever_lowers_the_throttle(blaster):
     b = armed_v12(blaster, display=False)
     b.press("rev")

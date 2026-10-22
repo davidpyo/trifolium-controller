@@ -73,6 +73,8 @@ export const SETTING_HELP: Record<string, string> = {
     "Half the motor's magnetic pole count, which converts the ESC's electrical RPM to real RPM.",
   "device:motorConfig[*].motorKv":
     "The motor's Kv, in RPM per volt, from its spec sheet. With Battery Type it sets the limits of every RPM field for this motor.",
+  "device:motorConfig[*].spinupTorqueLimit_mv":
+    "Limits spin-up torque, and with it the current that heats the motor and ESC. Lower spins up slower and cooler. It keeps motor voltage (battery voltage × throttle) at most this far above the voltage the motor generates at its current speed. Spin-up current is about this ÷ winding resistance. Without a battery sense pin it assumes 3.5 V per cell.",
   "device:flywheelControl":
     "How the flywheels are held at their target RPM. PID is the standard choice; TBH (take-back-half) is an alternative.",
   "device:EMAFilter":

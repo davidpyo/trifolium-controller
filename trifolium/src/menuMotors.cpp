@@ -154,6 +154,9 @@ static const char* const kPusherChannelLocked =
     static NumericItem<int32_t> motor##N##KvItem(                                                  \
         "Kv", "device:motorConfig[" #N "].motorKv", &deviceSettings.motorConfig[N].motorKv, 500,   \
         10000, 10);                                                                                \
+    static NumericItem<int32_t> motor##N##SpinupTorqueLimitItem(                                   \
+        "Spinup Torque Limit (mV)", "device:motorConfig[" #N "].spinupTorqueLimit_mv",             \
+        &deviceSettings.motorConfig[N].spinupTorqueLimit_mv, 6000, 30000, 100);                    \
     static void motor##N##TestFired()                                                              \
     {                                                                                              \
         if (!motorsEnabled[N])                                                                     \
@@ -173,8 +176,9 @@ static const char* const kPusherChannelLocked =
     static MenuItem* motor##N##Items[] = {                                                         \
         &motor##N##EnabledItem, &motor##N##StageItem, &motor##N##KPItem,                           \
         &motor##N##KIItem,      &motor##N##PolesItem, &motor##N##KvItem,                           \
-        &motor##N##DirectionItem, &motor##N##TestItem};                                            \
-    static SubmenuItem motor##N##Submenu(LABEL, motor##N##Items, 8);                               \
+        &motor##N##SpinupTorqueLimitItem, &motor##N##DirectionItem,                                 \
+        &motor##N##TestItem};                                                                      \
+    static SubmenuItem motor##N##Submenu(LABEL, motor##N##Items, 9);                               \
     static struct Motor##N##Init                                                                   \
     {                                                                                              \
         Motor##N##Init()                                                                           \

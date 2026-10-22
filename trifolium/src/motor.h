@@ -4,11 +4,13 @@
 class Motor
 {
   public:
-    Motor(float pGain, float iGain, int32_t motorKv, int16_t motorPolesDiv2);
+    Motor(float pGain, float iGain, int32_t motorKv, int16_t motorPolesDiv2,
+          int32_t spinupTorqueLimit_mv);
     float m_iGain;
     float m_pGain;
     int32_t m_motorKv;
     int16_t m_motorPolesDiv2;
+    int32_t m_spinupTorqueLimit_mv;
 
   private:
 };

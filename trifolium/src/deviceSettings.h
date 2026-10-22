@@ -12,6 +12,7 @@ struct MotorConfig
     float ki;
     int32_t motorKv;
     int16_t motorPolesDiv2;
+    int32_t spinupTorqueLimit_mv; // caps motor voltage above the voltage the motor generates
 };
 
 struct DeviceSettings

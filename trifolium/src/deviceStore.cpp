@@ -253,6 +253,7 @@ void toJson(const DeviceSettings& settings, JsonDocument& doc)
         cfg["ki"] = settings.motorConfig[i].ki;
         cfg["motorKv"] = settings.motorConfig[i].motorKv;
         cfg["motorPolesDiv2"] = settings.motorConfig[i].motorPolesDiv2;
+        cfg["spinupTorqueLimit_mv"] = settings.motorConfig[i].spinupTorqueLimit_mv;
     }
 
     doc["flywheelControl"] = enumIdOf(settings.flywheelControl, kFlywheelControlIds, kFlywheelControlIdCount);
@@ -450,6 +451,8 @@ void fromJson(JsonDocument& doc, DeviceSettings& out, Source source)
             out.motorConfig[i].motorKv = cfg["motorKv"] | out.motorConfig[i].motorKv;
             out.motorConfig[i].motorPolesDiv2 =
                 cfg["motorPolesDiv2"] | out.motorConfig[i].motorPolesDiv2;
+            out.motorConfig[i].spinupTorqueLimit_mv =
+                cfg["spinupTorqueLimit_mv"] | out.motorConfig[i].spinupTorqueLimit_mv;
         }
     }
 
