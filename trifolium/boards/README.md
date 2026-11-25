@@ -46,12 +46,11 @@ The console draws the art 340 px wide.
 ### The hookup view
 
 The Wiring page can also draw each part wired to the board, which works out where each wire goes
-from the sheet's names. It draws the board as a schematic block of its pins rather than as
-`board.svg`, and not in the board's shape: only the pins something is wired to are drawn, each
-`data-connector` a named group of them, put on the side and in the order that suits the parts
-wired to it, with the sides evened up; the free pins are listed under the drawing. A pin is named
-for its GPIO, or for its `data-label` (else its `data-pin`) on a power pad. A board needs nothing
-extra for it beyond these conventions:
+from the sheet's names. It draws `board.svg`, with each wire landing on its pad where the pad is,
+and a tag on each wire - by the board where there is room, else further along it - naming the pad: its GPIO (`GP21`), its sign where
+its `data-label` starts or ends with one (`+ From Battery` is `+`), else its `data-pin` (`GND`).
+Pointing at a part names its pads on the board too. A board
+needs nothing extra for it beyond these conventions:
 
 - A part's ground goes to the `GND` pad in its own `data-connector`, else the nearest one. Pads on
   a connector named for power, `XT30` or a battery are never used as a part's ground.
@@ -63,10 +62,9 @@ extra for it beyond these conventions:
   `XT30 OUT`). `+` in the label or a `VCC` name marks the positive one.
 - An LED wired on the board goes to the pads of a connector whose name has `LED` in it. A label
   with `switched` in it marks a low side switched by the board, which is never shared as a ground.
-- A connector with a battery, solenoid or power pad in it goes along the bottom of the block, by the
-  battery. A connector's name loses a trailing ` connector` when drawn.
 
-A board with no drawing gets a block with one pin per wire, grouped by the part each is for.
+A board with no drawing gets a schematic block instead, with one pin per wire, grouped by the part
+each is for.
 
 ## Checking
 

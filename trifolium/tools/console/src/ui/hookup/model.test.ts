@@ -79,18 +79,26 @@ describe("buildHookup on a Trifolium v1.2", () => {
     expect(build({ hasDisplay: false }).parts.some((p) => p.id === "oled")).toBe(false);
   });
 
-  it("wires the selector's positions, and its common to ground", () => {
+  it("draws a select-fire switch as a slide switch, its common the middle leg, wired to ground", () => {
     const selector = part(hookup, "selector");
+    expect(selector.kind).toBe("slide");
     expect(selector.label).toBe("Select-fire switch");
     expect(selector.leads.map((l) => [l.leg, to(l)])).toEqual([
-      ["C", "GND @ Select connector"],
       ["1", "GP9"],
+      ["C", "GND @ Select connector"],
       ["3", "GP10"],
     ]);
   });
 
-  it("labels an encoder's lines as the bits they are", () => {
+  it("puts a three-throw switch's common first, as on a slide switch", () => {
+    const selector = part(build({ select1Pin: 8 }), "selector");
+    expect(selector.leads.map((l) => l.leg)).toEqual(["C", "1", "2", "3"]);
+  });
+
+  it("draws an encoder as a rotary, and labels its lines as the bits they are", () => {
     const encoder = part(build({ selectFireType: "encoder" }), "selector");
+    expect(encoder.kind).toBe("selector");
+    expect(encoder.label).toBe("Select-fire encoder");
     expect(encoder.leads.map((l) => l.leg)).toEqual(["C", "1", "2"]);
   });
 

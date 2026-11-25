@@ -26,6 +26,7 @@ export type PartKind =
   | "microswitch"
   | "button"
   | "selector"
+  | "slide"
   | "pot"
   | "oled"
   | "esc"
@@ -286,17 +287,19 @@ function specify(schema: Schema, device: unknown, internal: Set<number>): PartSp
     .filter((p): p is { gpio: number; label: string; index: number } => !!p);
   if ((selectType === "switch" || selectType === "encoder") && wiredSelects.length) {
     const encoder = selectType === "encoder";
+    const common = ground("C", wiredSelects[0].gpio, "C");
+    // An encoder's lines are bits, select0 the lowest, counting only the wired lines.
+    const throws = wiredSelects.map((p, bit) =>
+      signal(`S${p.index}`, p.gpio, encoder ? String(1 << bit) : String(p.index + 1)),
+    );
     parts.push({
       id: "selector",
-      kind: "selector",
+      // A select-fire switch is most often a slide switch: with two throws its common is the
+      // middle leg; with three, the end one. An encoder is a rotary, common first.
+      kind: encoder ? "selector" : "slide",
       label: encoder ? "Select-fire encoder" : "Select-fire switch",
-      leads: [
-        ground("C", wiredSelects[0].gpio, "C"),
-        // An encoder's lines are bits, select0 the lowest, counting only the wired lines.
-        ...wiredSelects.map((p, bit) =>
-          signal(`S${p.index}`, p.gpio, encoder ? String(1 << bit) : String(p.index + 1)),
-        ),
-      ],
+      leads:
+        !encoder && throws.length === 2 ? [throws[0], common, throws[1]] : [common, ...throws],
     });
   } else if (selectType === "button" && selects[0] && selects[0].gpio !== menu?.gpio) {
     parts.push(button("mode", "Mode button", selects[0].gpio, false));

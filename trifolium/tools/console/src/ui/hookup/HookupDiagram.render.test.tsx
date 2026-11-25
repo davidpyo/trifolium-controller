@@ -35,19 +35,25 @@ const mount = (board: string | null, onHoverPin?: (gpio: number | null) => void)
 };
 
 describe("HookupDiagram", () => {
-  it("draws the board as a block of its pins, each named, rather than a picture of it", () => {
+  it("draws the board's own picture, and tags each wire with the pad it goes on", () => {
     const container = mount("trifolium_v1_2");
-    const block = container.querySelector('[data-board="schematic"]')!;
-    expect(block).not.toBeNull();
-    // No board art is injected; the names are the block's own.
-    expect(container.querySelector("svg[aria-label^='Hookup'] svg")).toBeNull();
-    const names = [...block.querySelectorAll("text")].map((t) => t.textContent);
-    expect(names).toEqual(expect.arrayContaining(["GP21", "VCC to I2C", "+ From Battery", "XT30 IN"]));
-    expect(container.textContent).toContain("Board pins shows where each one is");
-    // Only the pins with wires are drawn; the free ones are listed underneath.
-    expect(names).not.toContain("GP26");
-    expect(container.textContent).toContain("GP26, GP4, GP2, GP0, VCC from ESC on the ESC plug");
-    expect(container.textContent).toContain("the GP20 plug");
+    const art = container.querySelector('[data-board="art"] svg');
+    expect(art).not.toBeNull();
+    expect(Number(art!.getAttribute("width"))).toBeGreaterThan(0);
+    expect(container.querySelector('[data-tag="trigger:NO"]')!.textContent).toBe("GP21");
+    expect(container.querySelector('[data-tag="oled:VCC"]')!.textContent).toBe("VCC");
+    // A tag is the colour of its wire.
+    const wire = container.querySelector('[data-wire="trigger:NO"]')!.getAttribute("stroke");
+    expect(container.querySelector('[data-tag="trigger:NO"] rect')!.getAttribute("fill")).toBe(wire);
+    // No wire crosses a free pad, so none needs breaking round one.
+    expect(container.querySelectorAll("[data-crossed]").length).toBe(0);
+    // The pads themselves are named only for what is pointed at.
+    expect(container.querySelector("[data-pad-labels]")!.childElementCount).toBe(0);
+    act(() => {
+      container.querySelector('[data-part="trigger"]')!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    const named = [...container.querySelectorAll("[data-pad-labels] text")].map((t) => t.textContent);
+    expect(named.sort()).toEqual(["GND", "GP21"]);
   });
 
   it("draws every part, and red and black wires for power", () => {

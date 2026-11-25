@@ -3,7 +3,7 @@ import schemaJson from "../../fixtures/schema.json";
 import deviceJson from "../../fixtures/device.json";
 import type { Schema } from "../../schema/types";
 import { diagramForBoardId } from "../../schema/wiringDiagrams";
-import { GROUND_COLOUR, layout, SIGNAL_COLOURS, SUPPLY_COLOUR, type Layout, type Placed } from "./layout";
+import { GROUND_COLOUR, layout, placePadLabels, SIGNAL_COLOURS, SUPPLY_COLOUR, tagText, type Layout, type Placed } from "./layout";
 import { buildHookup } from "./model";
 import { readPads } from "./pads";
 
@@ -80,32 +80,150 @@ describe("layout", () => {
     expect(pad.used).toBe(true);
   });
 
-  it("lines a part up with its pins, so its signal runs straight across", () => {
-    const wire = view.wires.find((w) => w.key === "trigger:NO")!;
+  it("tags each wire with the pad it goes on where it meets the board, not by the part's leg", () => {
+    const tag = (key: string) => view.wires.find((w) => w.key === key)!.tag!;
+    expect(tag("trigger:NO").text).toBe("GP21");
+    expect(tag("trigger:C").text).toBe("GND");
+    expect(tag("battery:+").text).toBe("+");
+    expect(tag("battery:-").text).toBe("−");
+    // Just off the board, between it and the part: nearer the board than the leg.
+    const { board } = view;
+    for (const wire of view.wires) {
+      const t = wire.tag;
+      if (!t) continue;
+      const outside = t.x + t.w / 2 <= board.x || t.x - t.w / 2 >= board.x + board.w || t.y + t.h / 2 <= board.y || t.y - t.h / 2 >= board.y + board.h;
+      expect(outside, wire.key).toBe(true);
+    }
+    const leg = placed(view, "trigger").terminals.get("NO")!;
+    expect(board.x - tag("trigger:NO").x).toBeLessThan(board.x - leg.x);
+    // No two tags on top of each other.
+    const tags = view.wires.flatMap((w) => (w.tag ? [w.tag] : []));
+    for (const a of tags) {
+      for (const b of tags) {
+        if (a !== b) expect(Math.abs(a.x - b.x) * 2 >= a.w + b.w || Math.abs(a.y - b.y) * 2 >= a.h + b.h, `${a.text} ${b.text}`).toBe(true);
+      }
+    }
+    // A wire with nowhere to go has its warning instead.
+    expect(viewOf("trifolium_v1_2", { revSwitchPin: 5 }).wires.find((w) => w.key === "rev:NO")!.tag).toBeUndefined();
+  });
+
+  it.each(["trifolium_v1_2", "diana_v1_1"])("can name every pad in use on %s at once, with no two names on top of each other", (board) => {
+    const v = viewOf(board, board === "diana_v1_1" ? { escPins: [255, 1, 255, 2], triggerSwitchPin: 3, revSwitchPin: 4, menuButtonPin: 5, selectFireType: "off", pusherFetPin: 0 } : {});
+    const used = v.pads.filter((p) => p.used);
+    const labels = placePadLabels(used, v.board);
+    expect(labels).toHaveLength(used.length);
+    for (const pad of used) expect(labels.some((l) => l.pad.x === pad.sx && l.pad.y === pad.sy), tagText(pad)).toBe(true);
+    for (const a of labels) {
+      for (const b of labels) {
+        if (a === b) continue;
+        const apart = Math.abs(a.x - b.x) * 2 >= a.w + b.w || Math.abs(a.y - b.y) * 2 >= a.h + b.h;
+        expect(apart, `${a.text} and ${b.text}`).toBe(true);
+      }
+    }
+  });
+
+  it.each(["trifolium_v1_1", "trifolium_v1_2", "diana_v1_1", "rp2040_zero", "seeed_xiao_rp2040"])(
+    "routes every wire on %s clear of every pad but its own",
+    (board) => {
+      const v = viewOf(board, board === "diana_v1_1" ? { escPins: [255, 1, 255, 2], triggerSwitchPin: 3, revSwitchPin: 4, menuButtonPin: 5, selectFireType: "off", pusherFetPin: 0 } : {});
+      expect(v.pads.filter((p) => p.crossed).map(tagText)).toEqual([]);
+      for (const wire of v.wires.filter((w) => w.land)) {
+        // Every point the path's numbers name - its ends and control points - and many along it.
+        const n = numbersIn(wire.d);
+        const points: { x: number; y: number }[] = [];
+        for (let i = 0; i + 1 < n.length; i += 2) points.push({ x: n[i], y: n[i + 1] });
+        const segs: { x: number; y: number }[][] = [];
+        for (let i = 0; i + 3 < points.length; i += 3) segs.push(points.slice(i, i + 4));
+        for (const [a, c1, c2, b] of segs) {
+          for (let k = 0; k <= 40; k++) {
+            const t = k / 40;
+            const u = 1 - t;
+            const x = u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x;
+            const y = u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y;
+            for (const pad of v.pads) {
+              if (Math.abs(pad.sx - wire.land!.x) < 0.05 && Math.abs(pad.sy - wire.land!.y) < 0.05) continue;
+              expect(Math.hypot(pad.sx - x, pad.sy - y), `${wire.key} by ${tagText(pad)}`).toBeGreaterThan(4);
+            }
+          }
+        }
+      }
+    },
+  );
+
+  it("keeps every tag on a v1.2 off every wire but its own", () => {
+    // Points along each wire, from the numbers in its path: ends and control points of each piece.
+    const course = (d: string) => {
+      const n = numbersIn(d);
+      const pts: { x: number; y: number }[] = [];
+      for (let i = 0; i + 1 < n.length; i += 2) pts.push({ x: n[i], y: n[i + 1] });
+      const out: { x: number; y: number }[] = [];
+      for (let i = 0; i + 3 < pts.length; i += 3) {
+        const [a, c1, c2, b] = pts.slice(i, i + 4);
+        for (let k = 0; k <= 80; k++) {
+          const t = k / 80;
+          const u = 1 - t;
+          out.push({
+            x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
+            y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
+          });
+        }
+      }
+      return out;
+    };
+    const signals = view.wires.filter((w) => w.tag);
+    for (const wire of signals) {
+      const t = wire.tag!;
+      for (const other of view.wires.filter((w) => w !== wire && w.land)) {
+        const through = course(other.d).some((q) => Math.abs(q.x - t.x) < t.w / 2 && Math.abs(q.y - t.y) < t.h / 2);
+        expect(through, `${other.key} runs through the ${wire.key} tag`).toBe(false);
+      }
+    }
+  });
+
+  it("keeps a pad's name level with its pad, however tightly the pads are packed", () => {
+    // The display's four pads on a v1.2 are closer together than a name is tall.
+    const lands = view.wires.filter((w) => w.part === "oled").map((w) => w.land!);
+    const pads = view.pads.filter((p) => lands.some((l) => l.x === p.sx && l.y === p.sy));
+    expect(pads).toHaveLength(4);
+    for (const label of placePadLabels(pads, view.board)) expect(label.y).toBeCloseTo(label.pad.y, 5);
+  });
+
+  it("calls a power pad by its sign where its name gives one, else by what it is", () => {
+    const pad = (power: string, label?: string) => ({ gpio: null, power, label, x: 0, y: 0, r: 1 });
+    expect(tagText({ gpio: 26, label: "D0 (A0)", x: 0, y: 0, r: 1 })).toBe("GP26");
+    expect(tagText(pad("VCC", "+ From Battery"))).toBe("+");
+    expect(tagText(pad("GND", "Battery −"))).toBe("−");
+    expect(tagText(pad("GND", "GND from ESC"))).toBe("GND");
+    expect(tagText(pad("SOL", "Solenoid 1"))).toBe("SOL");
+  });
+
+  it("lines a part up with its pins on a board with no drawing, so its signal runs straight across", () => {
+    const plain = viewOf(null);
+    const wire = plain.wires.find((w) => w.key === "trigger:NO")!;
     const [x0, y0] = numbersIn(wire.d);
     const [x1, y1] = numbersIn(wire.d).slice(-2);
     expect(Math.abs(y1 - y0)).toBeLessThan(Math.abs(x1 - x0) / 4);
   });
 
-  it("never crosses a part's wires on the way to its pins", () => {
-    for (const p of view.parts) {
-      const wires = view.wires.filter((w) => w.part === p.part.id && !w.missing && w.key.split(":")[1] in Object.fromEntries(p.terminals));
-      const along = (w: (typeof wires)[number]) => {
-        const n = numbersIn(w.d);
-        const [sx, sy] = n;
-        const [ex, ey] = n.slice(-2);
-        return p.facing === "up" ? [sx, ex] : [sy, ey];
-      };
-      const toPads = wires.filter((w) => view.pads.some((pad) => w.d.endsWith(`${pad.sx.toFixed(1)} ${pad.sy.toFixed(1)}`)));
-      for (const a of toPads) {
-        for (const b of toPads) {
-          if (a === b) continue;
-          const [a0, a1] = along(a);
-          const [b0, b1] = along(b);
-          // Legs and pins in the same order, or a pin the two share.
-          expect((a0 - b0) * (a1 - b1) >= 0 || Math.abs(a1 - b1) < 0.5, `${a.key} and ${b.key}`).toBe(true);
-        }
-      }
+  it("puts a button's, battery's or solenoid's leads in the order of their pins, so they never cross", () => {
+    for (const id of ["menu", "battery", "pusher"]) {
+      const p = placed(view, id);
+      // Where each lead leaves the part, and where its wire lands, along the way they run.
+      const ends = p.part.leads
+        .filter((l) => l.target?.kind === "pad")
+        .map((l) => {
+          const t = p.terminals.get(l.id)!;
+          const [x, y] = numbersIn(view.wires.find((w) => w.key === `${id}:${l.id}`)!.d).slice(-2);
+          return p.facing === "up" ? [t.x, x] : [t.y, y];
+        });
+      for (const [a0, a1] of ends) for (const [b0, b1] of ends) expect((a0 - b0) * (a1 - b1), id).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("draws every ESC's lead the same way round, S then G, even where that crosses", () => {
+    for (const id of ["esc1", "esc3"]) {
+      const t = placed(view, id).terminals;
+      expect(t.get("S")!.y, id).toBeLessThan(t.get("G")!.y);
     }
   });
 

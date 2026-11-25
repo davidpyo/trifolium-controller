@@ -5,7 +5,7 @@ import { useTheme } from "@mui/material/styles";
 import type { Schema } from "../../schema/types";
 import type { WiringDiagram } from "../../schema/wiringDiagrams";
 import { labelsByField } from "../PinConflicts";
-import { layout, GROUND_COLOUR, SIGNAL_COLOURS, SUPPLY_COLOUR, type Layout, type Wire } from "./layout";
+import { CROSS_GAP, layout, PAD_LABEL_FONT, placePadLabels, TAG_FONT, GROUND_COLOUR, SIGNAL_COLOURS, SUPPLY_COLOUR, type Layout, type Wire } from "./layout";
 import { buildHookup, gpiosOf } from "./model";
 import { readPads } from "./pads";
 import { PartArt } from "./PartArt";
@@ -58,11 +58,33 @@ export function HookupDiagram({
 }: HookupDiagramProps) {
   const theme = useTheme();
   const dark = theme.palette.mode === "dark";
+  const artRef = React.useRef<SVGGElement>(null);
+  const maskId = `hookup-cross-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [hovered, setHovered] = React.useState<string | null>(null);
 
   const sheet = React.useMemo(() => (diagram ? readPads(diagram.svgMarkup) : undefined), [diagram]);
   const hookup = buildHookup(schema, device, sheet, diagram?.markers);
   const view = layout(hookup);
+  const { board } = view;
+
+  // The board's own art, injected for the same reason the pin view injects it: React would rebuild
+  // a subtree it owned on every render. Sized to the box the layout gave the board.
+  React.useLayoutEffect(() => {
+    const host = artRef.current;
+    if (!host) return;
+    if (!diagram || hookup.generic) {
+      host.innerHTML = "";
+      return;
+    }
+    host.innerHTML = diagram.artMarkup;
+    const svg = host.querySelector("svg");
+    if (!svg) return;
+    svg.setAttribute("x", String(board.x));
+    svg.setAttribute("y", String(board.y));
+    svg.setAttribute("width", String(board.w));
+    svg.setAttribute("height", String(board.h));
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  }, [diagram, hookup.generic, board.x, board.y, board.w, board.h]);
 
   const lit = (partId: string) => {
     if (hovered) return hovered === partId;
@@ -71,13 +93,22 @@ export function HookupDiagram({
     return !!part && gpiosOf(part).includes(highlightPin);
   };
   const anyLit = hovered !== null || highlightPin !== null;
+  const padLabels =
+    anyLit && !view.schematic
+      ? placePadLabels(
+          view.pads.filter((p) =>
+            view.wires.some((w) => lit(w.part) && w.land && w.land.x === p.sx && w.land.y === p.sy),
+          ),
+          board,
+        )
+      : [];
 
   const casing = (wire: Wire) =>
     wire.net === "gnd" ? (dark ? "#6f6f6f" : "#000000") : dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.45)";
 
   const labels = labelsByField(schema);
   const internal = (diagram?.markers ?? []).filter((m) => m.wiredTo);
-  const free = freePins(view.schematic);
+  const free = view.schematic ? freePins(view.schematic) : "";
   // Each part with a wire that has nowhere to go on this board, and what each such wire wanted.
   const missing = view.parts.flatMap(({ part }) => {
     const wants = part.leads.flatMap((l) => (l.target?.kind === "missing" ? [l.target.text.split(" — ")[0]] : []));
@@ -94,9 +125,25 @@ export function HookupDiagram({
         sx={{ width: "100%", height: "auto", display: "block" }}
       >
         <g transform={`translate(${view.offset.x.toFixed(1)} ${view.offset.y.toFixed(1)})`}>
+          {/* The board's own drawing, faded so the wires and the pads they land on read over its
+              detail. A board with none gets a block, drawn over the wires below. */}
+          {!view.schematic && <g ref={artRef} opacity={dark ? 0.62 : 0.8} data-board="art" />}
+
           {/* The wires, under the parts so a leg covers the end of its wire. Grounds and supplies
               first, so a signal is never hidden under the power it runs beside. */}
-          <g fill="none" strokeLinecap="round">
+          {/* Holes in the wires round the free pads they pass over, so a wire never seems to end
+              on a pad it only crosses. */}
+          <defs>
+            <mask id={maskId} maskUnits="userSpaceOnUse" x={-view.offset.x} y={-view.offset.y} width={view.width} height={view.height}>
+              <rect x={-view.offset.x} y={-view.offset.y} width={view.width} height={view.height} fill="white" />
+              {view.pads
+                .filter((p) => p.crossed)
+                .map((p, i) => (
+                  <circle key={i} cx={p.sx} cy={p.sy} r={CROSS_GAP} fill="black" />
+                ))}
+            </mask>
+          </defs>
+          <g fill="none" strokeLinecap="round" mask={`url(#${maskId})`}>
             {[...view.wires]
               .sort((a, b) => Number(a.net === "signal") - Number(b.net === "signal"))
               .map((wire) => {
@@ -147,9 +194,26 @@ export function HookupDiagram({
               })}
           </g>
 
-          {/* Over the wires, so one to a pin on the far side passes behind the board, not over the
+          {/* Over the wires, so one to a pin on the far side passes behind the block, not over the
               names of the pins it crosses. */}
-          <Block schematic={view.schematic} />
+          {view.schematic && <Block schematic={view.schematic} />}
+
+          {/* A free pad a wire passes over, ringed in the gap the wire leaves round it. */}
+          {view.pads
+            .filter((pad) => pad.crossed)
+            .map((pad, i) => (
+              <circle
+                key={`x${i}`}
+                cx={pad.sx}
+                cy={pad.sy}
+                r={2.4}
+                fill="none"
+                stroke="#9aa0a6"
+                strokeWidth={1.1}
+                data-crossed=""
+                style={{ pointerEvents: "none" }}
+              />
+            ))}
 
           {/* Where each wire lands, over the wire's end. */}
           {view.pads
@@ -166,6 +230,27 @@ export function HookupDiagram({
                 style={{ pointerEvents: "none" }}
               />
             ))}
+
+          {/* The pads of whatever is pointed at - a part, a wire, a row of the table - named on the
+              board beside them. Only those: named all at once, a tight row's names would crowd
+              each other off their own pads and hide the board's print. */}
+          <g style={{ pointerEvents: "none" }} data-pad-labels="">
+            {padLabels.map((label, i) => (
+              <g key={i}>
+                {label.leader && (
+                  <line
+                    x1={label.pad.x}
+                    y1={label.pad.y}
+                    x2={label.leader.x}
+                    y2={label.leader.y}
+                    stroke="#f3d36b"
+                    strokeWidth={0.8}
+                  />
+                )}
+                <BoardLabel text={label.text} x={label.x} y={label.y} w={label.w} h={label.h} font={PAD_LABEL_FONT} />
+              </g>
+            ))}
+          </g>
 
           {view.parts.map((placed) => {
             const gpios = gpiosOf(placed.part);
@@ -192,6 +277,19 @@ export function HookupDiagram({
               </g>
             );
           })}
+
+          {/* Each wire's pad, named where the wire meets the board - a name for the pad, not for
+              the part's leg the wire leaves from - on a tag the wire's own colour, so the tag is
+              plainly that wire's. */}
+          <g style={{ pointerEvents: "none" }}>
+            {view.wires.map((wire) =>
+              wire.tag ? (
+                <g key={wire.key} data-tag={wire.key} opacity={anyLit && !lit(wire.part) ? 0.18 : 1}>
+                  <WireTag wire={wire} />
+                </g>
+              ) : null,
+            )}
+          </g>
         </g>
       </Box>
 
@@ -237,7 +335,7 @@ export function HookupDiagram({
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
         {hookup.generic
           ? "This board has no drawing, so its pins are shown grouped by the part each is for."
-          : "The board is drawn as its plugs and pins, not to scale — Board pins shows where each one is."}
+          : "Each wire's tag names the pad it goes on: by the board where there is room, else further along the wire. Point at a part to see its pads named on the board."}
       </Typography>
       <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 1 }}>
         Read-only — edit in the table.
@@ -247,14 +345,16 @@ export function HookupDiagram({
 }
 
 /**
- * The board: a box, the pins wired to out along its edges with their names inside, grouped by plug.
- * Every pin drawn has a wire on it; the free ones are listed under the drawing instead.
+ * The board: a box, its plugs out along its edges with their pins' names inside. Every pin of a plug
+ * something is wired to is drawn, in its place, the free ones greyed; plugs with nothing wired to
+ * them are listed under the drawing instead.
  */
 function Block({ schematic }: { schematic: Schematic }) {
   const theme = useTheme();
   const { w, h, groups } = schematic;
   const ink = theme.palette.text.primary;
   const muted = theme.palette.text.secondary;
+  const faint = theme.palette.text.disabled;
   return (
     <g data-board="schematic">
       {/* Solid, so the wires that pass behind it stay behind it. */}
@@ -298,6 +398,10 @@ function Block({ schematic }: { schematic: Schematic }) {
                 <g key={pi}>
                   <title>{[pin.text, pin.sub, pin.pad.connector].filter(Boolean).join(" · ")}</title>
                   <line x1={edge.x} y1={edge.y} x2={pin.x} y2={pin.y} stroke={muted} strokeWidth={1.5} />
+                  {/* A free pin, drawn to keep the plug's pins in their places, and greyed. */}
+                  {!pin.wired && (
+                    <circle cx={pin.x} cy={pin.y} r={2.6} fill={theme.palette.background.paper} stroke={faint} strokeWidth={1.2} />
+                  )}
                   <text
                     x={tx}
                     y={ty}
@@ -305,8 +409,8 @@ function Block({ schematic }: { schematic: Schematic }) {
                     textAnchor={pin.side === "right" ? "end" : "start"}
                     transform={pin.side === "bottom" ? `rotate(-90 ${tx} ${ty})` : undefined}
                     fontSize={PIN_FONT}
-                    fontWeight={600}
-                    fill={ink}
+                    fontWeight={pin.wired ? 600 : 400}
+                    fill={pin.wired ? ink : faint}
                   >
                     {pin.text}
                     {pin.sub && (
@@ -345,4 +449,38 @@ export function freePins({ free, pins }: Schematic): string {
     ),
     ...(loose.length ? [loose.join(", ")] : []),
   ].join("; ");
+}
+
+/** A name on the board, in the board's colours: dark, edged and lettered in the pads' gold. */
+function BoardLabel({ text, x, y, w, h, font }: { text: string; x: number; y: number; w: number; h: number; font: number }) {
+  return (
+    <>
+      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={2.5} fill="#0f1113" stroke="#f3d36b" strokeWidth={0.9} />
+      <text x={x} y={y + font * 0.36} textAnchor="middle" fontSize={font} fontWeight={700} fill="#ffe9a6">
+        {text}
+      </text>
+    </>
+  );
+}
+
+/** Black or white, whichever reads on a fill of this colour. */
+function inkOn(hex: string): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#111111" : "#ffffff";
+}
+
+/** A wire's tag: the pad's name, on a fill the colour of the wire. */
+function WireTag({ wire }: { wire: Wire }) {
+  const { text, x, y, w, h } = wire.tag!;
+  // A ground's black needs an edge to show on a dark page and on the dark board.
+  const edge = wire.net === "gnd" ? "#8a8a8a" : "rgba(0,0,0,0.55)";
+  return (
+    <>
+      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={h / 2} fill={wire.colour} stroke={edge} strokeWidth={1} />
+      <text x={x} y={y + TAG_FONT * 0.36} textAnchor="middle" fontSize={TAG_FONT} fontWeight={700} fill={inkOn(wire.colour)}>
+        {text}
+      </text>
+    </>
+  );
 }

@@ -161,6 +161,35 @@ function Body({ placed }: { placed: Placed }) {
         </g>
       );
     }
+    case "slide": {
+      // A slide switch from above: its body, the metal cover on the side away from its legs - the
+      // strip by the legs is left dark for their names - and the knob in the slot, which runs the
+      // way the legs do.
+      const strip = 13;
+      const cover =
+        facing === "up"
+          ? { x: x + 2.5, y: y + strip, w: w - 5, h: h - strip - 2.5 }
+          : facing === "right"
+            ? { x: x + 2.5, y: y + 2.5, w: w - strip - 2.5, h: h - 5 }
+            : { x: x + strip, y: y + 2.5, w: w - strip - 2.5, h: h - 5 };
+      const across = facing === "up";
+      const cx = cover.x + cover.w / 2;
+      const cy = cover.y + cover.h / 2;
+      const slot = across
+        ? { x: cover.x + 4, y: cy - 2.5, w: cover.w - 8, h: 5 }
+        : { x: cx - 2.5, y: cover.y + 4, w: 5, h: cover.h - 8 };
+      const knob = across
+        ? { x: slot.x + 1, y: cy - 5, w: 9, h: 10 }
+        : { x: cx - 5, y: slot.y + 1, w: 10, h: 9 };
+      return (
+        <g>
+          <rect x={x} y={y} width={w} height={h} rx={2} fill={BODY_DARK} stroke={BODY_EDGE} />
+          <rect x={cover.x} y={cover.y} width={cover.w} height={cover.h} rx={1.5} fill={METAL} stroke={METAL_DARK} />
+          <rect x={slot.x} y={slot.y} width={slot.w} height={slot.h} rx={2} fill="#1a1b1d" />
+          <rect x={knob.x} y={knob.y} width={knob.w} height={knob.h} rx={1.5} fill="#2a2c2f" stroke="#000" />
+        </g>
+      );
+    }
     case "button":
       return (
         <g>
@@ -169,24 +198,34 @@ function Body({ placed }: { placed: Placed }) {
         </g>
       );
     case "selector": {
-      const cx = x + w / 2;
-      const cy = y + h / 2;
+      // A rotary switch on its board, from above: the dial on the side away from its legs - the
+      // strip by the legs is left clear for their names - its positions ticked round it.
+      const strip = 13;
+      const area =
+        facing === "up"
+          ? { x, y: y + strip, w, h: h - strip }
+          : facing === "right"
+            ? { x, y, w: w - strip, h }
+            : { x: x + strip, y, w: w - strip, h };
+      const cx = area.x + area.w / 2;
+      const cy = area.y + area.h / 2;
+      const r = Math.min(area.w, area.h) / 2 - 2;
       return (
         <g>
-          <circle cx={cx} cy={cy} r={w / 2} fill={BODY_DARK} stroke={BODY_EDGE} />
+          <rect x={x} y={y} width={w} height={h} rx={4} fill={BODY_DARK} stroke={BODY_EDGE} />
+          <circle cx={cx} cy={cy} r={r} fill="#3a3d42" stroke={METAL_DARK} />
           {[-50, 0, 50].map((a) => (
             <line
               key={a}
-              x1={cx + (w / 2 - 2) * Math.sin((a * Math.PI) / 180)}
-              y1={cy - (w / 2 - 2) * Math.cos((a * Math.PI) / 180)}
-              x2={cx + (w / 2 - 6) * Math.sin((a * Math.PI) / 180)}
-              y2={cy - (w / 2 - 6) * Math.cos((a * Math.PI) / 180)}
+              x1={cx + (r + 0.5) * Math.sin((a * Math.PI) / 180)}
+              y1={cy - (r + 0.5) * Math.cos((a * Math.PI) / 180)}
+              x2={cx + (r - 3.5) * Math.sin((a * Math.PI) / 180)}
+              y2={cy - (r - 3.5) * Math.cos((a * Math.PI) / 180)}
               stroke={METAL}
-              strokeWidth={1.5}
+              strokeWidth={1.4}
             />
           ))}
-          <circle cx={cx} cy={cy} r={w * 0.28} fill="#3a3d42" stroke={METAL_DARK} />
-          <line x1={cx} y1={cy} x2={cx} y2={cy - w * 0.26} stroke={ON_DARK} strokeWidth={2.2} strokeLinecap="round" />
+          <line x1={cx} y1={cy} x2={cx} y2={cy - r * 0.7} stroke={ON_DARK} strokeWidth={2.2} strokeLinecap="round" />
         </g>
       );
     }
