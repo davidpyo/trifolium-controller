@@ -778,6 +778,7 @@ def test_a_diagram_label_too_long_for_one_line_is_given_its_room_rather_than_dra
     served = serve(device={"menuButtonPin": 9})
     connect(open_console(page, served))
     go(page, "Wiring")
+    page.get_by_role("button", name="Board pins").click()
     expect(page.get_by_text(re.compile("^Menu Button / Select 0")).first).to_be_visible()
 
     deadline = time.monotonic() + 3
@@ -788,6 +789,23 @@ def test_a_diagram_label_too_long_for_one_line_is_given_its_room_rather_than_dra
         page.wait_for_timeout(100)
     assert found["wrapped"] >= 1
     assert found["hits"] == []
+
+
+def test_the_wiring_page_draws_the_parts_wired_up_and_remembers_the_drawing_picked(page, serve):
+    served = serve()
+    connect(open_console(page, served))
+    go(page, "Wiring")
+    hookup = page.get_by_role("img", name=re.compile("^Hookup diagram"))
+    expect(hookup).to_be_visible()
+    for part in ("trigger", "rev", "battery"):
+        expect(hookup.locator(f'[data-part="{part}"]')).to_have_count(1)
+
+    page.get_by_role("button", name="Board pins").click()
+    expect(hookup).to_have_count(0)
+    page.reload()
+    connect(page)
+    go(page, "Wiring")
+    expect(page.get_by_role("button", name="Board pins")).to_have_attribute("aria-pressed", "true")
 
 
 def boot_rule(page, n):
