@@ -2,6 +2,8 @@ import React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import {
@@ -47,6 +49,7 @@ import { RpmStages } from "./ui/RpmStages";
 import { EncoderSelector, SelectorSwitch } from "./ui/SelectorSwitch";
 import { WiringWarnings } from "./ui/WiringWarnings";
 import { WiringDiagram } from "./ui/WiringDiagram";
+import { HookupDiagram } from "./ui/hookup/HookupDiagram";
 import { WiringRules } from "./ui/wiringRules";
 import { WiringTable } from "./ui/WiringTable";
 import { ConsoleFooter } from "./ui/ConsoleFooter";
@@ -190,6 +193,10 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const VIEW_KEY = "trifolium.view";
 const LOG_KEY = "trifolium.log";
 const LOG_HEIGHT_KEY = "trifolium.logHeight";
+const WIRING_VIEW_KEY = "trifolium.wiringView";
+
+/** The two drawings beside the wiring table: parts and wires, or the board's pads labelled. */
+type WiringView = "hookup" | "pins";
 
 const remembered = (key: string, fallback: string): string => {
   try {
@@ -245,6 +252,9 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   /** A GPIO the wiring table and the board drawing both light, from whichever is under the pointer. */
   const [hoverPin, setHoverPin] = React.useState<number | null>(null);
+  const [wiringView, setWiringView] = React.useState<WiringView>(() =>
+    remembered(WIRING_VIEW_KEY, "hookup") === "pins" ? "pins" : "hookup",
+  );
   const [progress, setProgress] = React.useState<WriteProgress | null>(null);
   /** Sections folded to their title, by page and section. */
   const [folded, setFolded] = React.useState<Set<string>>(new Set());
@@ -1195,6 +1205,7 @@ export function App() {
   );
 
   React.useEffect(() => remember(VIEW_KEY, view), [view]);
+  React.useEffect(() => remember(WIRING_VIEW_KEY, wiringView), [wiringView]);
   React.useEffect(() => remember(LOG_KEY, logOpen ? "open" : "folded"), [logOpen]);
   React.useEffect(() => remember(LOG_HEIGHT_KEY, String(logHeight)), [logHeight]);
   // A smaller window takes a tall log down with it, so the page always keeps most of the screen.
@@ -1845,15 +1856,40 @@ export function App() {
                           onHoverPin={setHoverPin}
                         />
                       </Box>
-                      {wiringDiagram && (
-                        <WiringDiagram
-                          schema={resolved}
-                          device={device}
-                          diagram={wiringDiagram}
-                          highlightPin={hoverPin}
-                          onHoverPin={setHoverPin}
-                        />
-                      )}
+                      {/* A board with no drawing has no pads to label, but can still be shown
+                          with its parts wired to a plain one. */}
+                      <Box sx={{ flex: 1.4, minWidth: 0, width: "100%" }}>
+                        {wiringDiagram && (
+                          <ToggleButtonGroup
+                            exclusive
+                            size="small"
+                            value={wiringView}
+                            onChange={(_, next: WiringView | null) => next && setWiringView(next)}
+                            aria-label="Wiring drawing"
+                            sx={{ mb: 1, "& .MuiToggleButton-root": { py: 0.25, px: 1.25, textTransform: "none" } }}
+                          >
+                            <ToggleButton value="hookup">Hookup</ToggleButton>
+                            <ToggleButton value="pins">Board pins</ToggleButton>
+                          </ToggleButtonGroup>
+                        )}
+                        {wiringDiagram && wiringView === "pins" ? (
+                          <WiringDiagram
+                            schema={resolved}
+                            device={device}
+                            diagram={wiringDiagram}
+                            highlightPin={hoverPin}
+                            onHoverPin={setHoverPin}
+                          />
+                        ) : (
+                          <HookupDiagram
+                            schema={resolved}
+                            device={device}
+                            diagram={wiringDiagram}
+                            highlightPin={hoverPin}
+                            onHoverPin={setHoverPin}
+                          />
+                        )}
+                      </Box>
                     </Stack>
                     <WiringRules />
                   </Box>

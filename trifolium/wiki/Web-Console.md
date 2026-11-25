@@ -72,7 +72,9 @@ To change the board of a blaster already set up, press the board's name in the t
 
 The Wiring page is where a board stops being a mystery. It lists every pin, what is on it, and whether anything is fighting over it.
 
-Where a drawing exists for your board, you get the board itself with its pads marked: hover a pad or a row of the table to see the other light up, and the labels group by connector so a four-pin plug reads as one thing rather than four unrelated pins.
+Beside the table, **Hookup** draws every part your settings use - switches, the selector, the display, each ESC and its motor, the pusher and the battery - wired to the pin each wire goes on. The board is drawn as a schematic block rather than as it looks: just the pins something is wired to, along its edges, each named (GP21, GND, VCC to I2C) and grouped by the plug it is in. Inputs go on the left and the ESCs and pusher on the right - with the sides evened up so the block stays compact - and the battery's plugs along the bottom, so the wires run straight across. The free pins are listed under the drawing, and Board pins shows where each pin really is. Supply wires are red and grounds black; every signal gets a colour of its own. A switch shows which of its legs to use: C and NO, or C and NC for one set as normally closed. ESC power leads go straight to the battery, as they do in a blaster, and a pin your board does not bring out is drawn as a loose dashed wire, listed under the drawing. A board with no drawing gets a block with a pin for each wire, grouped by the part it is for.
+
+**Board pins** instead shows the board itself with its pads marked, where a drawing exists for it: the labels group by connector, so a four-pin plug reads as one thing rather than four unrelated pins. In either drawing, hover a part or a pad, or a row of the table, to see the other light up.
 
 If two things want the same pin, the blaster does not refuse to boot. It gives up the least important one, keeps running, and reports what it dropped here and on Overview. Your stored settings are untouched, so correcting the pin is the whole fix.
 
